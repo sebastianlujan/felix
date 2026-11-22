@@ -1,0 +1,16 @@
+# Compiler settings follow barretenberg/sol/foundry.toml at aztec-packages@b225653,
+# except solc (0.8.37 there) and evm_version (cancun there): the Fe verifier is
+# Osaka bytecode, so the test EVM must be Osaka.
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+libs = ["lib"]
+solc = "0.8.34"
+optimizer_runs = 1
+bytecode_hash = "none"
+evm_version = "osaka"
+fs_permissions = [
+    { access = "read", path = "../vectors" },
+    { access = "read", path = "../verifier/out" },
+]
