@@ -1,0 +1,15 @@
+// Custom errors with the same signatures (and therefore selectors) as the
+// `Errors` library of the generated Solidity verifier.
+
+#[error]
+pub struct ProofLengthWrongWithLogN {
+    pub log_n: u256,
+    pub actual_length: u256,
+    pub expected_length: u256,
+}
+
+#[error]
+pub struct InvertOfZero {}
+
+#[error]
+pub struct ModExpFailed {}
