@@ -1,6 +1,5 @@
-# Build outputs and project-local tools; never committed.
+# Build outputs, project-local tools and the local Solidity reference oracle; never committed.
 out/
-oracle/cache/
-oracle/lib/
 circuit/target/
 .tools/
+.oracle/
