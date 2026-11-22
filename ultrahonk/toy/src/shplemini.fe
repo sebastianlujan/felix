@@ -1,0 +1,209 @@
+// The opening half of the verifier: Gemini, Shplonk and KZG folded into one pairing check
+// (reference `foldPosEvaluations`, `shpleminiVerify`).
+use ingot::{Challenges, OpeningTrace, Proof, Scenario}
+use ingot::curve::{G1, G2, TAU_G2, f2_mul, g1_add, g1_mul, g1_neg, is_infinity, pairing}
+use ingot::f17::{P, add, inv, mul, neg, sub}
+use ingot::relations::Z_PERM
+use ingot::vectors
+
+/// The Shplonk batching scalars.
+pub struct ShplonkScalars {
+    /// Multiplies the unshifted commitments (negated).
+    pub lam: u256,
+    /// Multiplies the to-be-shifted commitments (negated).
+    pub mu: u256,
+    /// Scalar of [A_1].
+    pub xi: u256,
+    /// Scalar of [1]: the batched claimed evaluations.
+    pub kappa: u256,
+}
+
+/// The 23 claimed evaluations batched with powers of rho.
+pub fn batched_evaluation(_ evals: [u256; 23], rho: u256) -> u256 {
+    var acc: u256 = 0
+    var rho_j: u256 = 1
+    for v in evals {
+        acc = add(acc, mul(rho_j, v))
+        rho_j = mul(rho_j, rho)
+    }
+    acc
+}
+
+/// One Gemini step: from A_{l+1}(r^(2^(l+1))) (`acc`) and the claimed A_l(-r^(2^l))
+/// (`a_neg`) to A_l(r^(2^l)), where `cp` = r^(2^l).
+/// Reverts when cp * (1 - u) + u = 0 (degenerate r).
+fn fold_step(acc: u256, a_neg: u256, cp: u256, u: u256) -> u256 {
+    let c = mul(cp, sub(1, u))
+    let numr = sub(mul(mul(2, cp), acc), mul(a_neg, sub(c, u)))
+    mul(numr, inv(add(c, u)))
+}
+
+/// The fold evaluations at the positive points, [A_0(r), A_1(r^2)], recovered from the
+/// batched evaluation and the claimed `a` = [A_0(-r), A_1(-r^2)].
+pub fn fold_pos_evaluations(_ batched_eval: u256, a: [u256; 2], ch: Challenges) -> [u256; 2] {
+    let r = ch.r % P
+    let pos1 = fold_step(acc: batched_eval, a_neg: a[1], cp: mul(r, r), u: ch.u[1])
+    let pos0 = fold_step(acc: pos1, a_neg: a[0], cp: r, u: ch.u[0])
+    [pos0, pos1]
+}
+
+/// Reverts when z is one of the opening points r, -r, r^2, -r^2, or when r = 0.
+pub fn shplonk_scalars(pos: [u256; 2], a: [u256; 2], ch: Challenges) -> ShplonkScalars {
+    let r = ch.r % P
+    let r2 = mul(r, r)
+    let dpos0 = inv(sub(ch.z, r))
+    let dneg0 = inv(add(ch.z, r))
+    let dpos1 = inv(sub(ch.z, r2))
+    let dneg1 = inv(add(ch.z, r2))
+    let nu = ch.nu % P
+    let nu2 = mul(nu, nu)
+    let nu3 = mul(nu2, nu)
+    ShplonkScalars {
+        lam: add(dpos0, mul(nu, dneg0)),
+        mu: mul(inv(r), sub(dpos0, mul(nu, dneg0))),
+        xi: sub(neg(mul(nu2, dpos1)), mul(nu3, dneg1)),
+        kappa: (pos[0] * dpos0 + a[0] * nu * dneg0 + nu2 * pos[1] * dpos1 + nu3 * a[1] * dneg1) % P,
+    }
+}
+
+/// The scalars of the 22 unshifted commitments, in the order of the entities: -lam * rho^j.
+/// z_perm is also opened shifted, so its commitment takes the extra -mu * rho^22.
+pub fn commitment_scalars(lam: u256, mu: u256, rho: u256) -> [u256; 22] {
+    var scalars: [u256; 22] = [0; 22]
+    var rho_j: u256 = 1
+    var j: usize = 0
+    while j < 22 {
+        scalars[j] = neg(mul(lam, rho_j))
+        rho_j = mul(rho_j, rho)
+        j += 1
+    }
+    scalars[Z_PERM] = sub(scalars[Z_PERM], mul(mu, rho_j))
+    scalars
+}
+
+/// [Q] + sum scalars_j * C_j + xi * [A_1] + kappa * G1, where C_j runs over the 15
+/// commitments of the verification key and then the 7 witness commitments of the proof.
+pub fn msm(
+    vk: [[u256; 2]; 15],
+    proof: Proof,
+    scalars: [u256; 22],
+    xi: u256,
+    kappa: u256,
+) -> [u256; 2] {
+    var acc = proof.comm_q
+    var j: usize = 0
+    while j < 22 {
+        let c = if j < 15 { vk[j] } else { proof.comm[j - 15] }
+        acc = g1_add(acc, g1_mul(scalars[j], c))
+        j += 1
+    }
+    acc = g1_add(acc, g1_mul(xi, proof.comm_a1))
+    g1_add(acc, g1_mul(kappa, G1))
+}
+
+/// Checks e(P0, G2) * e(P1, [tau]_2) == 1 with P0 = msm + z * [W] and P1 = -[W].
+pub fn verify(vk: [[u256; 2]; 15], proof: Proof, ch: Challenges) -> OpeningTrace {
+    let batched_eval = batched_evaluation(proof.evals, rho: ch.rho)
+    let pos = fold_pos_evaluations(batched_eval, a: proof.gemini_a, ch)
+    let s = shplonk_scalars(pos, a: proof.gemini_a, ch)
+    let scalars = commitment_scalars(lam: s.lam, mu: s.mu, rho: ch.rho)
+    let acc = msm(vk, proof, scalars, xi: s.xi, kappa: s.kappa)
+    let p0 = g1_add(acc, g1_mul(ch.z, proof.comm_w))
+    let p1 = g1_neg(proof.comm_w)
+    let e0 = pairing(p0, G2)
+    let e1 = pairing(p1, TAU_G2)
+    let lhs = f2_mul(e0, e1)
+    OpeningTrace {
+        ok: lhs == [1, 0],
+        batched_eval: batched_eval,
+        pos: pos,
+        lam: s.lam,
+        mu: s.mu,
+        xi: s.xi,
+        kappa: s.kappa,
+        scalars: scalars,
+        msm: acc,
+        p0: p0,
+        p1: p1,
+        e0: e0,
+        e1: e1,
+        lhs: lhs,
+    }
+}
+
+/// Runs the opening half on a reference scenario and asserts that every intermediate value
+/// equals the reference's.
+fn run(_ s: Scenario) -> OpeningTrace {
+    let t = verify(vk: vectors::VK, proof: s.proof, ch: s.challenges)
+    let e = ref s.opening
+    assert!(t.batched_eval == e.batched_eval, "batched evaluation")
+    assert!(t.pos == e.pos, "fold evaluations")
+    assert!(t.lam == e.lam && t.mu == e.mu, "lam, mu")
+    assert!(t.xi == e.xi, "xi")
+    assert!(t.kappa == e.kappa, "kappa")
+    assert!(t.scalars == e.scalars, "commitment scalars")
+    assert!(t.msm == e.msm, "msm")
+    assert!(t.p0 == e.p0, "P0")
+    assert!(t.p1 == e.p1, "P1")
+    assert!(t.e0 == e.e0, "e(P0, G2)")
+    assert!(t.e1 == e.e1, "e(P1, [tau]_2)")
+    assert!(t.lhs == e.lhs, "pairing product")
+    assert!(t.ok == e.ok, "opening verdict")
+    t
+}
+
+#[test]
+fn test_honest_opening_values_by_hand() {
+    // The numbers of the page for the example challenges.
+    let t = run(vectors::HONEST)
+    assert!(t.ok)
+    assert!(t.batched_eval == 13 && t.pos == [12, 2])
+    assert!(t.lam == 10 && t.mu == 5 && t.xi == 3 && t.kappa == 12)
+    assert!(t.msm == [32, 59] && t.p0 == [18, 49] && t.p1 == [65, 3])
+    assert!(t.e0 == [2, 94] && t.e1 == [2, 7] && t.lhs == [1, 0])
+}
+
+#[test]
+fn test_commitment_scalars_by_hand() {
+    // lam = 10, mu = 5, rho = 14: -10, -10 * 14, ... and z_perm takes -5 * 14^22 more.
+    let scalars = commitment_scalars(lam: 10, mu: 5, rho: 14)
+    assert!(scalars[0] == 7 && scalars[1] == 13 && scalars[21] == 9)
+    assert!(scalars == vectors::HONEST.opening.scalars)
+}
+
+#[test]
+fn test_honest_alt_opens() {
+    assert!(run(vectors::HONEST_ALT).ok)
+}
+
+#[test]
+fn test_honest_infinity_opens_with_infinite_points() {
+    // [W] is the point at infinity, and so are P0 and P1: both pairings are 1.
+    let t = run(vectors::HONEST_INFINITY)
+    assert!(t.ok && is_infinity(t.p0) && is_infinity(t.p1))
+    assert!(t.e0 == [1, 0] && t.e1 == [1, 0])
+}
+
+#[test]
+fn test_sumcheck_cheats_still_open() {
+    // These proofs fail in sumcheck: the prover opens its real polynomials correctly.
+    assert!(run(vectors::BROKEN_GATE).ok)
+    assert!(run(vectors::BROKEN_LOOKUP).ok)
+    assert!(run(vectors::BROKEN_COPY).ok)
+    assert!(run(vectors::WRONG_PUBLIC_INPUT).ok)
+    assert!(run(vectors::PATCHED_UNIVARIATES).ok)
+    assert!(run(vectors::LUCKY_DICE).ok)
+}
+
+#[test]
+fn test_false_evaluation_fails_the_pairing_check() {
+    let t = run(vectors::FALSE_EVALUATION)
+    assert!(!t.ok && t.lhs != [1, 0])
+}
+
+#[test(should_revert)]
+fn test_reverts_when_z_is_an_opening_point() {
+    // z = r: the reference throws ("z coincides with an opening point").
+    let ch = Challenges { beta: 2, gamma: 5, alpha: 3, g: 2, u: [9, 7], rho: 14, r: 4, nu: 5, z: 4 }
+    let _ = verify(vk: vectors::VK, proof: vectors::HONEST.proof, ch)
+}
