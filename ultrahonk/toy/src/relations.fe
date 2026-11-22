@@ -1,0 +1,185 @@
+// The seven subrelations of the toy circuit and their batching with alpha
+// (reference `subrelations`, `permFactors`, `splitBatch`).
+use ingot::Scenario
+use ingot::f17::{P, add, mul, pow, sub}
+use ingot::vectors
+
+// Positions of the 23 entities, in the order of the reference's `ENTITIES`.
+// Fixed columns (the reference names t, the lookup table, plainly `t`).
+pub const Q_M: usize = 0
+pub const Q_C: usize = 1
+pub const Q_L: usize = 2
+pub const Q_R: usize = 3
+pub const Q_O: usize = 4
+pub const Q_LK: usize = 5
+pub const S1: usize = 6
+pub const S2: usize = 7
+pub const S3: usize = 8
+pub const ID1: usize = 9
+pub const ID2: usize = 10
+pub const ID3: usize = 11
+pub const L_FIRST: usize = 12
+pub const L_LAST: usize = 13
+pub const TABLE: usize = 14
+// Witness columns (reference names: w_l, w_r, w_o, m, tag, I, z).
+pub const W_L: usize = 15
+pub const W_R: usize = 16
+pub const W_O: usize = 17
+pub const READ_COUNT: usize = 18
+pub const TAG: usize = 19
+pub const INVERSE: usize = 20
+pub const Z_PERM: usize = 21
+// z shifted by one row. It has no commitment of its own.
+pub const Z_SHIFT: usize = 22
+
+/// Index of the LogUp sum, the only subrelation that is not multiplied by pow:
+/// it is not zero on every row, it only sums to zero.
+pub const LOGUP_SUM: usize = 5
+
+/// The batched subrelations, split as the final check needs them: `pow * a + l1`.
+pub struct Batch {
+    /// The six subrelations that carry pow, batched with powers of alpha.
+    pub a: u256,
+    /// alpha^5 times the LogUp sum.
+    pub l1: u256,
+}
+
+/// One factor of the permutation grand product: w + beta * col + gamma.
+fn perm_term(_ w: u256, _ col: u256, beta: u256, gamma: u256) -> u256 {
+    (w + beta * col + gamma) % P
+}
+
+/// The seven subrelations at the evaluations `v`:
+/// [arithmetic gate, permutation, z_shift at the last row, z at the first row,
+///  lookup inverses, LogUp sum, tag is boolean].
+pub fn subrelations(_ v: [u256; 23], beta: u256, gamma: u256, delta: u256) -> [u256; 7] {
+    let r0 = (v[Q_M] * v[W_L] * v[W_R]
+            + v[Q_L] * v[W_L]
+            + v[Q_R] * v[W_R]
+            + v[Q_O] * v[W_O]
+            + v[Q_C])
+        % P
+    let num = mul(
+        mul(
+            perm_term(v[W_L], v[ID1], beta, gamma),
+            perm_term(v[W_R], v[ID2], beta, gamma),
+        ),
+        perm_term(v[W_O], v[ID3], beta, gamma),
+    )
+    let den = mul(
+        mul(
+            perm_term(v[W_L], v[S1], beta, gamma),
+            perm_term(v[W_R], v[S2], beta, gamma),
+        ),
+        perm_term(v[W_O], v[S3], beta, gamma),
+    )
+    let r1 = sub(
+        mul(v[Z_PERM] + v[L_FIRST], num),
+        mul(v[Z_SHIFT] + v[L_LAST] * delta, den),
+    )
+    let read = add(v[W_L], gamma)
+    let write = add(v[TABLE], gamma)
+    let l0 = sub(
+        mul(mul(read, write), v[INVERSE]),
+        sub(v[TAG] + v[Q_LK], v[TAG] * v[Q_LK]),
+    )
+    let l1 = sub(
+        mul(v[Q_LK], mul(v[INVERSE], write)),
+        mul(v[READ_COUNT], mul(v[INVERSE], read)),
+    )
+    [
+        r0,
+        r1,
+        mul(v[L_LAST], v[Z_SHIFT]),
+        mul(v[L_FIRST], v[Z_PERM]),
+        l0,
+        l1,
+        sub(mul(v[TAG], v[TAG]), v[TAG]),
+    ]
+}
+
+/// Batches the subrelations with powers of alpha, keeping the LogUp sum apart.
+pub fn split_batch(_ rs: [u256; 7], alpha: u256) -> Batch {
+    var a: u256 = 0
+    var i: usize = 0
+    while i < 7 {
+        if i != LOGUP_SUM {
+            a = add(a, mul(rs[i], pow(alpha, i as u256)))
+        }
+        i += 1
+    }
+    Batch { a: a, l1: mul(pow(alpha, 5), rs[LOGUP_SUM]) }
+}
+
+fn matches_reference(_ s: Scenario) -> bool {
+    let rs = subrelations(
+        s.proof.evals,
+        beta: s.challenges.beta,
+        gamma: s.challenges.gamma,
+        delta: s.delta,
+    )
+    let batch = split_batch(rs, alpha: s.challenges.alpha)
+    rs == s.sumcheck.rs && batch.a == s.sumcheck.a && batch.l1 == s.sumcheck.l1
+}
+
+#[test]
+fn test_honest_subrelations_by_hand() {
+    // The honest run of the page: beta = 2, gamma = 5, alpha = 3, delta = 14.
+    let evals: [u256; 23] = [
+        12,
+        0,
+        0,
+        0,
+        5,
+        12,
+        0,
+        10,
+        8,
+        6,
+        10,
+        14,
+        14,
+        12,
+        6,
+        2,
+        12,
+        14,
+        12,
+        12,
+        10,
+        12,
+        15,
+    ]
+    let rs = subrelations(evals, beta: 2, gamma: 5, delta: 14)
+    assert!(rs == [1, 4, 10, 15, 6, 4, 13])
+    let batch = split_batch(rs, alpha: 3)
+    // a = 1 + 4*3 + 10*9 + 15*27 + 6*81 + 13*729 (no alpha^5 term), l1 = 243 * 4.
+    assert!(batch.a == 16)
+    assert!(batch.l1 == 3)
+}
+
+#[test]
+fn test_all_zero_evaluations_satisfy_every_subrelation() {
+    let zeros: [u256; 23] = [0; 23]
+    assert!(
+        subrelations(zeros, beta: 2, gamma: 5, delta: 14) == [0; 7],
+    )
+}
+
+#[test]
+fn test_subrelations_match_reference_honest() {
+    assert!(matches_reference(vectors::HONEST))
+    assert!(matches_reference(vectors::HONEST_ALT))
+    assert!(matches_reference(vectors::HONEST_INFINITY))
+}
+
+#[test]
+fn test_subrelations_match_reference_cheats() {
+    assert!(matches_reference(vectors::BROKEN_GATE))
+    assert!(matches_reference(vectors::BROKEN_LOOKUP))
+    assert!(matches_reference(vectors::BROKEN_COPY))
+    assert!(matches_reference(vectors::WRONG_PUBLIC_INPUT))
+    assert!(matches_reference(vectors::PATCHED_UNIVARIATES))
+    assert!(matches_reference(vectors::LUCKY_DICE))
+    assert!(matches_reference(vectors::FALSE_EVALUATION))
+}
