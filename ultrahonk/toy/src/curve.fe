@@ -1,0 +1,310 @@
+// The toy curve y^2 = x^3 + 3 over F_101 and its subgroup of order 17
+// (reference `ecAdd`, `ecMul`, `ecNeg`, `f2*`, `g2Double`).
+//
+// - F_101 elements are reduced `u256` values.
+// - F_101^2 = F_101[i]/(i^2 + 2); a + b*i is `[a, b]`.
+// - A G1 point is `[x, y]` over F_101, a G2 point is `[x, y]` over F_101^2. The point at
+//   infinity is all zeros, which is not on the curve (the reference uses `null`).
+//
+// Points are not validated: like the reference, the functions assume points of the
+// order-17 subgroup.
+use ingot::f17::P
+use ingot::vectors
+
+pub const Q: u256 = 101
+
+pub const G1: [u256; 2] = [1, 2]
+pub const G2: [[u256; 2]; 2] = [[36, 0], [0, 31]]
+/// [tau]_2 = 2 * G2: the toy's trusted setup uses tau = 2.
+pub const TAU_G2: [[u256; 2]; 2] = [[90, 0], [0, 82]]
+
+pub const INFINITY: [u256; 2] = [0, 0]
+pub const G2_INFINITY: [[u256; 2]; 2] = [[0, 0], [0, 0]]
+
+// ----- F_101 -----
+
+pub fn fq_add(_ a: u256, _ b: u256) -> u256 {
+    (a + b) % Q
+}
+
+/// a - b. Never written as `a - b`: checked arithmetic reverts on underflow.
+pub fn fq_sub(_ a: u256, _ b: u256) -> u256 {
+    (a + Q - b % Q) % Q
+}
+
+pub fn fq_mul(_ a: u256, _ b: u256) -> u256 {
+    (a * b) % Q
+}
+
+pub fn fq_neg(_ a: u256) -> u256 {
+    (Q - a % Q) % Q
+}
+
+pub fn fq_pow(_ b: u256, _ e: u256) -> u256 {
+    var r: u256 = 1
+    var base = b % Q
+    var k = e
+    while k > 0 {
+        if (k & 1) == 1 {
+            r = (r * base) % Q
+        }
+        base = (base * base) % Q
+        k = k >> 1
+    }
+    r
+}
+
+/// 1 / a by Fermat. Returns 0 for a = 0, as the reference's curve code does: the callers
+/// rule out vertical lines before dividing.
+pub fn fq_inv(_ a: u256) -> u256 {
+    fq_pow(a, Q - 2)
+}
+
+// ----- F_101^2 -----
+
+pub fn f2_add(_ x: [u256; 2], _ y: [u256; 2]) -> [u256; 2] {
+    [fq_add(x[0], y[0]), fq_add(x[1], y[1])]
+}
+
+pub fn f2_sub(_ x: [u256; 2], _ y: [u256; 2]) -> [u256; 2] {
+    [fq_sub(x[0], y[0]), fq_sub(x[1], y[1])]
+}
+
+/// (a + b*i)(c + d*i) = (ac - 2bd) + (ad + bc)*i
+pub fn f2_mul(_ x: [u256; 2], _ y: [u256; 2]) -> [u256; 2] {
+    [fq_sub(x[0] * y[0], 2 * x[1] * y[1]), (x[0] * y[1] + x[1] * y[0]) % Q]
+}
+
+/// 1 / (a + b*i) = (a - b*i) / (a^2 + 2 b^2)
+pub fn f2_inv(_ x: [u256; 2]) -> [u256; 2] {
+    let n = fq_inv(x[0] * x[0] + 2 * x[1] * x[1])
+    [fq_mul(x[0], n), fq_neg(fq_mul(x[1], n))]
+}
+
+pub fn f2_pow(_ x: [u256; 2], _ e: u256) -> [u256; 2] {
+    var r: [u256; 2] = [1, 0]
+    var base = x
+    var k = e
+    while k > 0 {
+        if (k & 1) == 1 {
+            r = f2_mul(r, base)
+        }
+        base = f2_mul(base, base)
+        k = k >> 1
+    }
+    r
+}
+
+// ----- G1 -----
+
+pub fn is_infinity(_ a: [u256; 2]) -> bool {
+    a[0] == 0 && a[1] == 0
+}
+
+/// Slope of the line through a and b, the tangent when a == b. Not for vertical lines.
+fn slope(_ a: [u256; 2], _ b: [u256; 2]) -> u256 {
+    if a[0] == b[0] && a[1] == b[1] {
+        fq_mul(3 * a[0] * a[0], fq_inv(2 * a[1]))
+    } else {
+        fq_mul(fq_sub(b[1], a[1]), fq_inv(fq_sub(b[0], a[0])))
+    }
+}
+
+/// a + b, including doubling and the cases with the point at infinity.
+pub fn g1_add(_ a: [u256; 2], _ b: [u256; 2]) -> [u256; 2] {
+    if is_infinity(a) { return b }
+    if is_infinity(b) { return a }
+    if a[0] == b[0] && fq_add(a[1], b[1]) == 0 {
+        return INFINITY
+    }
+    let lam = slope(a, b)
+    let x3 = fq_sub(fq_sub(fq_mul(lam, lam), a[0]), b[0])
+    [x3, fq_sub(fq_mul(lam, fq_sub(a[0], x3)), a[1])]
+}
+
+pub fn g1_double(_ a: [u256; 2]) -> [u256; 2] {
+    g1_add(a, a)
+}
+
+pub fn g1_neg(_ a: [u256; 2]) -> [u256; 2] {
+    [a[0], fq_neg(a[1])]
+}
+
+/// k * a by double and add. The scalar is reduced modulo 17, the order of the subgroup.
+pub fn g1_mul(_ k: u256, _ a: [u256; 2]) -> [u256; 2] {
+    var acc = INFINITY
+    var base = a
+    var n = k % P
+    while n > 0 {
+        if (n & 1) == 1 {
+            acc = g1_add(acc, base)
+        }
+        base = g1_add(base, base)
+        n = n >> 1
+    }
+    acc
+}
+
+// ----- G2 -----
+// The verifier only needs the constants G2 and TAU_G2. The reference has `g2Double` alone;
+// addition, negation and multiplication are provided for completeness and for the tests.
+
+pub fn g2_is_infinity(_ a: [[u256; 2]; 2]) -> bool {
+    is_infinity(a[0]) && is_infinity(a[1])
+}
+
+/// 2 * a for a finite point with y != 0.
+pub fn g2_double(_ a: [[u256; 2]; 2]) -> [[u256; 2]; 2] {
+    let x = a[0]
+    let y = a[1]
+    let lam = f2_mul(f2_mul([3, 0], f2_mul(x, x)), f2_inv(f2_mul([2, 0], y)))
+    let x3 = f2_sub(f2_sub(f2_mul(lam, lam), x), x)
+    [x3, f2_sub(f2_mul(lam, f2_sub(x, x3)), y)]
+}
+
+pub fn g2_add(_ a: [[u256; 2]; 2], _ b: [[u256; 2]; 2]) -> [[u256; 2]; 2] {
+    if g2_is_infinity(a) {
+        return b
+    }
+    if g2_is_infinity(b) {
+        return a
+    }
+    if a[0] == b[0] {
+        if is_infinity(f2_add(a[1], b[1])) {
+            return G2_INFINITY
+        }
+        return g2_double(a)
+    }
+    let lam = f2_mul(f2_sub(b[1], a[1]), f2_inv(f2_sub(b[0], a[0])))
+    let x3 = f2_sub(f2_sub(f2_mul(lam, lam), a[0]), b[0])
+    [x3, f2_sub(f2_mul(lam, f2_sub(a[0], x3)), a[1])]
+}
+
+pub fn g2_neg(_ a: [[u256; 2]; 2]) -> [[u256; 2]; 2] {
+    [a[0], [fq_neg(a[1][0]), fq_neg(a[1][1])]]
+}
+
+pub fn g2_mul(_ k: u256, _ a: [[u256; 2]; 2]) -> [[u256; 2]; 2] {
+    var acc = G2_INFINITY
+    var base = a
+    var n = k % P
+    while n > 0 {
+        if (n & 1) == 1 {
+            acc = g2_add(acc, base)
+        }
+        base = g2_add(base, base)
+        n = n >> 1
+    }
+    acc
+}
+
+// ----- tests -----
+
+fn on_curve(_ a: [u256; 2]) -> bool {
+    fq_mul(a[1], a[1]) == fq_add(fq_mul(fq_mul(a[0], a[0]), a[0]), 3)
+}
+
+fn g2_on_curve(_ a: [[u256; 2]; 2]) -> bool {
+    f2_mul(a[1], a[1]) == f2_add(f2_mul(f2_mul(a[0], a[0]), a[0]), [3, 0])
+}
+
+#[test]
+fn test_fq_arithmetic() {
+    assert!(fq_add(100, 1) == 0)
+    assert!(fq_sub(3, 5) == 99)
+    assert!(fq_neg(0) == 0 && fq_neg(2) == 99)
+    assert!(fq_mul(100, 100) == 1)
+    assert!(fq_pow(2, 10) == 14)
+    assert!(fq_inv(0) == 0)
+    var a: u256 = 1
+    while a < Q {
+        assert!(fq_mul(a, fq_inv(a)) == 1)
+        a += 1
+    }
+}
+
+#[test]
+fn test_f2_arithmetic() {
+    // i^2 = -2
+    assert!(f2_mul([0, 1], [0, 1]) == [99, 0])
+    assert!(f2_add([100, 100], [1, 2]) == [0, 1])
+    assert!(f2_sub([1, 2], [3, 5]) == [99, 98])
+    // (3 + 4i)(5 + 6i) = 15 - 48 + (18 + 20)i
+    assert!(f2_mul([3, 4], [5, 6]) == [68, 38])
+    assert!(f2_mul([3, 4], f2_inv([3, 4])) == [1, 0])
+    assert!(f2_mul([0, 31], f2_inv([0, 31])) == [1, 0])
+    assert!(f2_pow([3, 4], 0) == [1, 0])
+    assert!(
+        f2_pow([3, 4], 3) == f2_mul([3, 4], f2_mul([3, 4], [3, 4])),
+    )
+    // The multiplicative group of F_101^2 has order 101^2 - 1.
+    assert!(f2_pow([3, 4], Q * Q - 1) == [1, 0])
+}
+
+#[test]
+fn test_g1_multiples_match_reference() {
+    assert!(on_curve(G1) && !on_curve(INFINITY))
+    // Repeated addition walks the whole subgroup: G1, 2 G1 (a doubling), ..., 16 G1, and
+    // 17 G1 is the point at infinity.
+    var acc = INFINITY
+    var k: usize = 0
+    while k < 17 {
+        assert!(acc == vectors::G1_MULTIPLES[k])
+        assert!(g1_mul(k as u256, G1) == acc)
+        assert!(is_infinity(acc) || on_curve(acc))
+        acc = g1_add(acc, G1)
+        k += 1
+    }
+    assert!(is_infinity(acc))
+    assert!(g1_mul(17, G1) == INFINITY && g1_mul(18, G1) == G1)
+}
+
+#[test]
+fn test_g1_group_law() {
+    let a = vectors::G1_MULTIPLES[5]
+    let b = vectors::G1_MULTIPLES[14]
+    assert!(g1_add(a, b) == vectors::G1_MULTIPLES[2])
+    assert!(g1_add(a, b) == g1_add(b, a))
+    assert!(g1_add(a, INFINITY) == a && g1_add(INFINITY, a) == a)
+    assert!(g1_double(a) == vectors::G1_MULTIPLES[10])
+    assert!(g1_neg(a) == vectors::G1_MULTIPLES[12])
+    assert!(is_infinity(g1_add(a, g1_neg(a))))
+    assert!(g1_neg(INFINITY) == INFINITY)
+    assert!(g1_mul(3, a) == vectors::G1_MULTIPLES[15])
+    assert!(g1_mul(5, INFINITY) == INFINITY)
+}
+
+#[test]
+fn test_srs_is_powers_of_tau() {
+    // tau = 2: [tau^k]_1 = 2^k * G1
+    var k: usize = 0
+    var scalar: u256 = 1
+    while k < 6 {
+        assert!(g1_mul(scalar, G1) == vectors::SRS[k])
+        scalar = scalar * 2
+        k += 1
+    }
+}
+
+#[test]
+fn test_g2_constants_and_group_law() {
+    assert!(G2 == vectors::G2 && TAU_G2 == vectors::TAU_G2)
+    assert!(g2_on_curve(G2) && g2_on_curve(TAU_G2))
+    assert!(g2_double(G2) == TAU_G2)
+    assert!(g2_add(G2, G2) == TAU_G2 && g2_mul(2, G2) == TAU_G2)
+    assert!(
+        g2_add(G2, G2_INFINITY) == G2 && g2_add(G2_INFINITY, G2) == G2,
+    )
+    assert!(g2_is_infinity(g2_add(G2, g2_neg(G2))))
+    assert!(g2_mul(16, G2) == g2_neg(G2))
+    // G2 has order 17.
+    var acc = G2_INFINITY
+    var k: usize = 0
+    while k < 17 {
+        assert!(g2_mul(k as u256, G2) == acc)
+        assert!(g2_is_infinity(acc) == (k == 0))
+        acc = g2_add(acc, G2)
+        k += 1
+    }
+    assert!(g2_is_infinity(acc))
+}
