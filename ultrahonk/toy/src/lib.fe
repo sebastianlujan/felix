@@ -103,3 +103,48 @@ pub struct Scenario {
     pub opening: OpeningTrace,
     pub ok: bool,
 }
+
+/// The sumcheck mask ("Libra") part of a masked proof: the reference's `proof.libra`.
+/// The prover adds rho_L * G to the relations, with G(X_0, X_1) = g_0(X_0) + g_1(X_1) for
+/// two random polynomials of degree 5.
+pub struct Libra {
+    /// Commitments to g_0 and g_1.
+    pub comm_g0: [u256; 2],
+    pub comm_g1: [u256; 2],
+    /// The claimed sum of G over the four points of {0, 1}^2.
+    pub sum: u256,
+    /// The claimed g_0(u_0) and g_1(u_1).
+    pub e0: u256,
+    pub e1: u256,
+    /// KZG opening proofs of those two evaluations.
+    pub w0: [u256; 2],
+    pub w1: [u256; 2],
+}
+
+/// Result of the mask checks, with what the mask contributes to the sumcheck.
+pub struct LibraTrace {
+    /// Both KZG openings pass (reference `okLibra`).
+    pub ok: bool,
+    /// The initial sumcheck target: rho_L * sum.
+    pub target: u256,
+    /// What the final check adds to `pow * A + l1`: rho_L * (e0 + e1).
+    pub libra_term: u256,
+    /// The verdicts of the openings of g_0 at u_0 and of g_1 at u_1.
+    pub kzg_ok: [bool; 2],
+}
+
+/// One reference run with a masked sumcheck: the inputs of `verify_masked` and everything
+/// the reference computed from them.
+pub struct MaskedScenario {
+    pub proof: Proof,
+    pub libra: Libra,
+    pub public_inputs: [u256; 1],
+    pub challenges: Challenges,
+    /// The extra challenge of the mask (reference `ch.rhoL`).
+    pub rho_l: u256,
+    pub delta: u256,
+    pub mask: LibraTrace,
+    pub sumcheck: SumcheckTrace,
+    pub opening: OpeningTrace,
+    pub ok: bool,
+}
