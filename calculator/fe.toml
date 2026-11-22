@@ -1,0 +1,8 @@
+# Ingot config
+[ingot]
+name = "calculator"
+version = "0.1.0"
+
+# Optional dependencies
+[dependencies]
+zk = { path = ".." }
