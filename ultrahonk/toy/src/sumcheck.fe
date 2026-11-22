@@ -1,0 +1,248 @@
+// The sumcheck half of the verifier
+// (reference `publicDelta`, `lagrangeEval`, `sumcheckVerify`).
+use ingot::{Challenges, Scenario, SumcheckTrace}
+use ingot::f17::{P, add, inv, mul, sub}
+use ingot::relations::{split_batch, subrelations}
+use ingot::vectors
+
+/// The toy's PERMUTATION_ARGUMENT_VALUE_SEPARATOR: the trace has 4 rows.
+const SEP: u256 = 4
+/// The row that holds the public input.
+const PI_ROW: u256 = 1
+
+/// The public-input contribution to the permutation grand product. It is the only place
+/// where the verifier uses the public input.
+/// Reverts when the denominator is zero (degenerate beta, gamma).
+pub fn public_delta(_ public_inputs: [u256; 1], beta: u256, gamma: u256) -> u256 {
+    var num: u256 = 1
+    var den: u256 = 1
+    var na = add(gamma, mul(beta, SEP + PI_ROW))
+    var da = sub(gamma, mul(beta, PI_ROW + 1))
+    for pi in public_inputs {
+        num = mul(num, add(na, pi))
+        den = mul(den, add(da, pi))
+        na = add(na, beta)
+        da = sub(da, beta)
+    }
+    mul(num, inv(den))
+}
+
+/// Evaluates at `u` the polynomial of degree at most 5 given by its values at 0..5.
+/// The reference returns `s[u]` directly when u < 6; the Lagrange sum below gives the same
+/// value there (every other term has a zero factor), so the shortcut is not ported.
+pub fn lagrange_eval(_ s: [u256; 6], u: u256) -> u256 {
+    var total: u256 = 0
+    var i: usize = 0
+    while i < 6 {
+        var num: u256 = 1
+        var den: u256 = 1
+        var j: usize = 0
+        while j < 6 {
+            if j != i {
+                num = mul(num, sub(u, j as u256))
+                den = mul(den, sub(i as u256, j as u256))
+            }
+            j += 1
+        }
+        total = add(total, mul(mul(s[i], num), inv(den)))
+        i += 1
+    }
+    total
+}
+
+/// Checks the two rounds and the final identity `pow * A + l1 == target`.
+/// As in the reference, the rounds stop at the first failure and the final values are
+/// computed anyway, from the state at that point.
+pub fn verify(
+    univariates: [[u256; 6]; 2],
+    evals: [u256; 23],
+    ch: Challenges,
+    delta: u256,
+) -> SumcheckTrace {
+    var round_ok: [bool; 2] = [false; 2]
+    var sums: [u256; 2] = [0; 2]
+    var targets: [u256; 2] = [0; 2]
+    var nexts: [u256; 2] = [0; 2]
+    var pows: [u256; 2] = [0; 2]
+    var rounds_run: usize = 0
+    var reached = true
+    var target: u256 = 0
+    var pow: u256 = 1
+    // g^(2^i)
+    var gi = ch.g % P
+    var i: usize = 0
+    while i < 2 && reached {
+        let s = univariates[i]
+        let u = ch.u[i]
+        sums[i] = add(s[0], s[1])
+        targets[i] = target
+        nexts[i] = lagrange_eval(s, u)
+        pows[i] = mul(pow, add(1, mul(u, sub(gi, 1))))
+        round_ok[i] = sums[i] == target
+        rounds_run = i + 1
+        if round_ok[i] {
+            target = nexts[i]
+            pow = pows[i]
+        } else {
+            reached = false
+        }
+        gi = mul(gi, gi)
+        i += 1
+    }
+    let rs = subrelations(evals, beta: ch.beta, gamma: ch.gamma, delta)
+    let batch = split_batch(rs, alpha: ch.alpha)
+    let full = add(mul(pow, batch.a), batch.l1)
+    SumcheckTrace {
+        ok: reached && full == target,
+        rounds_run: rounds_run,
+        round_ok: round_ok,
+        sums: sums,
+        targets: targets,
+        nexts: nexts,
+        pows: pows,
+        reached: reached,
+        rs: rs,
+        a: batch.a,
+        l1: batch.l1,
+        pow: pow,
+        full: full,
+        target: target,
+    }
+}
+
+/// Runs the sumcheck half on a reference scenario and asserts that the public-input delta
+/// and every intermediate value equal the reference's.
+fn run(_ s: Scenario) -> SumcheckTrace {
+    let delta = public_delta(
+        s.public_inputs,
+        beta: s.challenges.beta,
+        gamma: s.challenges.gamma,
+    )
+    assert!(delta == s.delta, "delta")
+    let t = verify(
+        univariates: s.proof.univariates,
+        evals: s.proof.evals,
+        ch: s.challenges,
+        delta,
+    )
+    let e = ref s.sumcheck
+    assert!(t.rounds_run == e.rounds_run, "rounds run")
+    assert!(t.round_ok == e.round_ok, "round verdicts")
+    assert!(t.sums == e.sums, "round sums")
+    assert!(t.targets == e.targets, "round targets")
+    assert!(t.nexts == e.nexts, "next targets")
+    assert!(t.pows == e.pows, "partial pows")
+    assert!(t.reached == e.reached, "final check reached")
+    assert!(t.rs == e.rs, "subrelations")
+    assert!(t.a == e.a && t.l1 == e.l1, "batched subrelations")
+    assert!(t.pow == e.pow, "final pow")
+    assert!(t.full == e.full, "final value")
+    assert!(t.target == e.target, "final target")
+    assert!(t.ok == e.ok, "sumcheck verdict")
+    t
+}
+
+#[test]
+fn test_public_delta() {
+    // (gamma + 5 * beta + y) / (gamma - 2 * beta + y) with beta = 2, gamma = 5, y = 4.
+    assert!(public_delta([4], beta: 2, gamma: 5) == 14)
+    assert!(
+        public_delta([5], beta: 2, gamma: 5) == vectors::WRONG_PUBLIC_INPUT.delta,
+    )
+    assert!(public_delta([4], beta: 0, gamma: 5) == 1)
+}
+
+#[test(should_revert)]
+fn test_public_delta_reverts_on_zero_denominator() {
+    // gamma - 2 * beta + y = 0
+    let _ = public_delta([4], beta: 2, gamma: 0)
+}
+
+#[test]
+fn test_lagrange_eval_interpolates() {
+    let s: [u256; 6] = [9, 8, 15, 5, 16, 16]
+    var u: usize = 0
+    while u < 6 {
+        assert!(lagrange_eval(s, u: u as u256) == s[u])
+        u += 1
+    }
+    // S_0(9) of the honest run.
+    assert!(lagrange_eval(s, u: 9) == 10)
+    // x^2 given by its values at 0..5: 0, 1, 4, 9, 16, 25 = 8.
+    assert!(lagrange_eval([0, 1, 4, 9, 16, 8], u: 7) == 15)
+    assert!(lagrange_eval([3, 3, 3, 3, 3, 3], u: 11) == 3)
+}
+
+#[test]
+fn test_honest_values_by_hand() {
+    // The numbers of the page for the example challenges.
+    let t = run(vectors::HONEST)
+    assert!(t.ok && t.reached && t.rounds_run == 2)
+    assert!(
+        t.sums == [0, 10] && t.targets == [0, 10] && t.nexts == [10, 4] && t.pows == [10, 16],
+    )
+    assert!(t.rs == [1, 4, 10, 15, 6, 4, 13] && t.a == 16 && t.l1 == 3)
+    assert!(t.pow == 16 && t.full == 4 && t.target == 4)
+}
+
+#[test]
+fn test_honest_alt_accepts() {
+    let t = run(vectors::HONEST_ALT)
+    assert!(t.ok && t.reached && t.rounds_run == 2)
+}
+
+#[test]
+fn test_honest_infinity_accepts() {
+    let t = run(vectors::HONEST_INFINITY)
+    assert!(t.ok && t.reached && t.rounds_run == 2)
+}
+
+#[test]
+fn test_broken_gate_fails_at_round_0() {
+    let t = run(vectors::BROKEN_GATE)
+    assert!(!t.ok && !t.reached && t.rounds_run == 1 && !t.round_ok[0])
+}
+
+#[test]
+fn test_broken_lookup_fails_at_round_0() {
+    let t = run(vectors::BROKEN_LOOKUP)
+    assert!(!t.ok && !t.reached && t.rounds_run == 1 && !t.round_ok[0])
+}
+
+#[test]
+fn test_broken_copy_fails_at_round_0() {
+    let t = run(vectors::BROKEN_COPY)
+    assert!(!t.ok && !t.reached && t.rounds_run == 1 && !t.round_ok[0])
+}
+
+#[test]
+fn test_wrong_public_input_fails_at_final_check() {
+    // The rounds pass: the prover is consistent with its own delta.
+    let t = run(vectors::WRONG_PUBLIC_INPUT)
+    assert!(
+        !t.ok && t.reached && t.rounds_run == 2 && t.full != t.target,
+    )
+}
+
+#[test]
+fn test_patched_univariates_fail_at_final_check() {
+    let t = run(vectors::PATCHED_UNIVARIATES)
+    assert!(
+        !t.ok && t.reached && t.rounds_run == 2 && t.full != t.target,
+    )
+}
+
+#[test]
+fn test_lucky_dice_accepts_the_cheat() {
+    // Soundness error of F_17: with u_1 = 1 the patch c * (1 - X) vanishes.
+    let t = run(vectors::LUCKY_DICE)
+    assert!(t.ok && t.reached && t.rounds_run == 2)
+}
+
+#[test]
+fn test_false_evaluation_fails_at_final_check() {
+    let t = run(vectors::FALSE_EVALUATION)
+    assert!(
+        !t.ok && t.reached && t.rounds_run == 2 && t.full != t.target,
+    )
+}
