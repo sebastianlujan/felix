@@ -39,7 +39,7 @@ The check order must match the reference, or a given bad input reverts with a di
 | Testability | Each tamper case has one expected selector |
 | Fit with Fe 26.6.0 | Uses `#[error]` structs and `revert_error` |
 
-**Pros:** A caller written for the reference works unchanged. Failures say which check failed.
+**Pros:** A caller written for the reference works unchanged. Failures say which check failed.  
 **Cons:** The check order becomes part of the contract's behaviour.
 
 ### Option B: Return `false` on any failure
@@ -52,7 +52,7 @@ The check order must match the reference, or a given bad input reverts with a di
 | Testability | A test cannot tell which check rejected the proof |
 | Fit with Fe 26.6.0 | No obstacle |
 
-**Pros:** Simple. Callers need no revert handling.
+**Pros:** Simple. Callers need no revert handling.  
 **Cons:** Behaviour differs from the reference, and negative tests lose their precision.
 
 ### Option C: `unwrap_or(default: 0)` on precompile results
@@ -65,7 +65,7 @@ The check order must match the reference, or a given bad input reverts with a di
 | Testability | The failure is invisible |
 | Fit with Fe 26.6.0 | Available on `Result`, which is why the rule is written down |
 
-**Pros:** None that survive the soundness problem.
+**Pros:** None that survive the soundness problem.  
 **Cons:** Rejected outright by the plan.
 
 ## Trade-off Analysis

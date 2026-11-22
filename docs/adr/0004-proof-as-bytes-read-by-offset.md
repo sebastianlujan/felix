@@ -34,7 +34,7 @@ The structural decision stands. The contiguous-absorb design is being re-validat
 | Risk | An offset error reads the wrong word; three different orderings exist (proof, commitment, VK) |
 | Fit with Fe 26.6.0 | Uses `Bytes.word_at` and in-place parameter views |
 
-**Pros:** Small code. The transcript mirrors what is hashed, byte for byte.
+**Pros:** Small code. The transcript mirrors what is hashed, byte for byte.  
 **Cons:** No named fields. Every reader needs the layout table.
 
 ### Option B: Decode into a `Proof` struct, as the upstream reference does
@@ -46,7 +46,7 @@ The structural decision stands. The contiguous-absorb design is being re-validat
 | Risk | Lower risk of offset mistakes after loading; the loader itself must still be right |
 | Fit with Fe 26.6.0 | Not evaluated in the plan |
 
-**Pros:** Named access. A line-by-line match with the reference's shape.
+**Pros:** Named access. A line-by-line match with the reference's shape.  
 **Cons:** More code, and the hashing has to rebuild byte runs that already exist in the proof.
 
 ## Trade-off Analysis

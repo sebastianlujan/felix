@@ -39,7 +39,7 @@
 | Revertability | A stage can be reverted alone |
 | Coordination cost | Two lines to track, kept apart by directory |
 
-**Pros:** Something coherent exists at every cut point. The toy line advances in parallel instead of waiting for the main line.
+**Pros:** Something coherent exists at every cut point. The toy line advances in parallel instead of waiting for the main line.  
 **Cons:** More commits and a status table to keep current.
 
 ### Option B: One delivery at the end
@@ -51,7 +51,7 @@
 | Revertability | All or nothing |
 | Coordination cost | Lowest |
 
-**Pros:** No intermediate bookkeeping.
+**Pros:** No intermediate bookkeeping.  
 **Cons:** Unsuitable when reaching the last stage is not guaranteed.
 
 ### Option C: One commit per stage
@@ -63,7 +63,7 @@
 | Revertability | Per stage |
 | Coordination cost | Low |
 
-**Pros:** A tidy history, one entry per stage.
+**Pros:** A tidy history, one entry per stage.  
 **Cons:** Contradicts the owner's rule of incremental commits.
 
 ### Option D: A single serial line, no parallel worktree
@@ -75,7 +75,7 @@
 | Revertability | Unchanged |
 | Coordination cost | Lowest |
 
-**Pros:** Simplest to coordinate.
+**Pros:** Simplest to coordinate.  
 **Cons:** Leaves the toy deliverable competing with the main line for the same hours.
 
 ## Trade-off Analysis

@@ -35,7 +35,7 @@ Four sibling ingots under `ultrahonk/`, joined by relative path dependencies. No
 | Risk | Low: it is the pattern `calculator/` already uses in this repository |
 | Fit with Fe 26.6.0 | Mirrors a package pair that already exists here |
 
-**Pros:** Follows an existing, known pattern. Each ingot builds and tests alone. The toy line can be developed in a separate worktree without touching the others.
+**Pros:** Follows an existing, known pattern. Each ingot builds and tests alone. The toy line can be developed in a separate worktree without touching the others.  
 **Cons:** No single command covers all ingots; `scripts/check.sh` has to loop over them.
 
 ### Option B: A Fe workspace
@@ -47,7 +47,7 @@ Four sibling ingots under `ultrahonk/`, joined by relative path dependencies. No
 | Risk | Unknown: the plan records no trial of a workspace on Fe 26.6.0 |
 | Fit with Fe 26.6.0 | Not evaluated |
 
-**Pros:** Could give one entry point for all packages.
+**Pros:** Could give one entry point for all packages.  
 **Cons:** Untested here, with about 48 hours to the deadline.
 
 ## Trade-off Analysis

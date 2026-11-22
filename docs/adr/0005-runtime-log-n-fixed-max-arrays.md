@@ -28,7 +28,7 @@ The original plan named `[u256; 25]` and `[u256; 63]` for the non-ZK contract. T
 | Risk | An index past the used part is not caught by the type |
 | Fit with Fe 26.6.0 | Fixed-size `u256` arrays; mirrors the reference's shape |
 
-**Pros:** One library for every circuit. The port stays comparable with the reference, loop by loop.
+**Pros:** One library for every circuit. The port stays comparable with the reference, loop by loop.  
 **Cons:** Unused array slots for small circuits. Bounds are a runtime concern.
 
 ### Option B: Const generics parameterised by log N
@@ -40,7 +40,7 @@ The original plan named `[u256; 25]` and `[u256; 63]` for the non-ZK contract. T
 | Risk | Unknown: the plan records no trial of const generics on Fe 26.6.0 |
 | Fit with Fe 26.6.0 | Not evaluated |
 
-**Pros:** Sizes checked by the compiler. No unused slots.
+**Pros:** Sizes checked by the compiler. No unused slots.  
 **Cons:** Departs from the reference's shape. Untested here, with about 48 hours to the deadline.
 
 ## Trade-off Analysis

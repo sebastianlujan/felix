@@ -40,7 +40,7 @@ The generated verifier is used as a local reference oracle and is not committed 
 | Fit with the application | A vault that hides its secret needs ZK |
 | Fit with the ecosystem | `-t evm` is `bb`'s standard EVM target and the flavor Aztec's own L1 verifier uses |
 
-**Pros:** The proof does not leak witness evaluations. Matches the standard target. The 31 subrelations are the same ones, in the shared relations code.
+**Pros:** The proof does not leak witness evaluations. Matches the standard target. The 31 subrelations are the same ones, in the shared relations code.  
 **Cons:** More steps to port under the same deadline. Stage 0 artifacts built for non-ZK must be switched (stage 0b).
 
 ### Option B: Non-ZK flavor only (the original plan)
@@ -53,7 +53,7 @@ The generated verifier is used as a local reference oracle and is not committed 
 | Fit with the application | A non-ZK proof leaks witness evaluations, which defeats a vault that hides its secret |
 | Fit with the ecosystem | Not `bb`'s standard EVM target |
 
-**Pros:** Smaller port. Work already done in stage 0 stays valid.
+**Pros:** Smaller port. Work already done in stage 0 stays valid.  
 **Cons:** Rejected by the project owner: the vault's secret is not protected.
 
 ### Option C: Both flavors
@@ -66,7 +66,7 @@ The generated verifier is used as a local reference oracle and is not committed 
 | Fit with the application | The ZK half serves the vault; the non-ZK half does not |
 | Fit with the ecosystem | Covers both targets |
 
-**Pros:** Complete coverage of `bb`'s EVM targets.
+**Pros:** Complete coverage of `bb`'s EVM targets.  
 **Cons:** Rejected: the extra lines do not fit the deadline.
 
 ## Trade-off Analysis

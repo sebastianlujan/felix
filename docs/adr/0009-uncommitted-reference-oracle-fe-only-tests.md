@@ -39,7 +39,7 @@ Barretenberg's Solidity verifier is the reference oracle, but it is not committe
 | Regenerating expected values | Not possible from the repository alone; the local harness must be recreated |
 | Negative coverage | A fixed list of tamper cases, each with a reference selector |
 
-**Pros:** Meets the Fe-only requirement. Keeps step-by-step comparison with the reference.
+**Pros:** Meets the Fe-only requirement. Keeps step-by-step comparison with the reference.  
 **Cons:** Expected values rest on documented provenance. No fuzzed comparison with the reference.
 
 ### Option B: Commit the Solidity oracle and Foundry differential tests (the original plan)
@@ -52,7 +52,7 @@ Barretenberg's Solidity verifier is the reference oracle, but it is not committe
 | Regenerating expected values | Possible from the repository, through the committed generator |
 | Negative coverage | A shared negative suite on both verifiers, plus one fuzzed proof word |
 
-**Pros:** Everything is reproducible from the repository. Both verifiers run side by side in one EVM.
+**Pros:** Everything is reproducible from the repository. Both verifiers run side by side in one EVM.  
 **Cons:** Rejected by the project owner: the repository should be Fe only.
 
 ### Option C: No oracle, only end-to-end accept/reject
@@ -65,7 +65,7 @@ Barretenberg's Solidity verifier is the reference oracle, but it is not committe
 | Regenerating expected values | Nothing to regenerate beyond the proof |
 | Negative coverage | Accept or reject, with no reference to compare against |
 
-**Pros:** Simplest setup. No dependence on any captured value.
+**Pros:** Simplest setup. No dependence on any captured value.  
 **Cons:** Rejected: in a port of this size, a mismatch could then only be detected at the final check, with no way to locate it.
 
 ## Trade-off Analysis

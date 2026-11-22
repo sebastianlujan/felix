@@ -35,7 +35,7 @@ The asset names were verified for Darwin arm64.
 | Risk | Downloads and runs two official release binaries; asset names verified for Darwin arm64 only |
 | Reproducibility | The versions are fixed in the commands |
 
-**Pros:** The installed toolchain stays as it is. The required versions are visible in the project.
+**Pros:** The installed toolchain stays as it is. The required versions are visible in the project.  
 **Cons:** The binaries are not in the repository. Other platforms need other asset names, which are not verified.
 
 ### Option B: Replace the installed toolchain
@@ -47,7 +47,7 @@ The asset names were verified for Darwin arm64.
 | Risk | Breaks the project rule of no changes to global tools |
 | Reproducibility | The version in use lives outside the project |
 
-**Pros:** One toolchain on the machine.
+**Pros:** One toolchain on the machine.  
 **Cons:** Rejected: it changes global tools.
 
 ### Option C: Use the installed versions as they are
@@ -59,7 +59,7 @@ The asset names were verified for Darwin arm64.
 | Risk | `bb` 0.84.0 and `nargo` beta.3 are too old for the pinned pipeline |
 | Reproducibility | Does not produce the `bb` 6.0.0 verifier and proof that ADR-0001 pins |
 
-**Pros:** No download.
+**Pros:** No download.  
 **Cons:** Rejected: it cannot produce the pinned artifacts.
 
 ## Trade-off Analysis

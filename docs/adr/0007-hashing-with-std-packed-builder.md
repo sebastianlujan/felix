@@ -33,7 +33,7 @@ Use the std `Packed` builder for every multi-word hash and for the pairing input
 | Risk | Depends on the std API at the pinned Fe version |
 | Fit with Fe 26.6.0 | The builder exists at tag `v26.6.0` |
 
-**Pros:** Less project code. One idiom for the transcript and the pairing input.
+**Pros:** Less project code. One idiom for the transcript and the pairing input.  
 **Cons:** The transcript's byte layout is expressed through someone else's API, so it must be checked against a known hash.
 
 ### Option B: A hand-rolled buffer on `MemBuffer` (the original plan)
@@ -45,7 +45,7 @@ Use the std `Packed` builder for every multi-word hash and for the pairing input
 | Risk | Offset mistakes in project code |
 | Fit with Fe 26.6.0 | `MemBuffer` is available |
 
-**Pros:** Full control over the byte layout.
+**Pros:** Full control over the byte layout.  
 **Cons:** Repeats what the std already does.
 
 ## Trade-off Analysis

@@ -44,7 +44,7 @@ fn main(x: Field, y: pub Field, recipient: pub Field) {
 | Risk | Depends on cross-contract calls and constructor arguments working from Fe (stage 0, spike 2) |
 | Fit with Fe 26.6.0 | Uses a `msg` with a `sol(...)` selector; the `Bytes` + `Vec<Bytes32>` shape was untested when the plan was written |
 
-**Pros:** The vault stays small. The vault and the verifier can be built and replaced independently.
+**Pros:** The vault stays small. The vault and the verifier can be built and replaced independently.  
 **Cons:** Two deployments. The verifier address must be supplied at `init`.
 
 ### Option B: Link the verifier library into the vault
@@ -57,7 +57,7 @@ fn main(x: Field, y: pub Field, recipient: pub Field) {
 | Risk | Exceeding the code-size limit |
 | Fit with Fe 26.6.0 | Not evaluated in the plan |
 
-**Pros:** One contract to deploy.
+**Pros:** One contract to deploy.  
 **Cons:** Ties the vault to the verifier's size and to the verifier library being finished.
 
 ## Trade-off Analysis

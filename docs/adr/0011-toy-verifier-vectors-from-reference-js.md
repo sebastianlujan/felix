@@ -36,7 +36,7 @@
 | Risk | The generator must run the page's code unmodified |
 | Fidelity to the teaching page | Exact: same code, same scenarios, same verdicts |
 
-**Pros:** The Fe toy can be compared value by value with the page. Vectors are reproducible with one command.
+**Pros:** The Fe toy can be compared value by value with the page. Vectors are reproducible with one command.  
 **Cons:** A JavaScript reference lives in the repository, and Node 24 is needed to regenerate.
 
 ### Option B: Derive the challenges inside the toy with a Fiat–Shamir transcript
@@ -48,7 +48,7 @@
 | Risk | The toy's values would no longer match the page's |
 | Fidelity to the teaching page | Departs from it: the page's toy is interactive |
 
-**Pros:** A non-interactive toy.
+**Pros:** A non-interactive toy.  
 **Cons:** Loses the direct comparison with the page.
 
 ### Option C: Hand-written vectors transcribed from the page
@@ -60,7 +60,7 @@
 | Risk | Transcription errors, and no way to regenerate |
 | Fidelity to the teaching page | Depends on the transcription |
 
-**Pros:** No Node dependency at all.
+**Pros:** No Node dependency at all.  
 **Cons:** Not reproducible.
 
 ### Option D: Include the ZK sumcheck-mask scenarios now
@@ -72,7 +72,7 @@
 | Risk | Competes for time with the main line |
 | Fidelity to the teaching page | Higher: covers the optional scenarios too |
 
-**Pros:** A more complete toy.
+**Pros:** A more complete toy.  
 **Cons:** Deferred: it may be added as a later step.
 
 ## Trade-off Analysis

@@ -37,7 +37,7 @@ Work pauses after stage 3 for the decision between a single contract and a split
 | Risk | The projection is an estimate; the ZK steps are unmeasured |
 | Deadline fit | The decision is made before most of the relations are written |
 
-**Pros:** The split is paid for only if needed. The risk is known at stage 3, not at stage 7.
+**Pros:** The split is paid for only if needed. The risk is known at stage 3, not at stage 7.  
 **Cons:** A pause for a decision in the middle of the main line.
 
 ### Option B: Split the relations into a second contract from the start
@@ -49,7 +49,7 @@ Work pauses after stage 3 for the decision between a single contract and a split
 | Risk | Removes most of the size risk early |
 | Deadline fit | Not evaluated in the plan as an upfront choice |
 
-**Pros:** Mirrors what the upstream reference does with `RelationsLib`.
+**Pros:** Mirrors what the upstream reference does with `RelationsLib`.  
 **Cons:** Extra structure that may turn out to be unnecessary.
 
 ### Option C: Measure only when the contract is complete
@@ -61,7 +61,7 @@ Work pauses after stage 3 for the decision between a single contract and a split
 | Risk | A size problem appears at stage 7, with the least time left to restructure |
 | Deadline fit | Poor |
 
-**Pros:** No spike.
+**Pros:** No spike.  
 **Cons:** Finds the problem at the worst moment.
 
 ## Trade-off Analysis

@@ -36,7 +36,7 @@ pub fn inv(_ a: u256) -> u256            // a != 0 required; modexp with exponen
 | Risk | No type separates a field element from a raw word; rules are held by convention |
 | Fit with Fe 26.6.0 | Uses `addmod`, `mulmod`, `modexp` directly |
 
-**Pros:** Nothing between the code and the EVM operations. Avoids the issue the plan cites.
+**Pros:** Nothing between the code and the EVM operations. Avoids the issue the plan cites.  
 **Cons:** Relation code is harder to read than with operators.
 
 ### Option B: An operator-overloaded field type
@@ -48,7 +48,7 @@ pub fn inv(_ a: u256) -> u256            // a != 0 required; modexp with exponen
 | Risk | Ruled out by the plan with a reference to `sonatina#232` |
 | Fit with Fe 26.6.0 | Not adopted: the plan cites `sonatina#232` |
 
-**Pros:** Readable relations. The type documents which values are field elements.
+**Pros:** Readable relations. The type documents which values are field elements.  
 **Cons:** Ruled out by the plan, which cites `sonatina#232`.
 
 ## Trade-off Analysis

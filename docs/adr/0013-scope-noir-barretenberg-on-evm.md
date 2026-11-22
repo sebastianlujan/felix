@@ -44,7 +44,7 @@ The work is presented as a contest entry and a readable reference, not as a repl
 | Cost | The staged port described in the plan |
 | Accuracy of the claim | States what the code does |
 
-**Pros:** Achievable and original. The claim can be checked by a reader.
+**Pros:** Achievable and original. The claim can be checked by a reader.  
 **Cons:** Does not touch the Aztec network.
 
 ### Option B: Target the Aztec network itself
@@ -56,7 +56,7 @@ The work is presented as a contest entry and a readable reference, not as a repl
 | Cost | Not applicable |
 | Accuracy of the claim | A claim of network integration would be false |
 
-**Pros:** None available to a Fe contract.
+**Pros:** None available to a Fe contract.  
 **Cons:** Not possible.
 
 ### Option C: Call Barretenberg's Solidity verifier from Fe, without a port
@@ -68,7 +68,7 @@ The work is presented as a contest entry and a readable reference, not as a repl
 | Cost | Lowest |
 | Accuracy of the claim | Accurate, but the verification itself would not be in Fe |
 
-**Pros:** Uses audited code. Smallest effort.
+**Pros:** Uses audited code. Smallest effort.  
 **Cons:** Nothing new in Fe, and it conflicts with a Fe-only repository (ADR-0009).
 
 ## Trade-off Analysis
