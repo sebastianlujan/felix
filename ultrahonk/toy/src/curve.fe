@@ -1,5 +1,5 @@
 // The toy curve y^2 = x^3 + 3 over F_101 and its subgroup of order 17
-// (reference `ecAdd`, `ecMul`, `ecNeg`, `f2*`, `g2Double`).
+// (reference `ecAdd`, `ecMul`, `ecNeg`, `f2*`, `g2Double`, `line`, `pairing`).
 //
 // - F_101 elements are reduced `u256` values.
 // - F_101^2 = F_101[i]/(i^2 + 2); a + b*i is `[a, b]`.
@@ -198,6 +198,45 @@ pub fn g2_mul(_ k: u256, _ a: [[u256; 2]; 2]) -> [[u256; 2]; 2] {
     acc
 }
 
+// ----- pairing -----
+
+/// The line through r and s (the tangent when r == s, the vertical when s == -r),
+/// evaluated at the G2 point q.
+fn line(_ r: [u256; 2], _ s: [u256; 2], _ q: [[u256; 2]; 2]) -> [u256; 2] {
+    if r[0] == s[0] && fq_add(r[1], s[1]) == 0 {
+        return f2_sub(q[0], [r[0], 0])
+    }
+    let lam = slope(r, s)
+    f2_sub(
+        f2_sub(q[1], [r[1], 0]),
+        f2_mul([lam, 0], f2_sub(q[0], [r[0], 0])),
+    )
+}
+
+/// Reduced Tate pairing e(a, q) of a G1 point of order 17 and a G2 point: a 17th root of
+/// unity in F_101^2. No precompile exists for this curve, so it is a Miller loop followed
+/// by the final exponentiation.
+pub fn pairing(_ a: [u256; 2], _ q: [[u256; 2]; 2]) -> [u256; 2] {
+    if is_infinity(a) {
+        return [1, 0]
+    }
+    var f: [u256; 2] = [1, 0]
+    var r = a
+    // The bits of 17 = 0b10001 after the leading one: 0, 0, 0, 1.
+    var bit: usize = 0
+    while bit < 4 {
+        f = f2_mul(f2_mul(f, f), line(r, r, q))
+        r = g1_add(r, r)
+        if bit == 3 {
+            // r = 16 a here, so this line is the vertical through a and r becomes infinity.
+            f = f2_mul(f, line(r, a, q))
+            r = g1_add(r, a)
+        }
+        bit += 1
+    }
+    f2_pow(f, (Q * Q - 1) / P)
+}
+
 // ----- tests -----
 
 fn on_curve(_ a: [u256; 2]) -> bool {
@@ -307,4 +346,44 @@ fn test_g2_constants_and_group_law() {
         k += 1
     }
     assert!(g2_is_infinity(acc))
+}
+
+#[test]
+fn test_pairing_matches_reference() {
+    // e(k * G1, G2) and e(k * G1, [tau]_2) for the 17 points of the subgroup.
+    var k: usize = 0
+    while k < 17 {
+        let a = vectors::G1_MULTIPLES[k]
+        assert!(pairing(a, G2) == vectors::PAIRINGS_G2[k])
+        assert!(pairing(a, TAU_G2) == vectors::PAIRINGS_TAU_G2[k])
+        k += 1
+    }
+}
+
+#[test]
+fn test_pairing_is_bilinear() {
+    let e = pairing(G1, G2)
+    // Non-degenerate and of order 17.
+    assert!(e != [1, 0] && f2_pow(e, 17) == [1, 0])
+    assert!(pairing(INFINITY, G2) == [1, 0])
+    // e(2P, Q) = e(P, Q)^2 = e(P, 2Q)
+    assert!(pairing(g1_double(G1), G2) == f2_mul(e, e))
+    assert!(pairing(G1, g2_double(G2)) == f2_mul(e, e))
+    // e(aP, bQ) = e(P, Q)^(ab)
+    var a: u256 = 1
+    while a < 17 {
+        let b = 17 - a
+        assert!(pairing(g1_mul(a, G1), g2_mul(b, G2)) == f2_pow(e, a * b))
+        a += 1
+    }
+}
+
+#[test]
+fn test_pairing_product_of_opposite_points_is_one() {
+    // e(P, Q) * e(-P, Q) = 1: the shape of the KZG check.
+    let p = vectors::G1_MULTIPLES[7]
+    assert!(f2_mul(pairing(p, G2), pairing(g1_neg(p), G2)) == [1, 0])
+    assert!(
+        f2_mul(pairing(p, TAU_G2), pairing(g1_neg(g1_double(p)), G2)) == [1, 0],
+    )
 }
