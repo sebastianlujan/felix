@@ -1,0 +1,73 @@
+// UltraHonk verifier contract for the vault circuit.
+//
+// Skeleton: it has the ABI of the Solidity `HonkVerifier` and its proof-length
+// check, and then reverts. It never accepts a proof.
+use std::abi::{Bytes32, bytes_from_words, dyn_array_from}
+use std::evm::Evm
+use ultrahonk::abi::VerifierMsg
+use ultrahonk::errors::ProofLengthWrongWithLogN
+
+// `LOG_N` of the generated Solidity verifier for `vectors/vk`.
+const LOG_N: usize = 5
+const PROOF_LENGTH: usize = (67 + 11 * LOG_N) * 32
+
+/// Raised once every implemented check has passed: nothing after them exists yet.
+#[error]
+pub struct VerificationNotImplemented {}
+
+fn verify(_ proof: Bytes) -> bool {
+    if proof.len() != PROOF_LENGTH {
+        revert_error(
+            ProofLengthWrongWithLogN {
+                log_n: LOG_N as u256,
+                actual_length: proof.len() as u256,
+                expected_length: PROOF_LENGTH as u256,
+            },
+        )
+    }
+    revert_error(VerificationNotImplemented {})
+}
+
+pub contract HonkVerifier {
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool {
+            verify(proof)
+        }
+    }
+}
+
+fn public_inputs() -> Vec<Bytes32> {
+    dyn_array_from([Bytes32 { val: 9 }, Bytes32 { val: 0xc0ffe }])
+}
+
+// selector of ProofLengthWrongWithLogN(uint256,uint256,uint256)
+#[test(should_revert, selector = 0x59895a53)]
+fn test_wrong_proof_length_reverts() uses (evm: mut Evm) {
+    let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let _: bool = evm
+        .call(
+            addr: verifier,
+            gas: 1000000,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify {
+                proof: bytes_from_words([1, 2, 3]),
+                public_inputs: public_inputs(),
+            },
+        )
+}
+
+// selector of VerificationNotImplemented()
+#[test(should_revert, selector = 0x342c2ccd)]
+fn test_right_proof_length_is_not_accepted() uses (evm: mut Evm) {
+    let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let _: bool = evm
+        .call(
+            addr: verifier,
+            gas: 1000000,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify {
+                proof: Bytes::zeroed(PROOF_LENGTH),
+                public_inputs: public_inputs(),
+            },
+        )
+}

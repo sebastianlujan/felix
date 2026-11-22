@@ -1,0 +1,6 @@
+[ingot]
+name = "ultrahonk_verifier"
+version = "0.1.0"
+
+[dependencies]
+ultrahonk = { path = "../lib" }
