@@ -1,0 +1,6 @@
+# Build outputs and project-local tools; never committed.
+out/
+oracle/cache/
+oracle/lib/
+circuit/target/
+.tools/
