@@ -9,6 +9,9 @@
 // - The 23 evaluated entities are ordered as in the reference (`ENTITIES`): the 15 fixed
 //   columns, the 7 witness columns, then z_shift. See the index constants in `relations`.
 
+/// The entry point: `verify(vk, proof, public_inputs, challenges) -> bool`.
+pub use verifier::verify
+
 /// The verifier's challenges. The toy protocol is interactive: they are inputs, not hashes.
 pub struct Challenges {
     pub beta: u256,

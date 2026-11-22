@@ -1,0 +1,150 @@
+// The complete toy Honk verifier (reference `verify`, without its ZK mask branch).
+use ingot::{Challenges, Proof, Scenario}
+use ingot::{shplemini, sumcheck}
+use ingot::curve::G1
+use ingot::vectors
+
+/// Verifies `proof` for the circuit committed in `vk`, the public input and the challenges.
+///
+/// Returns the verdict: the sumcheck half and the opening half both pass. As in the
+/// reference, both halves are always evaluated, so degenerate challenges (a zero
+/// denominator, where the reference throws) revert even if the other half already rejects.
+pub fn verify(
+    vk: [[u256; 2]; 15],
+    proof: Proof,
+    public_inputs: [u256; 1],
+    challenges: Challenges,
+) -> bool {
+    let delta = sumcheck::public_delta(
+        public_inputs,
+        beta: challenges.beta,
+        gamma: challenges.gamma,
+    )
+    let sc = sumcheck::verify(
+        univariates: proof.univariates,
+        evals: proof.evals,
+        ch: challenges,
+        delta,
+    )
+    let pcs = shplemini::verify(vk, proof, ch: challenges)
+    sc.ok && pcs.ok
+}
+
+/// The verdict on a reference scenario, asserted equal to the reference's.
+fn verdict(_ s: Scenario) -> bool {
+    let ok = verify(
+        vk: vectors::VK,
+        proof: s.proof,
+        public_inputs: s.public_inputs,
+        challenges: s.challenges,
+    )
+    assert!(ok == s.ok, "verdict differs from the reference")
+    ok
+}
+
+fn accepts(_ s: Scenario) -> bool {
+    verify(
+        vk: vectors::VK,
+        proof: s.proof,
+        public_inputs: s.public_inputs,
+        challenges: s.challenges,
+    )
+}
+
+#[test]
+fn test_verify_accepts_honest() {
+    assert!(verdict(vectors::HONEST))
+}
+
+#[test]
+fn test_verify_accepts_honest_alt() {
+    assert!(verdict(vectors::HONEST_ALT))
+}
+
+#[test]
+fn test_verify_accepts_honest_infinity() {
+    assert!(verdict(vectors::HONEST_INFINITY))
+}
+
+#[test]
+fn test_verify_rejects_broken_gate() {
+    assert!(!verdict(vectors::BROKEN_GATE))
+}
+
+#[test]
+fn test_verify_rejects_broken_lookup() {
+    assert!(!verdict(vectors::BROKEN_LOOKUP))
+}
+
+#[test]
+fn test_verify_rejects_broken_copy() {
+    assert!(!verdict(vectors::BROKEN_COPY))
+}
+
+#[test]
+fn test_verify_rejects_wrong_public_input() {
+    assert!(!verdict(vectors::WRONG_PUBLIC_INPUT))
+}
+
+#[test]
+fn test_verify_rejects_patched_univariates() {
+    assert!(!verdict(vectors::PATCHED_UNIVARIATES))
+}
+
+#[test]
+fn test_verify_accepts_lucky_dice_cheat() {
+    // Accepted by design: with u_1 = 1 the cheat survives. F_17 has a large soundness error.
+    assert!(verdict(vectors::LUCKY_DICE))
+}
+
+#[test]
+fn test_verify_rejects_false_evaluation() {
+    assert!(!verdict(vectors::FALSE_EVALUATION))
+}
+
+#[test]
+fn test_verify_rejects_tampered_honest_proof() {
+    // Not reference scenarios: each change breaks exactly one check of the honest proof.
+    var s = vectors::HONEST
+    assert!(accepts(s))
+    s.proof.comm_w = G1
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.proof.comm_q = G1
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.proof.comm[0] = G1
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.proof.gemini_a[0] = 3
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.proof.univariates[0][0] = 10
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.public_inputs = [5]
+    assert!(!accepts(s))
+}
+
+#[test]
+fn test_verify_rejects_wrong_verification_key() {
+    var vk = vectors::VK
+    vk[0] = G1
+    let s = vectors::HONEST
+    assert!(
+        !verify(
+            vk,
+            proof: s.proof,
+            public_inputs: s.public_inputs,
+            challenges: s.challenges,
+        ),
+    )
+}
+
+#[test(should_revert)]
+fn test_verify_reverts_on_degenerate_challenges() {
+    // z = -r. The sumcheck half already rejects this proof, and the call still reverts.
+    var s = vectors::BROKEN_GATE
+    s.challenges.z = 13
+    let _ = accepts(s)
+}
