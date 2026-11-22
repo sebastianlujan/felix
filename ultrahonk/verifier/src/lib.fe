@@ -1,15 +1,21 @@
-// UltraHonk verifier contract for the vault circuit.
+// UltraHonk verifier contract for the vault circuit (ZK flavor).
 //
 // Skeleton: it has the ABI of the Solidity `HonkVerifier` and its proof-length
 // check, and then reverts. It never accepts a proof.
 use std::abi::{Bytes32, bytes_from_words, dyn_array_from}
-use std::evm::Evm
+use std::evm::{Evm, revert_selector}
 use ultrahonk::abi::VerifierMsg
 use ultrahonk::errors::ProofLengthWrongWithLogN
 
-// `LOG_N` of the generated Solidity verifier for `vectors/vk`.
+pub use expected
+
+// `LOG_N` of the Solidity verifier generated for `vectors/vk`.
 const LOG_N: usize = 5
-const PROOF_LENGTH: usize = (67 + 11 * LOG_N) * 32
+
+// `calculateProofSize` of that verifier, in bytes: 8 pairing-point limbs, 13
+// commitments of 2 words, 48 scalars, and per round of sumcheck 9 univariate values,
+// 1 Gemini evaluation and (after the first round) 1 fold commitment.
+const PROOF_LENGTH: usize = (82 + 12 * LOG_N) * 32
 
 /// Raised once every implemented check has passed: nothing after them exists yet.
 #[error]
@@ -40,6 +46,11 @@ fn public_inputs() -> Vec<Bytes32> {
     dyn_array_from([Bytes32 { val: 9 }, Bytes32 { val: 0xc0ffe }])
 }
 
+#[test]
+fn test_proof_length_matches_reference() {
+    assert!(PROOF_LENGTH == expected::PROOF_LENGTH)
+}
+
 // selector of ProofLengthWrongWithLogN(uint256,uint256,uint256)
 #[test(should_revert, selector = 0x59895a53)]
 fn test_wrong_proof_length_reverts() uses (evm: mut Evm) {
@@ -54,6 +65,35 @@ fn test_wrong_proof_length_reverts() uses (evm: mut Evm) {
                 public_inputs: public_inputs(),
             },
         )
+}
+
+// The whole revert data, not only its selector, equals what the reference verifier
+// returned for a proof of the same length.
+#[test]
+fn test_wrong_proof_length_revert_data_matches_reference() uses (evm: mut Evm) {
+    let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (), salt: 0)
+    for length in expected::WRONG_LENGTHS {
+        let outcome = evm
+            .try_call(
+                addr: verifier,
+                gas: 1000000,
+                value: Wei::zero(),
+                message: VerifierMsg::Verify {
+                    proof: Bytes::zeroed(length),
+                    public_inputs: public_inputs(),
+                },
+            )
+        assert!(!outcome.success())
+        assert!(outcome.returndata_len() == 100)
+        assert!(
+            revert_selector(outcome.returndata()).unwrap()
+                == expected::PROOF_LENGTH_WRONG_WITH_LOG_N,
+        )
+        let data = Bytes::from_payload(source: outcome.returndata())
+        assert!(data.word_at(4) == expected::WRONG_LENGTH_LOG_N)
+        assert!(data.word_at(36) == length as u256)
+        assert!(data.word_at(68) == expected::PROOF_LENGTH as u256)
+    }
 }
 
 // selector of VerificationNotImplemented()
