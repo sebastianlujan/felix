@@ -7,7 +7,9 @@ It is a port of the protocol of the teaching page "UltraHonk a mano"
 commitments on the curve y² = x³ + 3 over F_101 (subgroup of order 17). The circuit has
 4 rows and 3 wires and proves "there is an x in the table {0, 1, 2, 3} with x² = y" for a
 public y. The verifier checks 2 sumcheck rounds of 6 values each, 7 subrelations over 23
-evaluated entities, and one Shplemini/KZG pairing check.
+evaluated entities, and one Shplemini/KZG pairing check. It also verifies proofs whose
+sumcheck is masked, the one part of the ZK flavor that the page computes
+(see [Sumcheck mask](#sumcheck-mask-libra)).
 
 Every number is small enough to follow by hand, and the stages are the same as in a real
 UltraHonk verifier. **It is a teaching model, not a secure verifier** (see [Limits](#limits)).
@@ -37,13 +39,24 @@ honk_toy = { path = "../toy" }
 ```
 
 ```fe
-use honk_toy::verify   // also at honk_toy::verifier::verify
+use honk_toy::{verify, verify_masked}   // also at honk_toy::verifier
 
 pub fn verify(
     vk: [[u256; 2]; 15],
     proof: Proof,
     public_inputs: [u256; 1],
     challenges: Challenges,
+) -> bool
+
+// For a proof with a masked sumcheck: `libra` is the mask part of the proof and `rho_l`
+// one more challenge.
+pub fn verify_masked(
+    vk: [[u256; 2]; 15],
+    proof: Proof,
+    libra: Libra,
+    public_inputs: [u256; 1],
+    challenges: Challenges,
+    rho_l: u256,
 ) -> bool
 ```
 
@@ -61,20 +74,22 @@ Fiat–Shamir step.
 | Round polynomial | `[u256; 6]`: its values at 0..5 |
 | Verification key | the commitments to the 15 fixed columns, in `ENTITIES` order |
 
-`sumcheck::verify` and `shplemini::verify` return every intermediate value
-(`SumcheckTrace`, `OpeningTrace`), which is what the tests compare with the reference.
+`sumcheck::verify`, `shplemini::verify` and `libra::verify` return every intermediate
+value (`SumcheckTrace`, `OpeningTrace`, `LibraTrace`), which is what the tests compare
+with the reference.
 
 ## Layout
 
 | File | Contents |
 |---|---|
-| `src/lib.fe` | shared types (`Challenges`, `Proof`, the two traces, `Scenario`) and the `verify` re-export |
+| `src/lib.fe` | shared types (`Challenges`, `Proof`, `Libra`, the traces, the scenario records) and the re-exports of `verify` and `verify_masked` |
 | `src/f17.fe` | arithmetic mod 17 |
 | `src/relations.fe` | entity indices, the 7 subrelations, the alpha batching (`a` and `l1`) |
 | `src/sumcheck.fe` | public-input delta, round checks, Lagrange evaluation, partial pow, final check |
 | `src/curve.fe` | F_101, F_101², G1 and G2 arithmetic, Miller-loop Tate pairing |
 | `src/shplemini.fe` | batched evaluation, fold evaluations, scalars, MSM, P0/P1, pairing check |
-| `src/verifier.fe` | `verify` |
+| `src/libra.fe` | the sumcheck mask: KZG check of the two mask openings, initial target, final term |
+| `src/verifier.fe` | `verify`, `verify_masked` |
 | `src/vectors.fe` | generated reference vectors |
 | `reference/honk.js` | the reference implementation |
 | `reference/gen_vectors.js` | the vector generator |
@@ -84,14 +99,15 @@ Fiat–Shamir step.
 `reference/honk.js` is the math `<script>` block of the page (no DOM), extracted
 unmodified apart from a three-line header. It is the source of truth: the Fe code is a
 port of its `verify`, `sumcheckVerify`, `subrelations`, `splitBatch`, `publicDelta`,
-`lagrangeEval`, `shpleminiVerify`, `foldPosEvaluations`, `ecAdd`, `ecMul`, `ecNeg`, `line`,
-`pairing` and the `f2*` helpers.
+`lagrangeEval`, `shpleminiVerify`, `foldPosEvaluations`, `kzgCheck`, `ecAdd`, `ecMul`,
+`ecNeg`, `line`, `pairing` and the `f2*` helpers.
 
 `reference/gen_vectors.js` runs the reference prover and verifier on the scenarios below
 and writes `src/vectors.fe`: for each scenario the proof, the public input, the
 challenges, the verdict and every intermediate value of both halves, plus the
 verification key, the multiples of G1 and their pairings. The file is committed, so
-`fe test` needs no Node.
+`fe test` needs no Node. The reference does not export `kzgCheck`, so the generator
+evaluates the same source a second time in a function scope to call it.
 
 ```sh
 node reference/gen_vectors.js   # reproduces src/vectors.fe byte for byte
@@ -127,6 +143,55 @@ equals the reference verdict in every scenario, whatever it is.
 (and so are P0 and P1). It exercises the `[0, 0]` encoding in a proof; the verification
 key already contains five such commitments.
 
+## Sumcheck mask (Libra)
+
+The reference runs the one part of Barretenberg's ZK flavor that fits in the toy: masking
+the sumcheck round polynomials. The prover picks two polynomials of degree 5, g₀ and g₁,
+commits to them and sends σ, the sum of G(X₀, X₁) = g₀(X₀) + g₁(X₁) over {0, 1}². The
+verifier draws one more challenge, ρ_L, and the sumcheck runs over "relations + ρ_L·G":
+
+| | Plain proof | Masked proof |
+|---|---|---|
+| Initial target | 0 | ρ_L·σ |
+| Final check | pow·A + l1 = target | pow·A + l1 + ρ_L·(g₀(u₀) + g₁(u₁)) = target |
+| Extra checks | — | KZG openings of g₀ at u₀ and of g₁ at u₁ |
+
+`verify_masked` is the port of the reference's `verify` for a proof that carries `libra`,
+and `libra::kzg_check` the port of `kzgCheck`. A plain proof is the case of the zero mask.
+
+**Covered:** the mask of the sumcheck univariates, and nothing else.
+
+**Not covered**, because the reference does not implement it; the page explains why it
+does not fit in F_17:
+
+- The masks of the evaluations: extra rows with random values in the witness columns and
+  the polynomial 1 − ∏_{i≥2}(1 − uᵢ) that disables the relations on those rows. With 2
+  rounds the product is empty and would disable every relation. It takes at least 8 rows,
+  and 8 rows of 3 wires need 24 distinct permutation identifiers; F_17 has 17 elements.
+- The Gemini masking polynomial.
+- The argument that the mask evaluations belong to the committed mask
+  (`checkEvalsConsistency`), which works over a multiplicative subgroup of 256 elements;
+  the multiplicative group of F_17 has 16. The toy opens g₀ and g₁ with two direct KZG
+  openings instead.
+
+A masked toy proof is therefore **not zero-knowledge**: the 23 evaluations still travel
+unmasked, and the page recovers the witness x from w_r(u).
+
+The masked vectors all use the example challenges, y = 4 and ρ_L = 3:
+
+| Vector | Origin | Proof | Verdict | Fails at |
+|---|---|---|---|---|
+| `MASKED_A` | page, mask A | honest, g₀ = (3, 1, 4, 1, 5, 9), g₁ = (2, 7, 1, 8, 2, 8) | accept | — |
+| `MASKED_B` | page, mask B | honest, g₀ = (6, 2, 8, 3, 1, 12), g₁ = (11, 5, 3, 16, 9, 4) | accept | — |
+| `MASKED_FALSE_EVALUATION` | extra | mask A with 1 added to the claimed g₀(u₀) | reject | KZG opening of g₀ and sumcheck final check |
+| `MASKED_WRONG_SUM` | extra | mask A with 1 added to the claimed σ | reject | sumcheck round 0 |
+| `MASKED_BROKEN_GATE` | extra | mask A over the broken gate x = 3 | reject | sumcheck round 0 |
+
+The polynomials are given by their coefficients. The reference prover has no option to
+cheat in the mask, so the generator changes the proof after proving in
+`MASKED_FALSE_EVALUATION` and `MASKED_WRONG_SUM`; the verdicts and intermediate values
+still come from the reference verifier.
+
 ## Limits
 
 - **Not secure.** The field has 17 elements: the soundness error is large (see
@@ -134,8 +199,8 @@ key already contains five such commitments.
   the commitments bind nothing. Use it to learn the structure of the verifier, never to
   protect anything.
 - **Interactive.** Challenges are inputs. A real verifier derives them by Fiat–Shamir.
-- **No zero-knowledge.** The reference's sumcheck mask branch (`opt.masks`,
-  `proof.libra`, the challenge `rhoL`) is not ported.
+- **No zero-knowledge.** Only the sumcheck mask is implemented; the evaluations are not
+  masked (see [Sumcheck mask](#sumcheck-mask-libra)).
 - **Degenerate challenges revert.** Where the reference throws on a zero denominator
   (delta, a Gemini fold, z equal to an opening point ±r or ±r², r = 0), the Fe code
   reverts instead of returning a verdict. More than half of the random challenge sets in

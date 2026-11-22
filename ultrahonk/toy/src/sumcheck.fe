@@ -1,6 +1,6 @@
 // The sumcheck half of the verifier
 // (reference `publicDelta`, `lagrangeEval`, `sumcheckVerify`).
-use ingot::{Challenges, Scenario, SumcheckTrace}
+use ingot::{Challenges, MaskedScenario, Scenario, SumcheckTrace}
 use ingot::f17::{P, add, inv, mul, sub}
 use ingot::relations::{split_batch, subrelations}
 use ingot::vectors
@@ -50,14 +50,20 @@ pub fn lagrange_eval(_ s: [u256; 6], u: u256) -> u256 {
     total
 }
 
-/// Checks the two rounds and the final identity `pow * A + l1 == target`.
+/// Checks the two rounds and the final identity `pow * A + l1 + libra_term == target`.
 /// As in the reference, the rounds stop at the first failure and the final values are
 /// computed anyway, from the state at that point.
+///
+/// `initial_target` and `libra_term` are both 0 unless the sumcheck is masked: then they
+/// are rho_L times the claimed sum of the mask and rho_L times its claimed evaluation at
+/// the challenge point (see `libra`).
 pub fn verify(
     univariates: [[u256; 6]; 2],
     evals: [u256; 23],
     ch: Challenges,
     delta: u256,
+    initial_target: u256,
+    libra_term: u256,
 ) -> SumcheckTrace {
     var round_ok: [bool; 2] = [false; 2]
     var sums: [u256; 2] = [0; 2]
@@ -66,7 +72,7 @@ pub fn verify(
     var pows: [u256; 2] = [0; 2]
     var rounds_run: usize = 0
     var reached = true
-    var target: u256 = 0
+    var target = initial_target % P
     var pow: u256 = 1
     // g^(2^i)
     var gi = ch.g % P
@@ -91,7 +97,7 @@ pub fn verify(
     }
     let rs = subrelations(evals, beta: ch.beta, gamma: ch.gamma, delta)
     let batch = split_batch(rs, alpha: ch.alpha)
-    let full = add(mul(pow, batch.a), batch.l1)
+    let full = add(add(mul(pow, batch.a), batch.l1), libra_term)
     SumcheckTrace {
         ok: reached && full == target,
         rounds_run: rounds_run,
@@ -124,8 +130,29 @@ fn run(_ s: Scenario) -> SumcheckTrace {
         evals: s.proof.evals,
         ch: s.challenges,
         delta,
+        initial_target: 0,
+        libra_term: 0,
     )
-    let e = ref s.sumcheck
+    assert_same(t, s.sumcheck)
+    t
+}
+
+/// The same for a scenario with a masked sumcheck. The two values the mask contributes are
+/// taken from the reference, so that this module is tested on its own.
+fn run_masked(_ s: MaskedScenario) -> SumcheckTrace {
+    let t = verify(
+        univariates: s.proof.univariates,
+        evals: s.proof.evals,
+        ch: s.challenges,
+        delta: s.delta,
+        initial_target: s.mask.target,
+        libra_term: s.mask.libra_term,
+    )
+    assert_same(t, s.sumcheck)
+    t
+}
+
+fn assert_same(_ t: SumcheckTrace, _ e: SumcheckTrace) {
     assert!(t.rounds_run == e.rounds_run, "rounds run")
     assert!(t.round_ok == e.round_ok, "round verdicts")
     assert!(t.sums == e.sums, "round sums")
@@ -139,7 +166,6 @@ fn run(_ s: Scenario) -> SumcheckTrace {
     assert!(t.full == e.full, "final value")
     assert!(t.target == e.target, "final target")
     assert!(t.ok == e.ok, "sumcheck verdict")
-    t
 }
 
 #[test]
@@ -245,4 +271,55 @@ fn test_false_evaluation_fails_at_final_check() {
     assert!(
         !t.ok && t.reached && t.rounds_run == 2 && t.full != t.target,
     )
+}
+
+#[test]
+fn test_masked_a_values_by_hand() {
+    // The numbers of the page for mask A: the rounds start at rho_L * sum = 13, not at 0,
+    // and the final check adds rho_L * (g_0(u_0) + g_1(u_1)) = 10.
+    let t = run_masked(vectors::MASKED_A)
+    assert!(t.ok && t.reached && t.rounds_run == 2)
+    assert!(t.sums == [13, 7] && t.targets == [13, 7])
+    assert!(t.full == 14 && t.target == 14)
+}
+
+#[test]
+fn test_masked_b_accepts() {
+    let t = run_masked(vectors::MASKED_B)
+    assert!(t.ok && t.reached && t.rounds_run == 2)
+}
+
+#[test]
+fn test_masked_false_evaluation_fails_at_final_check() {
+    let t = run_masked(vectors::MASKED_FALSE_EVALUATION)
+    assert!(
+        !t.ok && t.reached && t.rounds_run == 2 && t.full != t.target,
+    )
+}
+
+#[test]
+fn test_masked_wrong_sum_fails_at_round_0() {
+    let t = run_masked(vectors::MASKED_WRONG_SUM)
+    assert!(!t.ok && !t.reached && t.rounds_run == 1 && !t.round_ok[0])
+}
+
+#[test]
+fn test_masked_broken_gate_fails_at_round_0() {
+    let t = run_masked(vectors::MASKED_BROKEN_GATE)
+    assert!(!t.ok && !t.reached && t.rounds_run == 1 && !t.round_ok[0])
+}
+
+#[test]
+fn test_masked_univariates_fail_without_the_mask_target() {
+    // Read as an unmasked proof, the masked round polynomials do not sum to 0.
+    let s = vectors::MASKED_A
+    let t = verify(
+        univariates: s.proof.univariates,
+        evals: s.proof.evals,
+        ch: s.challenges,
+        delta: s.delta,
+        initial_target: 0,
+        libra_term: 0,
+    )
+    assert!(!t.ok && !t.round_ok[0])
 }
