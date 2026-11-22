@@ -1,0 +1,11 @@
+// Library ingot: no contract here, only items other ingots can import.
+// Placeholder API -- replace with the real one.
+
+pub fn add(a: u256, b: u256) -> u256 {
+    a + b
+}
+
+#[test]
+fn test_add() {
+    assert!(add(a: 1, b: 2) == 3)
+}
