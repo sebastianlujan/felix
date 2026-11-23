@@ -113,23 +113,27 @@ fn evaluate_terms(_ proof: Bytes, t: Transcript, log_n: usize, every: bool) -> C
 
 /// The values of the check, with one inversion per subgroup element as in the reference:
 /// 256 of them. Reverts with `GeminiChallengeInSubgroup` if `r` is in the subgroup; the
-/// denominators are zero exactly there, so no inversion can fail after that.
+/// denominators are zero exactly there, so no inversion can fail after that. The verifier
+/// does not use it: the tests compare `evaluate_sparse` with it.
 pub fn evaluate(_ proof: Bytes, t: Transcript, log_n: usize) -> Consistency {
     evaluate_terms(proof, t, log_n, every: true)
 }
 
 /// The same values and the same revert with `9 * log_n + 2` inversions. The reference
 /// multiplies the other denominators by zero, and none of them can be the inverse of zero
-/// (see `evaluate`), so leaving them out changes nothing but the gas. `check` does not use
-/// it.
+/// (see `evaluate`), so leaving them out changes nothing but the gas. `check` uses it.
 pub fn evaluate_sparse(_ proof: Bytes, t: Transcript, log_n: usize) -> Consistency {
     evaluate_terms(proof, t, log_n, every: false)
 }
 
 /// Reverts with `ConsistencyCheckFailed` unless the Libra evaluations are consistent, and
 /// with `GeminiChallengeInSubgroup` if the check cannot be made.
+///
+/// It inverts only the denominators that are used (`evaluate_sparse`), where the reference
+/// inverts all 256. The subgroup check runs before any inversion, so none of the
+/// inversions left out could have reverted.
 pub fn check(_ proof: Bytes, t: Transcript, log_n: usize) {
-    if evaluate(proof, t, log_n).diff != 0 {
+    if evaluate_sparse(proof, t, log_n).diff != 0 {
         revert_error(ConsistencyCheckFailed {})
     }
 }
