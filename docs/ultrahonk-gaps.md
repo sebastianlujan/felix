@@ -15,7 +15,7 @@ One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is 
 - [x] #5 Immutable relations address and vault parameters, with a getter (H2)
 - [x] #6 Consistency check with fewer inversions, measured again (H3)
 - [ ] #7 Garaga's bb 6.0.0 fixtures at other circuit sizes (E1)
-- [ ] #8 Run the built contracts on anvil and state the chain requirements (H4, M8)
+- [x] #8 Run the built contracts on anvil and state the chain requirements (H4, M8): `ultrahonk/scripts/demo_anvil.sh`
 - [ ] #9 Correct the documents where the data does not support them (M6)
 - [ ] #10 Say plainly that the vault protects nothing (M7)
 - [ ] #11 Root README as the entry page (M2, M9)
@@ -132,9 +132,9 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 
 | Limit | Consequence | Smallest fix |
 |---|---|---|
-| Never deployed outside the test harness | What would be deployed has run on no other EVM | H4 |
+| Run on a local `anvil` node only (#8), at the three optimisation levels, on Osaka, Prague and Cancun. Never on a public test network | No evidence from a chain with real state, fees and block limits | Deploy on a test network |
 | One verifier per circuit, with no generator | Verifying another circuit means editing the key constants by hand; the test suite then fails, because its captured values belong to the pinned proof | H6, then a generator |
-| A real `verify` transaction costs about 1.24M gas (estimated): 21,000 intrinsic, about 65,000 of calldata and about 2,500 of cold access (the relations account; the verifier reads no storage since #5), on top of the measured 1,152,338. The figures are priced at Osaka. Before #6 the estimate was about 2.2M | The READMEs give the cost of the call, not of the transaction | H4 measures it; H3 lowered it (#6) |
+| A `verify` transaction uses 1,239,609 gas on Osaka and 937,321 on Prague and Cancun (measured on `anvil` at `-O 1`, #8), against 1,152,338 for the call alone in the Fe tests. Before #6 the estimate was about 2.2M | Osaka prices `modexp` higher, so the cost depends on the fork | Stated in `ultrahonk/README.md` |
 | Under low gas a valid proof reverts with the error of an invalid one | It fails closed, but the error misleads | Document it |
 | The key appears twice in the `-O s` runtime, about 1.8 KB | Size only | Later |
 

@@ -160,6 +160,8 @@ ultrahonk/
   vault/               ingot "ultrahonk_vault": contract Vault; README.md
   circuit/             Nargo.toml, Prover.toml, Prover_test_address.toml, src/main.nr
   vectors/             proof, public_inputs, vk, vk_hash (raw bb output); test_address/
+  scripts/check.sh         builds and tests everything; checks the code size
+  scripts/demo_anvil.sh    deploys the built contracts on a local anvil node
   scripts/vectors.sh       regenerates vectors/ and the local oracle
   scripts/proof_to_fe.sh   prints the proofs and the key as Fe constants; --check compares
   .tools/              not committed: bb and nargo binaries
@@ -429,7 +431,7 @@ The plan started with six small experiments. Each one answered a question.
 | 2 | Can a Fe contract call another one, and take constructor arguments? | Yes: `Vault` calls the verifier with the typed message, `HonkVerifier` calls `HonkRelations` with `staticcall_decode`, and both take constructor arguments. |
 | 3 | How are precompile `Result`s handled? | `match`, as in the tests of `lib/src/fr.fe` and `lib/src/std_assumptions.fe`. |
 | 4 | Does the hash helper give a known hash? | Yes: the `Packed` and `keccak_words` tests of `lib/src/std_assumptions.fe`, and the `absorb` tests of `lib/src/transcript.fe`. |
-| 5 | Can Foundry deploy a Fe `.bin`? | Dropped. No committed test uses Foundry. |
+| 5 | Can Foundry deploy a Fe `.bin`? | Dropped as a spike. Answered on 2026-11-23: `scripts/demo_anvil.sh` deploys the three artifacts with `cast` on an `anvil` node. No committed test uses Foundry. |
 | 6 | Which flags and output names does `bb` 6.0.0 use? | Settled in `scripts/vectors.sh`. |
 
 ## Measured results
