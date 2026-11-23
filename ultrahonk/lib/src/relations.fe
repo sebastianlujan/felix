@@ -169,6 +169,64 @@ pub fn delta_range(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELA
     )
 }
 
+/// `-b` for Grumpkin's `y^2 = x^3 + b`, with `b = -17`: `GRUMPKIN_CURVE_B_PARAMETER_NEGATED`
+/// of the reference.
+const GRUMPKIN_CURVE_B_PARAMETER_NEGATED: u256 = 17
+
+/// Elliptic curve relation (point addition and doubling on Grumpkin): slots 12 and 13.
+pub fn elliptic(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    let x_1 = p[W_R]
+    let y_1 = p[W_O]
+    let x_2 = p[W_L_SHIFT]
+    let y_2 = p[W_4_SHIFT]
+    let x_3 = p[W_R_SHIFT]
+    let y_3 = p[W_O_SHIFT]
+    let q_sign = p[Q_L]
+    let q_is_double = p[Q_M]
+
+    let q_elliptic_by_scaling = mul(p[Q_ELLIPTIC], pow)
+    let q_add = mul(q_elliptic_by_scaling, sub(1, q_is_double))
+    let q_double = mul(q_elliptic_by_scaling, q_is_double)
+
+    let x_diff = sub(x_2, x_1)
+    let y1_sqr = mul(y_1, y_1)
+
+    // Addition, x: (x3 + x2 + x1)(x2 - x1)^2 - y2^2 - y1^2 + 2 * y1 * y2 * q_sign = 0
+    let y1y2 = mul(mul(y_1, y_2), q_sign)
+    var x_add_identity = mul(mul(add(add(x_3, x_2), x_1), x_diff), x_diff)
+    x_add_identity = sub(sub(x_add_identity, mul(y_2, y_2)), y1_sqr)
+    x_add_identity = add(add(x_add_identity, y1y2), y1y2)
+
+    // Addition, y: (y1 + y3)(x2 - x1) + (x3 - x1)(y2 * q_sign - y1) = 0
+    let y_diff = sub(mul(y_2, q_sign), y_1)
+    let y_add_identity = add(mul(add(y_1, y_3), x_diff), mul(sub(x_3, x_1), y_diff))
+
+    // Doubling, x: (x3 + 2 * x1) * 4 * y1^2 - 9 * x1^4 = 0, with x1^3 = y1^2 - b.
+    let x_pow_4 = mul(add(y1_sqr, GRUMPKIN_CURVE_B_PARAMETER_NEGATED), x_1)
+    var y1_sqr_mul_4 = add(y1_sqr, y1_sqr)
+    y1_sqr_mul_4 = add(y1_sqr_mul_4, y1_sqr_mul_4)
+    let x_double_identity = sub(
+        mul(add(add(x_3, x_1), x_1), y1_sqr_mul_4),
+        mul(x_pow_4, 9),
+    )
+
+    // Doubling, y: 3 * x1^2 * (x1 - x3) - 2 * y1 * (y1 + y3) = 0
+    let x1_sqr_mul_3 = mul(add(add(x_1, x_1), x_1), x_1)
+    let y_double_identity = sub(
+        mul(x1_sqr_mul_3, sub(x_1, x_3)),
+        mul(add(y_1, y_1), add(y_1, y_3)),
+    )
+
+    evals[12] = add(
+        mul(x_add_identity, q_add),
+        mul(x_double_identity, q_double),
+    )
+    evals[13] = add(
+        mul(y_add_identity, q_add),
+        mul(y_double_identity, q_double),
+    )
+}
+
 /// RAM/ROM memory relation: slots 14 to 19.
 ///
 /// Gate layout: `w1` index, `w2` timestamp (RAM) or second value (ROM), `w3` value,
@@ -260,6 +318,104 @@ pub fn memory(
     )
     memory_identity = add(memory_identity, ram_consistency_check_identity)
     evals[14] = mul(memory_identity, q_memory_by_scaling)
+}
+
+/// ROM log-derivative relation (single-value ROM tables): slots 20 and 21.
+///
+/// Row layout: `w1` index, `w2` value, `w3` read count, `w4` inverse, `q_c` array id.
+/// `q_r * (1 - q_l)` marks a table entry and `q_4 * (1 - q_l)` a read.
+pub fn rom_logup(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+    evals: mut [u256; NUMBER_OF_SUBRELATIONS],
+) {
+    let eta_two = mul(rp.eta, rp.eta)
+    let not_q_l = sub(1, p[Q_L])
+    let q_logup_table = mul(p[Q_R], not_q_l)
+    let q_logup_read = mul(p[Q_4], not_q_l)
+
+    var denom = add(rp.rom_logup_gamma, p[W_L])
+    denom = add(denom, mul(p[W_R], rp.eta))
+    denom = add(denom, mul(p[Q_C], eta_two))
+
+    // The inverse is correct on every table and read row.
+    evals[20] = mul(
+        mul(
+            add(q_logup_table, q_logup_read),
+            sub(mul(p[W_4], denom), 1),
+        ),
+        mul(p[Q_MEMORY], pow),
+    )
+    // The log-derivative sum. It holds over the whole trace, not row by row, so the
+    // reference does not scale it by the domain separator.
+    evals[21] = mul(
+        mul(sub(q_logup_read, mul(q_logup_table, p[W_O])), p[W_4]),
+        p[Q_MEMORY],
+    )
+}
+
+/// Limb size of the non-native field relation: `LIMB_SIZE` of the reference.
+const LIMB_SIZE: u256 = 1 << 68
+
+/// Sublimb size of the non-native field relation: `SUBLIMB_SHIFT` of the reference.
+const SUBLIMB_SHIFT: u256 = 1 << 14
+
+/// `acc * 2^14 + sublimb`: one step of joining 14-bit sublimbs.
+fn push_sublimb(_ acc: u256, _ sublimb: u256) -> u256 {
+    add(mul(acc, SUBLIMB_SHIFT), sublimb)
+}
+
+/// Non-native field relation: slot 22.
+pub fn non_native_field(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    // Gate 2: ((w_l * w_4 + w_r * w_o - w_o_shift) * 2^68 - w_4_shift + limb_subproduct) * q_4
+    var limb_subproduct = add(mul(p[W_L], p[W_R_SHIFT]), mul(p[W_L_SHIFT], p[W_R]))
+    var non_native_field_gate_2 = sub(
+        add(mul(p[W_L], p[W_4]), mul(p[W_R], p[W_O])),
+        p[W_O_SHIFT],
+    )
+    non_native_field_gate_2 = mul(non_native_field_gate_2, LIMB_SIZE)
+    non_native_field_gate_2 = sub(non_native_field_gate_2, p[W_4_SHIFT])
+    non_native_field_gate_2 = add(non_native_field_gate_2, limb_subproduct)
+    non_native_field_gate_2 = mul(non_native_field_gate_2, p[Q_4])
+
+    limb_subproduct = mul(limb_subproduct, LIMB_SIZE)
+    limb_subproduct = add(limb_subproduct, mul(p[W_L_SHIFT], p[W_R_SHIFT]))
+
+    let non_native_field_gate_1 = mul(sub(limb_subproduct, add(p[W_O], p[W_4])), p[Q_O])
+    let non_native_field_gate_3 = mul(
+        sub(
+            add(limb_subproduct, p[W_4]),
+            add(p[W_O_SHIFT], p[W_4_SHIFT]),
+        ),
+        p[Q_M],
+    )
+
+    var non_native_field_identity = add(non_native_field_gate_1, non_native_field_gate_2)
+    non_native_field_identity = add(non_native_field_identity, non_native_field_gate_3)
+    non_native_field_identity = mul(non_native_field_identity, p[Q_R])
+
+    // ((((w_r_shift * 2^14 + w_l_shift) * 2^14 + w_o) * 2^14 + w_r) * 2^14 + w_l - w_4) * q_4
+    var limb_accumulator_1 = push_sublimb(p[W_R_SHIFT], p[W_L_SHIFT])
+    limb_accumulator_1 = push_sublimb(limb_accumulator_1, p[W_O])
+    limb_accumulator_1 = push_sublimb(limb_accumulator_1, p[W_R])
+    limb_accumulator_1 = push_sublimb(limb_accumulator_1, p[W_L])
+    limb_accumulator_1 = mul(sub(limb_accumulator_1, p[W_4]), p[Q_4])
+
+    // ((((w_o_shift * 2^14 + w_r_shift) * 2^14 + w_l_shift) * 2^14 + w_4) * 2^14 + w_o
+    //     - w_4_shift) * q_m
+    var limb_accumulator_2 = push_sublimb(p[W_O_SHIFT], p[W_R_SHIFT])
+    limb_accumulator_2 = push_sublimb(limb_accumulator_2, p[W_L_SHIFT])
+    limb_accumulator_2 = push_sublimb(limb_accumulator_2, p[W_4])
+    limb_accumulator_2 = push_sublimb(limb_accumulator_2, p[W_O])
+    limb_accumulator_2 = mul(sub(limb_accumulator_2, p[W_4_SHIFT]), p[Q_M])
+
+    let limb_accumulator_identity = mul(add(limb_accumulator_1, limb_accumulator_2), p[Q_O])
+
+    evals[22] = mul(
+        add(non_native_field_identity, limb_accumulator_identity),
+        mul(p[Q_NNF], pow),
+    )
 }
 
 fn proof_params() -> RelationParameters {
@@ -374,6 +530,49 @@ fn test_delta_range_relation_matches_reference() {
     var proof: [u256; 31] = [0; 31]
     delta_range(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
     assert!(proof_only(proof, first: 8, end: 12))
+}
+
+#[test]
+fn test_elliptic_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    elliptic(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 12, end: 14))
+
+    var proof: [u256; 31] = [0; 31]
+    elliptic(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 12, end: 14))
+}
+
+#[test]
+fn test_rom_logup_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    rom_logup(
+        p: SYNTH_EVALS,
+        rp: synth_params(),
+        pow: SYNTH_POW,
+        evals: mut synth,
+    )
+    assert!(synth_only(synth, first: 20, end: 22))
+
+    var proof: [u256; 31] = [0; 31]
+    rom_logup(
+        p: PROOF_EVALS,
+        rp: proof_params(),
+        pow: PROOF_POW,
+        evals: mut proof,
+    )
+    assert!(proof_only(proof, first: 20, end: 22))
+}
+
+#[test]
+fn test_non_native_field_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    non_native_field(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 22, end: 23))
+
+    var proof: [u256; 31] = [0; 31]
+    non_native_field(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 22, end: 23))
 }
 
 #[test]
