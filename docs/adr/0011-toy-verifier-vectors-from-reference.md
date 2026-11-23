@@ -17,8 +17,8 @@
 
 | Aspect | Decision |
 |---|---|
-| Source of truth | A reference implementation of the page's math block, kept in `toy/reference/`. It is independent of the Fe code. |
-| Vectors | A generator runs the reference on the page's scenarios and writes `toy/src/vectors.fe`, which is committed. Vectors are never written by hand. |
+| Source of truth | A reference implementation of the page's math block, kept in `honk-toy/reference/`. It is independent of the Fe code. |
+| Vectors | A generator runs the reference on the page's scenarios and writes `honk-toy/src/vectors.fe`, which is committed. Vectors are never written by hand. |
 | What is ported | The page's `verify(vk, proof, pis, ch)`: 4 rows, 3 wires, 23 evaluations, 7 subrelations, 2 sumcheck rounds of 6 values |
 | Challenges | The 10 challenges are passed in as inputs |
 | Protocol | The toy protocol of the teaching page |
@@ -27,12 +27,12 @@
 
 ## Outcome (2026-11-23)
 
-- Carried out. The toy is the ingot `honk_toy` in `ultrahonk/toy`, with 70 Fe tests.
-- **The reference is Python.** `toy/reference/honk.py` is a function-by-function port of the page's math block, and `toy/reference/gen_vectors.py` is the generator. Both use Python 3 with the standard library only. The first version ran the page's JavaScript; it was replaced on 2026-11-23, after the Python generator reproduced the committed vectors byte for byte. The repository tracks no JavaScript.
+- Carried out. The toy is the ingot `honk_toy` in `honk-toy`, with 70 Fe tests.
+- **The reference is Python.** `honk-toy/reference/honk.py` is a function-by-function port of the page's math block, and `honk-toy/reference/gen_vectors.py` is the generator. Both use Python 3 with the standard library only. The first version ran the page's JavaScript; it was replaced on 2026-11-23, after the Python generator reproduced the committed vectors byte for byte. The repository tracks no JavaScript.
 - `python3 reference/gen_vectors.py --check` exits with an error if `src/vectors.fe` is out of date.
 - **The sumcheck mask is included.** `libra.fe` and `verify_masked` verify proofs whose sumcheck is masked, with 5 masked vectors. A masked toy proof is still not zero-knowledge: the 23 evaluations travel unmasked.
 - The vectors cover 15 scenarios: 8 of the page's, 2 more honest runs and 5 masked ones. The Fe verdict equals the reference verdict in each, including the accepted "lucky dice" cheat.
-- `ultrahonk/toy/README.md` states the limits: the toy is interactive and is not secure.
+- `honk-toy/README.md` states the limits: the toy is interactive and is not secure.
 
 ## Options Considered
 
@@ -90,9 +90,9 @@ The toy exists to mirror the teaching page, so a reference that follows the page
 
 ## Consequences
 
-- Easier: `python3 toy/reference/gen_vectors.py` reproduces `toy/src/vectors.fe`.
+- Easier: `python3 honk-toy/reference/gen_vectors.py` reproduces `honk-toy/src/vectors.fe`.
 - Easier: running the toy's tests needs no Python, because the vectors are committed.
-- Harder: the toy and the real verifier differ. The toy is interactive and not zero-knowledge; the real verifier is ZK and non-interactive. `ultrahonk/toy/README.md` says so.
+- Harder: the toy and the real verifier differ. The toy is interactive and not zero-knowledge; the real verifier is ZK and non-interactive. `honk-toy/README.md` says so.
 - Harder: the toy needs its own field, curve and pairing code, since no precompile applies.
 - Harder: the Python reference is a port, so its fidelity to the page rests on the byte-for-byte reproduction of the earlier vectors.
 
