@@ -200,6 +200,8 @@ The contracts were not run on a public test network.
 
 - The tests do not show that every proof the reference rejects is rejected. The evidence is the
   recorded invalid calls and the 142 low-bit flips above.
+- Acceptance is tested on two pinned proofs. Ten fresh proofs of the same circuit were also
+  accepted, by hand, on a local node (see [Regenerate the vector](#regenerate-the-vector)).
 - One circuit, with `LOG_N = 5`. No other circuit or size is exercised. The verification key is
   the constant `VK` in `lib/src/vectors.fe`.
 - No pinned proof carries pairing points: the eight limbs are zero, so the contract tests run
@@ -350,6 +352,16 @@ curl -sSfL https://github.com/AztecProtocol/aztec-packages/releases/download/v6.
 curl -sSfL https://github.com/noir-lang/noir/releases/download/v1.0.0/noir-aarch64-apple-darwin.tar.gz | tar -xz -C .tools/nargo/bin
 scripts/vectors.sh
 ```
+
+The script was run from start to end on 2026-11-23, in a clone of `develop`, with `bb` 6.0.0 and
+`nargo` 1.0.0. `vectors/vk`, `vectors/vk_hash`, both `public_inputs` files and the generated
+Solidity verifier came out byte-identical to the committed ones (the sha256 values above). The
+two proofs came out different, as proving is randomized, and `bb verify` accepted both.
+
+Ten more proofs of the first input were then made with the same `bb prove` command, all
+different. Each was given to the built contracts on `anvil` with `scripts/demo_anvil.sh`: each
+was accepted by `HonkVerifier`, rejected with its last bit flipped, and claimed through the vault
+by `0xc0ffe`. No test in the repository does this: it was run by hand.
 
 The script ends with `bb verify` accepting both new proofs. It **overwrites `vectors/proof` and
 `vectors/test_address/proof` with different valid proofs**; run

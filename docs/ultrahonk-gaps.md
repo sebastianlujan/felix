@@ -19,7 +19,7 @@ One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is 
 - [x] #9 Correct the documents where the data does not support them (M6)
 - [x] #10 Say plainly that the vault protects nothing (M7)
 - [ ] #11 Root README as the entry page (M2, M9)
-- [ ] #12 vectors.sh end to end (H5)
+- [x] #12 vectors.sh end to end (H5): run in a clone; ten fresh proofs accepted on anvil
 - [ ] #13 Verification key module and key-only generator mode (H6)
 - [ ] #14 Release (M10)
 
@@ -143,7 +143,7 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 | Limit | Consequence | Smallest fix |
 |---|---|---|
 | One circuit, one size (`LOG_N = 5`), no recursive proof verified from start to end | Other sizes and the aggregation rest on the formulas being right | E1 |
-| No fuzzing, no differential testing against the reference over many proofs | Rejection is shown for recorded cases and bit flips only | A seeded loop of tampered proofs against `bb verify` |
+| No fuzzing, no differential testing against the reference over many proofs. By hand, on 2026-11-23, ten fresh proofs of the pinned circuit were accepted on `anvil` and rejected with one bit flipped (#12) | Rejection is shown for recorded cases and bit flips only; acceptance for one circuit | A seeded loop of tampered proofs against `bb verify` |
 | The failed `modexp` call has no test. The carried point off the curve does (`ultrahonk/lib/src/opening.fe:668-674`) | One recorded difference from the reference is untested | H1 covers the branch next to it |
 | The port is not audited | As stated in [Limits](../ultrahonk/README.md#limits) | An audit |
 
