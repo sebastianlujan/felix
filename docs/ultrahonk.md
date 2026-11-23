@@ -1,34 +1,34 @@
-# UltraHonk verification in Fe: project plan
+# UltraHonk verification in Fe: plan and outcome
 
-This project adds UltraHonk proof verification written natively in Fe, as new packages under `ultrahonk/`. It has three deliverables: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that consumes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository is pure Fe plus a Noir circuit and scripts: the Solidity verifier that Barretenberg generates serves as a local, uncommitted reference oracle, and every committed test is a Fe test that compares against expected values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC** and is delivered in stages, so that whatever passes by the deadline is coherent, tested and honestly labelled.
+This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-22).** Stage 0 was completed on 2026-11-22 for the original non-ZK target (pipeline, oracle tests, Fe skeleton). Two scope changes by the project owner followed: the real verifier targets the ZK flavor ([ADR-0001](adr/0001-port-bb-6-zk-verifier.md)), and the repository contains no Solidity ([ADR-0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md)). Stage 0b, which switches the stage 0 artifacts to ZK and moves them to the Fe-only layout, is in progress. Every later stage is planned, and no other result is reported in this document.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 176 tests in `lib`, 2 in `relations`, 16 in `verifier`, 11 in `vault`, 70 in `toy`.
 >
-> **Reading the numbers.** The original plan was written against the non-ZK contract. A value tagged **[ZK: TBC]** comes from that plan and is to be confirmed from the generated ZK contract (stage 0b, in progress). Code blocks labelled "sketch" have not been compiled.
+> - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
+> - A claim succeeds through `Vault` in front of `HonkVerifier`.
+> - The tests do not show that every proof the reference rejects is rejected.
+> - Two planned items were not written: `scripts/check.sh` and a script that enforces the code-size limit. Sizes were measured by hand (see [Measured results](#measured-results)).
+>
+> **How to read this document.** It was written as the plan and now also records the outcome. Where a planned detail changed, the text states what was built. The exact proof layout, transcript, formulas and error selectors are in [`ultrahonk/docs/zk-verifier-reference.md`](../ultrahonk/docs/zk-verifier-reference.md). Test coverage and measurements are in [`ultrahonk/README.md`](../ultrahonk/README.md).
 
 ## Quick path
 
-These are the **intended** commands. A reader of the repository needs only `fe`; no `forge` command is needed. The commands work once the stages that create their targets have landed (see [Stages](#stages)): `scripts/check.sh` is stage 8 work.
+A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Foundry.
 
-1. Check, format-check and test each ingot.
-
-   ```sh
-   cd ultrahonk/lib        # likewise ultrahonk/verifier, ultrahonk/vault, ultrahonk/toy
-   fe check
-   fe fmt --check
-   fe test
-   ```
-
-2. Run the end-to-end script.
+1. Run the tests of each ingot.
 
    ```sh
    cd ultrahonk
-   scripts/check.sh
+   (cd lib && fe test)        # 176 tests
+   (cd relations && fe test)  # 2
+   (cd verifier && fe test)   # 16
+   (cd vault && fe test)      # 11
+   (cd toy && fe test)        # 70
    ```
 
-3. Read the result. The intended outcome: the Fe verifier accepts the committed proof, it reverts with the reference selector on every tamper case, the vault claim works, and each contract's runtime code is within 24,576 bytes.
+2. Read the result. In `verifier`, `test_the_valid_proof_is_accepted` shows the Fe verifier accepting the pinned proof. In `vault`, `test_the_real_verifier_accepts_a_claim_from_the_address_the_proof_was_made_for` shows a claim through the vault in front of it.
 
-To check one stage, run its acceptance command from the stage tables, for example `fe test -f transcript` inside `ultrahonk/lib`.
+To run one group of tests, filter by name: for example `fe test -f transcript` inside `ultrahonk/lib`.
 
 Regenerating inputs is optional and is not needed to verify: see [Verification](#verification).
 
@@ -42,15 +42,15 @@ Regenerating inputs is optional and is not needed to verify: see [Verification](
 
 | # | Deliverable | Package | What it is | Status |
 |---|---|---|---|---|
-| 1 | Real verifier | `ultrahonk/lib`, `ultrahonk/verifier` | Port of Barretenberg's ZK UltraHonk verifier (BN254, Keccak transcript with zero-knowledge) | Stage 0 done for the non-ZK target; stage 0b in progress; later stages planned |
-| 2 | Integration contract | `ultrahonk/vault` | A Fe application contract that consumes a Noir + Barretenberg proof through the verifier (the teaching page's vault) | Planned |
-| 3 | Toy verifier | `ultrahonk/toy` | The teaching page's hand-sized Honk over F_17 (the page's non-ZK toy protocol), ported to Fe | Planned |
+| 1 | Real verifier | `ultrahonk/lib`, `ultrahonk/relations`, `ultrahonk/verifier` | Port of Barretenberg's ZK UltraHonk verifier (BN254, Keccak transcript with zero-knowledge), as two contracts: `HonkVerifier` and `HonkRelations` | Done. Accepts the pinned proof and rejects every recorded invalid call |
+| 2 | Integration contract | `ultrahonk/vault` | A Fe application contract that takes a Noir + Barretenberg proof through the verifier (the teaching page's vault) | Done. A claim succeeds in front of the real verifier. No payout, by decision |
+| 3 | Toy verifier | `ultrahonk/toy` | The teaching page's hand-sized Honk over F_17 with KZG over F_101, ported to Fe, including the page's sumcheck mask | Done. Its verdict equals the reference's in all 15 scenarios |
 
 ## Purpose and context
 
 ### Why this is being built
 
-The goal is UltraHonk verification written natively in Fe, built gradually in new packages of this repository, the same way the root library and `calculator` pair was built. The project's teaching page ("UltraHonk by hand", its sections on practice and on integration with Fe) sketches the modules, the milestones and a vault application, but nothing in it was ever compiled.
+The goal is UltraHonk verification written natively in Fe, built gradually in new packages of this repository, the same way the root library and `calculator` pair was built. The project's teaching page ("UltraHonk by hand", its sections on practice and on integration with Fe) sketches the modules, the milestones and a vault application. None of the page's Fe sketches had been compiled.
 
 The research behind the plan established:
 
@@ -59,40 +59,40 @@ The research behind the plan established:
 | Not done in Fe | `fe-lang/rosetta/examples/verifier` has Groth16, a gnark Plonk and a Halo2 skeleton, and no Honk. No Fe UltraHonk verifier was found on GitHub. Another contest entry, `0xitsss/fe-zk`, covers Groth16/PLONK/halo2/FRI, not Honk. |
 | Already solved on the EVM as a product | Barretenberg emits an audited Solidity verifier that Fe can call. The value of this work is as a contest entry and as a readable reference. |
 
-### What "Aztec integration" means
+### Scope: Noir proofs verified natively in Fe
 
 | It means | It does not mean |
 |---|---|
-| Integration with Aztec's proving stack: a Noir circuit, proved by Barretenberg, verified on the EVM by Fe. | Anything running on the Aztec network. Aztec network contracts are Noir and verify by recursion, so no Fe contract runs there. The teaching page says the same. |
+| A Noir circuit, proved by Barretenberg, with the proof verified on the EVM by code written in Fe. | Anything running on the Aztec network. Aztec network contracts are Noir and verify by recursion, so no Fe contract runs there. The teaching page says the same. |
 
-`ultrahonk/README.md` will state exactly this. See [ADR-0013](adr/0013-scope-noir-barretenberg-on-evm.md).
+`ultrahonk/README.md` states the same scope. See [ADR-0013](adr/0013-scope-noir-barretenberg-on-evm.md).
 
-### Scope changes after the plan was approved
+### Two decisions that shaped the work
 
-Both changes were decided by the project owner. They are applied throughout this document.
+The project owner made both on 2026-11-22, during stage 0, when the real verifier was still a skeleton.
 
-| Area | Original plan | Now | ADR |
-|---|---|---|---|
-| Flavor of the real verifier | Non-ZK (`-t evm-no-zk`) | ZK (`-t evm`). The non-ZK flavor is dropped, not built alongside. | [0001](adr/0001-port-bb-6-zk-verifier.md) |
-| Repository contents and tests | A tracked Foundry project holding the generated Solidity verifier and Solidity tests | No Solidity in the repository and no Solidity code in the documentation. The generated verifier is a local, untracked reference. Every committed test is a Fe test. | [0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
+| Area | Decision | ADR |
+|---|---|---|
+| Flavor of the real verifier | ZK only (`bb -t evm`). A first draft of the plan named the other flavor; it was dropped because a vault that hides its secret needs ZK. | [0001](adr/0001-port-bb-6-zk-verifier.md) |
+| Repository contents and tests | No Solidity in the repository and no Solidity code in the documentation. The generated verifier is a local, untracked reference. Every committed test is a Fe test. | [0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
 
 Why the ZK flavor:
 
 | Reason | Detail |
 |---|---|
-| The vault hides a secret | A non-ZK proof leaks witness evaluations, so a vault that hides its secret needs ZK. |
+| The vault hides a secret | A proof without zero-knowledge leaks witness evaluations, so a vault that hides its secret needs ZK. |
 | Standard target | `-t evm` is `bb`'s standard EVM target. |
 | Same flavor as Aztec | It is the flavor Aztec's own L1 verifier uses. |
-| Cost | More protocol steps (Libra masking, a small-subgroup consistency check, a Gemini masking polynomial), so the risk of not reaching the final pairing check by the deadline is higher. |
+| Cost | More protocol steps: Libra masking, a small-subgroup consistency check, a Gemini masking polynomial. All of them are ported. |
 
 ### Deadline and judging
 
 | Item | Value |
 |---|---|
 | Submission deadline | Nov 24, 2026 23:59 UTC (about 48 hours away when the plan was written) |
-| Feature freeze | Nov 24, 2026 14:00 UTC: feature work stops and the docs stage starts |
+| Feature freeze | Nov 24, 2026 14:00 UTC |
 | Contest brief | Open-ended: "proof verification… bring test vectors, explicit assumptions, reusable abstractions" |
-| Delivery model | The Fe code is written stage by stage and the repository owner reviews each stage. Whichever stages pass by the deadline are submitted. |
+| Delivery model | The Fe code was written stage by stage, and the repository owner can review each stage. All stages were done by 2026-11-23. |
 
 | Judging criterion | Weight |
 |---|---|
@@ -102,71 +102,76 @@ Why the ZK flavor:
 | Usefulness | 15 |
 | Docs / demo | 10 |
 
-**Outcome wanted:** at any cut point, coherent, tested, honestly-labelled packages under `ultrahonk/`, with the real verifier checked bit-for-bit against values taken from Barretenberg's own verifier on a real Noir proof.
+**Outcome wanted:** coherent, tested, honestly labelled packages under `ultrahonk/`, with the real verifier checked value by value against Barretenberg's own verifier on a real Noir proof. [What the Fe tests assert](#what-the-fe-tests-assert) states how far the tests go.
 
 ## Decisions
 
-Each row links to the Architecture Decision Record that holds the context, the options considered and the consequences.
+Each row links to the Architecture Decision Record that holds the context, the options considered, the consequences and the outcome.
 
 | Topic | Decision | ADR |
 |---|---|---|
-| Source of truth (real) | The Solidity verifier that `bb` 6.0.0 generates with `-t evm`: Keccak transcript with zero-knowledge (upstream `BaseZKHonkVerifier.sol` + `ZKTranscript.sol` at `aztec-packages@b225653`, template `honk_zk_contract.hpp`). The non-ZK flavor is dropped. | [0001](adr/0001-port-bb-6-zk-verifier.md) |
+| Source of truth (real) | The Solidity verifier that `bb` 6.0.0 generates with `-t evm`: Keccak transcript with zero-knowledge (upstream `BaseZKHonkVerifier.sol` + `ZKTranscript.sol` at `aztec-packages@b225653`, template `honk_zk_contract.hpp`). Only the ZK flavor is built. | [0001](adr/0001-port-bb-6-zk-verifier.md) |
 | Tooling | Project-local `bb` 6.0.0 and `nargo` 1.0.0 in `ultrahonk/.tools/`. The installed `bb` 0.84.0 / `nargo` beta.3 are too old and are left untouched. | [0002](adr/0002-project-local-bb-and-nargo.md) |
-| Layout | Sibling ingots with relative path dependencies, no workspace. | [0003](adr/0003-sibling-ingots-without-workspace.md) |
-| Proof representation (real) | Keep the proof as `Bytes` and read words by offset; no `Proof` struct. One `absorb` helper per transcript round, designed around each Fiat–Shamir round hashing `prev ‖ one contiguous run of proof words`. That contiguous-absorb design is being re-validated for the ZK transcript. | [0004](adr/0004-proof-as-bytes-read-by-offset.md) |
-| Sizes (real) | Runtime `log_n` with fixed maximum-size arrays, like the upstream reference. No const generics. The sizes in the original plan (`[u256; 25]`, `[u256; 63]`) are **[ZK: TBC]**. | [0005](adr/0005-runtime-log-n-fixed-max-arrays.md) |
+| Layout | Five sibling ingots with relative path dependencies, no workspace. | [0003](adr/0003-sibling-ingots-without-workspace.md) |
+| Proof representation (real) | Keep the proof as `Bytes` and read words by index; no `Proof` struct. One `absorb` helper for the transcript: every round after the first hashes `prev ‖ one contiguous run of proof words`. | [0004](adr/0004-proof-as-bytes-read-by-offset.md) |
+| Sizes (real) | Runtime `log_n` with fixed maximum-size arrays, like the upstream reference: `MAX_LOG_N = 25`, `MAX_SLOTS = 67`. No const generics. | [0005](adr/0005-runtime-log-n-fixed-max-arrays.md) |
 | Field | Plain functions on `u256`, no operator-overloaded type (`sonatina#232`). | [0006](adr/0006-field-arithmetic-plain-u256-functions.md) |
-| Hashing | The std `Packed` builder for every multi-word hash and for the pairing input, instead of a hand-rolled buffer. Single-word rehash: `keccak_words([x]) % P`. | [0007](adr/0007-hashing-with-std-packed-builder.md) |
-| Precompiles | Always `match` on `Result`; `Err` reverts. Never `unwrap_or(default: 0)` (a silent 0 would be a soundness bug). | [0008](adr/0008-precompile-match-and-solidity-compatible-errors.md) |
-| Failure | The verifier contract reverts on a bad proof with the same custom errors as the upstream reference (`Errors.sol`), so its ABI is a drop-in. Negative tests assert the same revert selector as the reference. The error set and check order of the ZK contract are **[ZK: TBC]**. | [0008](adr/0008-precompile-match-and-solidity-compatible-errors.md) |
-| Reference oracle | Barretenberg's generated Solidity verifier is the reference oracle but is not committed. It lives in the local, untracked `ultrahonk/.oracle/` and is regenerated by `scripts/vectors.sh`. | [0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
-| Repository contents | Pure Fe plus a Noir circuit and scripts. No Solidity in the repository, no Foundry project, no forge-std, and no Solidity code in the documentation. | [0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
-| Tests and vectors | Every committed test is a Fe test run with `fe test`. Expected values and the revert selector of each tamper case are captured from the local oracle and committed as Fe constants with their provenance stated. Toy vectors are generated with Node and committed. Tests need no `bb`, `nargo`, Node or Foundry. | [0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
+| Hashing | The std `Packed` builder for the transcript rounds, the pairing input and the calldata sent to the relations contract. `keccak_words` for a single-word rehash and for the eight-word recursion separator. | [0007](adr/0007-hashing-with-std-packed-builder.md) |
+| Precompiles | Always `match` on `Result`. Never `unwrap_or(default: 0)`: a silent 0 would be a soundness bug. | [0008](adr/0008-precompile-match-and-solidity-compatible-errors.md) |
+| Failure | The verifier contract reverts on a bad proof with the same custom errors as the upstream reference, so its ABI is a drop-in. Negative tests assert the selector the reference returned. See [Failure behaviour](#failure-behaviour) for the recorded differences. | [0008](adr/0008-precompile-match-and-solidity-compatible-errors.md) |
+| Reference oracle | Barretenberg's generated Solidity verifier is the reference oracle and is not committed. It lives in the local, untracked `ultrahonk/.oracle/` and is regenerated by `scripts/vectors.sh`. | [0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
+| Repository contents | Fe, a Noir circuit, shell scripts and the toy's Python reference. No Solidity, no JavaScript, no Foundry project, and no Solidity code in the documentation. | [0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
+| Tests and vectors | Every committed test is a Fe test run with `fe test`. Expected values and the revert of each invalid call are captured from the local oracle and committed as Fe constants with their provenance stated. Toy vectors are generated with Python 3 and committed. Tests need no `bb`, `nargo`, Python or Foundry. | [0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
 | Circuit | The teaching page's vault circuit (shown in [Design: vault](#design-vault-integration-contract)). | [0010](adr/0010-vault-calls-verifier-through-abi.md) |
-| Vault ↔ verifier | External call through the standard ABI `verify(bytes,bytes32[])`, not library linking. The vault stays small and is not tied to one verifier implementation. | [0010](adr/0010-vault-calls-verifier-through-abi.md) |
-| Source of truth (toy) | The math block of the teaching page (a DOM-free script that already exports for Node), extracted verbatim and run under Node 24 to generate vectors. Challenges are inputs. The toy stays the page's non-ZK toy protocol; its optional ZK sumcheck-mask scenarios may be added as a later step. | [0011](adr/0011-toy-verifier-vectors-from-reference-js.md) |
-| Code size | Measure early (stage 3), try optimisation levels first, then split the relations into a second contract. The limit is checked by a script on the built `.runtime.bin`. | [0012](adr/0012-code-size-strategy.md) |
-| Scope and framing | ZK Noir + Barretenberg proofs verified on the EVM by Fe, not the Aztec network. | [0013](adr/0013-scope-noir-barretenberg-on-evm.md) |
-| Delivery | Stages with cut lines (stage 0b added for the scope changes), incremental commits, and one parallel worktree for the toy line. | [0014](adr/0014-staged-delivery-incremental-commits.md) |
+| Vault ↔ verifier | A static call through the standard ABI `verify(bytes,bytes32[])`, not library linking. The vault stays small and is not tied to one verifier implementation. | [0010](adr/0010-vault-calls-verifier-through-abi.md) |
+| Source of truth (toy) | A Python port of the teaching page's math block, function by function (`toy/reference/honk.py`). A generator runs it and writes the vectors. Challenges are inputs. The toy includes the page's sumcheck mask. | [0011](adr/0011-toy-verifier-vectors-from-reference.md) |
+| Code size | The relations are a second contract, `HonkRelations`, asked with a static call. Sizes are measured with `fe build` at `-O 1`, `-O 2` and `-O s`. No script enforces the limit. | [0012](adr/0012-code-size-strategy.md) |
+| Scope and framing | Noir proofs verified natively in Fe, on the EVM. Not the Aztec network. | [0013](adr/0013-scope-noir-barretenberg-on-evm.md) |
+| Delivery | Stages, incremental commits, and parallel lines in separate worktrees. | [0014](adr/0014-staged-delivery-incremental-commits.md) |
 | `fe-lang/rosetta` | Structure only. It targets the 26.1 std and does not compile on 26.6.0. It has no licence, so nothing is copied from it. | [0001](adr/0001-port-bb-6-zk-verifier.md) |
 
 ## Package layout
 
-Everything is new. The root library, `calculator/` and the root `README.md` are not modified.
+The work lives under `ultrahonk/` and `docs/`. Its commits do not change the root library or `calculator/`.
 
 ```
+docs/
+  ultrahonk.md         this document
+  adr/                 decision records 0001 to 0014
 ultrahonk/
-  README.md
-  lib/                 ingot "ultrahonk" (pure library)
-    src/lib.fe abi.fe fr.fe types.fe proof.fe transcript.fe sumcheck.fe
-        relations.fe shplemini.fe verifier.fe
-        vectors.fe     expected values captured from the local oracle (Fe constants)
+  README.md            status, test coverage, measurements, how to regenerate
+  docs/zk-verifier-reference.md   proof layout, transcript, formulas, errors
+  lib/                 ingot "ultrahonk" (library)
+    src/lib.fe abi.fe errors.fe fr.fe types.fe wire.fe
+        proof.fe transcript.fe sumcheck.fe relations.fe
+        shplemini.fe consistency.fe opening.fe
+        std_assumptions.fe        tests that pin std precompile and Keccak behaviour
+        vectors.fe                pinned proof and key (generated), then captured values
+        test_address_vectors.fe   second pinned proof (generated)
+        relations_vectors.fe opening_vectors.fe expected.fe   captured from the oracle
+  relations/           ingot "ultrahonk_relations": contract HonkRelations
   verifier/            ingot "ultrahonk_verifier": contract HonkVerifier
-    src/lib.fe  src/vk.fe (per circuit)
-  vault/               ingot "ultrahonk_vault": contract Vault (the teaching page's vault)
-    src/lib.fe
-  toy/                 ingot "honk_toy": Honk over F_17, pure library
-    src/lib.fe f17.fe curve.fe sumcheck.fe relations.fe shplemini.fe verifier.fe
-        vectors.fe     GENERATED
-    reference/honk.js  the teaching page's math block, verbatim
-    reference/gen_vectors.js
-    README.md
-  circuit/             Nargo.toml, Prover.toml, src/main.nr
-  vectors/             proof, public_inputs, vk (raw bb output, committed)
-  scripts/vectors.sh  scripts/check.sh
-  .tools/              bb + nargo binaries (ignored by the root `.*` rule)
-  .oracle/             local and untracked: Barretenberg's generated Solidity verifier
+  vault/               ingot "ultrahonk_vault": contract Vault; README.md
+  toy/                 ingot "honk_toy": Honk over F_17 (library); README.md
+    src/lib.fe f17.fe relations.fe sumcheck.fe curve.fe shplemini.fe libra.fe verifier.fe
+        vectors.fe                generated
+    reference/honk.py gen_vectors.py   Python 3, standard library only
+  circuit/             Nargo.toml, Prover.toml, Prover_test_address.toml, src/main.nr
+  vectors/             proof, public_inputs, vk, vk_hash (raw bb output); test_address/
+  scripts/vectors.sh       regenerates vectors/ and the local oracle
+  scripts/proof_to_fe.sh   prints the proofs and the key as Fe constants; --check compares
+  .tools/              not committed: bb and nargo binaries
+  .oracle/             not committed: Barretenberg's generated Solidity verifier
 ```
 
 | Rule | Detail |
 |---|---|
 | Shared ABI | `lib/src/abi.fe` holds the `msg` for `verify(bytes,bytes32[])`, shared by the verifier (which receives it) and the vault (which sends it). |
-| No Solidity | The repository tracks no Solidity file, no Foundry project and no forge-std. |
-| Local oracle | `ultrahonk/.oracle/` is a local, untracked reference tool, regenerated by `scripts/vectors.sh`. |
+| Verification key | The constant `VK` in `lib/src/vectors.fe`, printed from `vectors/vk` by `scripts/proof_to_fe.sh`. There is no per-circuit `vk.fe`. |
+| No Solidity | The repository tracks no Solidity file, no JavaScript file, no Foundry project and no forge-std. |
+| Local oracle | `ultrahonk/.oracle/` is a local, untracked reference tool. `scripts/vectors.sh` regenerates the verifier in it. |
 | Tests | Every committed test is a Fe test, run with `fe test` in its ingot. |
-| Build outputs | `out/` and `circuit/target/` are never staged. |
-
-The move to this layout is stage 0b work and is in progress.
+| Build outputs | `out/` and `circuit/target/` are ignored by git. |
 
 ## Project-local tooling
 
@@ -179,7 +184,7 @@ curl -sSfL https://github.com/noir-lang/noir/releases/download/v1.0.0/noir-aarch
 .tools/bb/bb --version && .tools/nargo/bin/nargo --version   # expect 6.0.0 and 1.0.0
 ```
 
-This downloads and runs two official release binaries. `~/.bb` and `~/.nargo` are not touched. The tools are needed only to regenerate the proof, the verification key and the local oracle, not to run the tests.
+This downloads and runs two official release binaries. `~/.bb` and `~/.nargo` are not touched. The tools are needed only to regenerate the proofs, the verification key and the local oracle, not to run the tests.
 
 ## Reference oracle and expected values
 
@@ -187,178 +192,157 @@ Barretenberg's generated Solidity verifier is the reference oracle. It is not co
 
 ### Pipeline (`scripts/vectors.sh`)
 
-Intended shape after stage 0b:
-
 ```sh
 (cd circuit && nargo execute)
+(cd circuit && nargo execute --prover-name Prover_test_address test_address)
 bb write_vk -b circuit/target/vault.json -o vectors -t evm
-bb prove    -b circuit/target/vault.json -w circuit/target/vault.gz -o vectors -t evm
+bb prove    -b circuit/target/vault.json -w circuit/target/vault.gz -k vectors/vk -o vectors -t evm
+bb prove    -b circuit/target/vault.json -w circuit/target/test_address.gz -k vectors/vk -o vectors/test_address -t evm
+bb write_solidity_verifier -k vectors/vk -o .oracle/src/HonkVerifier.sol -t evm   # local, untracked
 bb verify   -k vectors/vk -p vectors/proof -i vectors/public_inputs -t evm
-bb write_solidity_verifier -k vectors/vk -o .oracle/HonkVerifier.sol -t evm   # local, untracked
+bb verify   -k vectors/vk -p vectors/test_address/proof -i vectors/test_address/public_inputs -t evm
 ```
 
-The pipeline was built in stage 0 with `-t evm-no-zk`. Switching it to `-t evm` and to the untracked `.oracle/` directory is stage 0b work, in progress. Flags, output file names and the file name inside `.oracle/` are **[ZK: TBC]**.
+The script calls the project-local binaries by path and exits unless they report `bb` 6.0.0 and `nargo` 1.0.0. ZK proving is randomized, so a run overwrites the two pinned proofs with different valid ones. `ultrahonk/README.md` (section "Regenerate the vector") says how to return to the pinned proofs.
 
 ### How expected values reach the tests
 
-1. `scripts/vectors.sh` regenerates the proof, the verification key and the local oracle.
-2. Expected values, and the revert selector for each tamper case, are captured from the local oracle.
-3. They are committed as Fe constants, with their provenance stated: tool, version, and how they were captured.
+1. `scripts/vectors.sh` regenerates the proofs, the verification key and the oracle's source.
+2. Foundry tests kept locally in `.oracle/test/` run the oracle and log its intermediate values and the revert data of each invalid call.
+3. The values are committed as Fe constants. Each file states its provenance at the top: tool, versions, and how the values were captured.
 4. Fe tests compare the Fe verifier against those constants.
 
-The harness that captures intermediate values from the oracle is local and is not in the repository. The intermediate expected values therefore cannot be regenerated from the repository alone without recreating that harness, which is why their provenance must be documented.
+The local Foundry tests are not in the repository, and `scripts/vectors.sh` does not write them. The captured values therefore cannot be regenerated from the repository alone, which is why their provenance is written down.
 
 ### Test-vector provenance
 
 | Artifact | Produced by | Committed |
 |---|---|---|
 | `circuit/src/main.nr` | The teaching page's vault circuit | Yes |
-| `vectors/proof`, `vectors/public_inputs`, `vectors/vk` | `bb` 6.0.0 (`write_vk`, `prove`) with `-t evm` | Yes, raw `bb` output |
-| Generated Solidity verifier in `.oracle/` | `bb write_solidity_verifier`, regenerated by `scripts/vectors.sh` | No: local, untracked reference |
-| `lib/src/vectors.fe` | Captured from the local oracle: challenges, round targets, subrelation values, scalars, the points of the final pairing | Yes, as Fe constants with provenance |
-| Revert selector of each tamper case | Captured from the local oracle | Yes, as Fe constants with provenance |
-| `verifier/src/vk.fe` | Per circuit, from the verification key. How it is produced under the Fe-only layout is not stated (see [open points](#open-points)). | Yes |
-| `toy/reference/honk.js` | The teaching page's math block, verbatim | Yes |
-| `toy/src/vectors.fe` | `toy/reference/gen_vectors.js` under Node 24 | Yes |
-
-The original plan also listed the proof words, the public inputs, the public-input delta, the pow value and the grand sum among the captured values, and `N`, `LOG_N`, `NUM_PUBLIC_INPUTS`, `VK_HASH` and `VK_POINTS: [u256; 56]` (in commitment order) as the content of `vk.fe`. The values added by the ZK protocol steps and the `VK_POINTS` size are **[ZK: TBC]**.
+| `vectors/proof`, `vectors/public_inputs`, `vectors/vk`, `vectors/vk_hash` | `bb` 6.0.0 (`write_vk`, `prove`) with `-t evm` | Yes, raw `bb` output |
+| `vectors/test_address/proof`, `vectors/test_address/public_inputs` | The same, from `circuit/Prover_test_address.toml` and the same key | Yes, raw `bb` output |
+| `.oracle/src/HonkVerifier.sol` | `bb write_solidity_verifier`, regenerated by `scripts/vectors.sh` | No: local, untracked reference |
+| `lib/src/vectors.fe`, first part: proof, public inputs, verification key | `scripts/proof_to_fe.sh` from `vectors/` | Yes. `scripts/proof_to_fe.sh --check` compares |
+| `lib/src/vectors.fe`, second part: challenges, public-input delta, round targets, partial pow | Captured from the local oracle | Yes, with provenance |
+| `lib/src/relations_vectors.fe` | Inputs and outputs of the oracle's relations, for the pinned proof and for a synthetic input that makes all 31 subrelations non-zero | Yes, with provenance |
+| `lib/src/opening_vectors.fe` | The oracle's Shplemini scalars, consistency-check terms, pairing points and aggregation values | Yes, with provenance |
+| `lib/src/expected.fe` | The oracle's reverts on invalid calls, and what its sumcheck alone does with them | Yes, with provenance |
+| `lib/src/test_address_vectors.fe` | `scripts/proof_to_fe.sh --test-address` from `vectors/test_address/` | Yes. `--check` compares |
+| `toy/reference/honk.py` | Python port of the teaching page's math block | Yes |
+| `toy/src/vectors.fe` | `toy/reference/gen_vectors.py` (Python 3, standard library only) | Yes. `gen_vectors.py --check` compares |
 
 ### What the Fe tests assert
 
 | Area | Assertion |
 |---|---|
-| Intermediate values | Challenges, round targets, subrelation values, scalars and the points of the final pairing equal the committed expected values. |
-| Accept | The Fe verifier accepts the committed proof. The proof length is 82 + 12·log N words for the ZK flavor. |
-| Negative | For each case in a fixed list of tamper cases, the Fe verifier reverts with the same selector as the reference. |
-| Vault | Fe tests of the claim flow (see [Design: vault](#design-vault-integration-contract)). |
-| Code size | Not a Fe test: a script checks the built `.runtime.bin` against 24,576 bytes. |
+| Intermediate values | For the pinned proof: every challenge, the public-input delta, each round target, the partial pow, the 31 subrelations and their batched value, the Shplemini scalars, the consistency-check terms and the two points of the pairing equal the captured values. |
+| Accept | `HonkVerifier` accepts the pinned proof: 142 words, 82 + 12·log N with log N = 5. |
+| Recorded invalid calls | For each one, the Fe verifier reverts with the selector the reference returned. For wrong proof lengths the whole revert data is compared. One case differs: see [Failure behaviour](#failure-behaviour). |
+| Every proof word | The low bit of each of the 142 words flipped, one at a time: none is accepted. These flips were not all recorded from the reference, so the test asserts rejection only. |
+| Vault | The claim flow against stand-in verifiers, and a claim in front of `HonkVerifier` (see [Design: vault](#design-vault-integration-contract)). |
+| Code size | Not a test. Sizes are measured with `fe build` (see [Measured results](#measured-results)). |
 
-In-EVM fuzzed differential testing against the Solidity verifier, which the original plan included, is given up in favour of the fixed list of tamper cases.
+The tests do not show that every proof the reference rejects is rejected. There is no fuzzed differential test against the reference verifier: the fixed list of cases replaces it ([ADR-0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md)).
 
 ### Reuse and licences
+
+This table is the project's record of what was reused and what was only read.
 
 | Source | Licence position | What the project does |
 |---|---|---|
 | Barretenberg's generated Solidity verifier | — | Used locally as the reference oracle. Not committed. |
-| Fe repository fixtures | Apache-2.0 | Idioms may be copied with attribution. |
+| Fe repository fixtures | Apache-2.0 | The `expect_*` test helpers in `lib/src/std_assumptions.fe` follow `precompile_wrappers.fe`, with the attribution in the file. |
 | `fe-lang/rosetta` | No licence | Learn from it, copy nothing. |
-| Upstream negative test base (`NegativeTestBase.sol`) | Marked `UNLICENSED` | Copy nothing. The original plan followed its case list (34 expectations, read for the non-ZK contract). Whether the fixed tamper list still follows it is not restated. |
+| Upstream negative test base (`NegativeTestBase.sol`) | Marked `UNLICENSED` | Nothing is copied from it. The invalid calls the tests use are listed in `lib/src/expected.fe`, with how each was captured. |
 | Other contest entries | — | Nothing is taken from them. |
-
-`ultrahonk/README.md` gets a "reused from / learned from" table.
 
 ## Design: real verifier
 
 Upstream Solidity file and function names in this section are the upstream Barretenberg reference being ported. They are not project code.
 
-### What changes with the ZK flavor
+### The ZK verifier in numbers
 
-| Quantity | Original non-ZK plan | ZK target |
-|---|---|---|
-| Proof size in words (L = log N) | 67 + 11·L | 82 + 12·L |
-| Values per sumcheck round | 8 | 9 |
-| Evaluated entities | 41 | 42 (37 unshifted) |
-| Subrelations | 31 | 31, the same ones, in the shared relations code |
-| Flavor-specific upstream files | `BaseHonkVerifier.sol` | `BaseZKHonkVerifier.sol` + `ZKTranscript.sol` (621 + 371 lines) |
-| Transcript library | — | Linked externally by the generated contract |
-| Extra protocol steps | — | Libra masking, a small-subgroup consistency check, a Gemini masking polynomial |
-| Word offset of each proof element | Table below | **[ZK: TBC]** |
-| Hashed range of each transcript round | Table below | **[ZK: TBC]** |
-| Shplemini array sizes and slot indices | Hazards 2 and 11 | **[ZK: TBC]** |
-| Check order and error set | [Failure behaviour](#failure-behaviour) | **[ZK: TBC]** |
-
-The ZK column is read from the upstream source at commit `b225653`.
-
-What stays: the proof is kept as `Bytes`, the transcript uses one `absorb` helper per round, and the relation functions write into one shared array. The contiguous-absorb design is being re-validated for the ZK transcript.
-
-### Proof word layout (non-ZK, superseded)
-
-<details>
-<summary>Layout from the original non-ZK plan. It is not valid for the ZK target and is kept only as the starting point for the ZK layout.</summary>
-
-L = log N. `Bytes.word_at` takes a byte offset.
-
-| Words | Content | Hashed for |
-|---|---|---|
-| 0–7 | pairing limbs | eta |
-| 8–13 | w1, w2, w3 | eta = H(vkHash ‖ publicInputs ‖ words 0..13) |
-| 14–19 | lookupReadCounts, lookupReadTags, w4 | beta (gamma = H(beta)) |
-| 20–23 | lookupInverses, zPerm | alpha |
-| 24+8i … +7 | sumcheck univariate, round i | u_i |
-| 24+8L … +40 | 41 evaluations | rho |
-| 65+8L … | 2(L−1) fold-commitment words | geminiR |
-| 63+10L … | L gemini evaluations | shplonkNu |
-| 63+11L, 64+11L | shplonkQ | shplonkZ |
-| 65+11L, 66+11L | kzgQuotient | (not hashed) |
-
-</details>
-
-### Key signatures (sketch)
-
-Uncompiled sketches in Fe 26.6.0 syntax, written for the original plan. They show intent, not final code. The entity count is the ZK one; the `absorb` shape is the part being re-validated.
-
-```fe
-// abi.fe
-pub msg VerifierMsg {
-    #[selector = sol("verify(bytes,bytes32[])")]
-    Verify { proof: Bytes, public_inputs: Vec<Bytes32> } -> bool,
-}
-
-// fr.fe
-pub const P: u256 = 21888242871839275222246405745257275088548364400416034343698204186575808495617
-pub const Q: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
-pub fn add(_ a: u256, _ b: u256) -> u256 { addmod(a, b, P) }
-pub fn sub(_ a: u256, _ b: u256) -> u256 { addmod(a, P - b, P) }
-pub fn mul(_ a: u256, _ b: u256) -> u256 { mulmod(a, b, P) }
-pub fn inv(_ a: u256) -> u256            // a != 0 required (reverts otherwise); match modexp(base: a, exp: P - 2, modulus: P)
-
-// transcript.fe
-fn absorb(prev: u256, _ proof: Bytes, start: usize, n: usize) -> u256   // std Packed: prev, then n proof words from start; keccak256 % P
-pub fn generate(vk: VerificationKey, _ proof: Bytes, _ public_inputs: Vec<Bytes32>) -> Transcript
-
-// sumcheck.fe / relations.fe / shplemini.fe / verifier.fe
-pub fn verify(vk: VerificationKey, _ proof: Bytes, t: Transcript) -> bool          // sumcheck, shplemini
-pub fn accumulate(_ p: [u256; 42], t: Transcript, pow: u256) -> u256                // relations; 42 evaluated entities (ZK)
-pub fn verify(vk: VerificationKey, _ proof: Bytes, _ public_inputs: Vec<Bytes32>) -> bool
-```
-
-| Convention | Rule |
+| Quantity | Value |
 |---|---|
-| Parameters | Plain parameters view the caller's value in place (no copy). Outputs go through `mut` parameters. |
-| Arity | Every function keeps six parameters or fewer. |
+| Proof size in words (L = log N) | 82 + 12·L: 142 for this circuit |
+| Values per sumcheck round | 9 |
+| Evaluations in the proof | 42: the masking polynomial, then the 41 entities the relations read (37 unshifted, 5 shifted) |
+| Subrelations | 31, in ten relations |
+| Slots of the multi-scalar multiplication | 42 + L |
+| ZK-specific steps | Libra masking of sumcheck (initial target and last comparison), the row-disabling factor of the last comparison, the Gemini masking polynomial (evaluation 0, slot 1), a consistency check over a subgroup of 256 elements |
+| Upstream sources | `BaseZKHonkVerifier.sol` + `ZKTranscript.sol`, with the relations and commitment-scheme helpers they use, at commit `b225653` |
+
+The proof word layout, the hashed range of each transcript round and the table of slots are in [`ultrahonk/docs/zk-verifier-reference.md`](../ultrahonk/docs/zk-verifier-reference.md). Every layout row and every transcript row there was checked against the reference on the pinned proof.
+
+### Modules and entry points
+
+All modules are in `ultrahonk/lib/src/`.
+
+| Module | Entry points | Ports (upstream reference) |
+|---|---|---|
+| `abi.fe` | `VerifierMsg::Verify { proof: Bytes, public_inputs: Vec<Bytes32> } -> bool`, with the selector of `verify(bytes,bytes32[])` | `IVerifier.verify` |
+| `fr.fe` | `add`, `sub`, `mul`, `neg`, `inv`; the constants `P` and `Q` | `FrLib` |
+| `proof.fe` | `validate(proof, log_n)`, `word(proof, index)`, one function per offset | The length check and the range checks of `loadProof` |
+| `transcript.fe` | `absorb(prev, proof, start, count)`, `generate(vk, proof, public_inputs) -> Transcript` | `ZKTranscriptLib.generateTranscript` |
+| `sumcheck.fe` | `public_input_delta`, `rounds`, `final_check`, `verify`, `verify_with_relations_at` | `computePublicInputDelta`, `verifySumcheck`, `computeNextTargetSum` |
+| `relations.fe`, `wire.fe` | The ten relations, `batch`, `accumulate`; the message `RelationsMsg::Accumulate`; the entity indices | `RelationsLib` |
+| `shplemini.fe` | `scalars`, `commitment`, `slots` | The scalar part of `verifyShplemini`, `computeSquares`, `computeFoldPosEvaluations` |
+| `consistency.fe` | `check`, `evaluate`, `evaluate_sparse` | `checkEvalsConsistency` |
+| `opening.fe` | `msm`, `negate`, `pairing_points`, `pairing`, `verify` | `batchMul`, `negateInplace`, the pairing-point aggregation, `pairing` |
+
+Plain parameters view the caller's value in place, with no copy. Outputs that are arrays go through `mut` parameters.
+
+`HonkVerifier` (`verifier/src/lib.fe`) runs `validate`, the public-input count check, `generate`, `public_input_delta`, `verify_with_relations_at` and `opening::verify`, in that order. `HonkRelations` (`relations/src/lib.fe`) answers `RelationsMsg::Accumulate` with `accumulate`. The verifier takes the address of the relations contract as its constructor argument.
 
 ### Failure behaviour
 
-The Fe verifier reverts with the same custom errors as the upstream reference (`Errors.sol`), declared as `#[error]` structs and raised with `revert_error`, so its ABI is a drop-in for the upstream verifier ([ADR-0008](adr/0008-precompile-match-and-solidity-compatible-errors.md)). The negative tests assert that each tamper case reverts with the same selector as the reference.
+The Fe verifier reverts with the custom errors of the upstream reference, declared as `#[error]` structs in `lib/src/errors.fe` and raised with `revert_error`, so its ABI is a drop-in for the upstream verifier ([ADR-0008](adr/0008-precompile-match-and-solidity-compatible-errors.md)). A test asserts that each of the 13 selectors equals the selector of the reference's declaration.
 
-Errors listed in the original plan for the non-ZK contract: `SumcheckFailed`, `ShpleminiFailed`, `ProofLengthWrongWithLogN`, `PublicInputsLengthWrong`, `ValueGeLimbMax`, `ValueGeGroupOrder`, `ValueGeFieldOrder`, `InvertOfZero`. The error set of the ZK contract is **[ZK: TBC]**.
+The checks run in the order of the reference. The order decides which error a call that breaks two rules reverts with.
 
-The check order must match the reference, or the selectors differ. The order below is the non-ZK one from the original plan; the ZK order is **[ZK: TBC]**.
+| # | Check | Error |
+|---|---|---|
+| 1 | Proof length | `ProofLengthWrongWithLogN(logN, actual, expected)` |
+| 2 | Each proof word, in order: limbs, point coordinates, scalars | `ValueGeLimbMax`, `ValueGeGroupOrder`, `ValueGeFieldOrder` |
+| 3 | Number of public inputs | `PublicInputsLengthWrong` |
+| 4 | Each public input below `P` | `ValueGeFieldOrder` |
+| 5 | Sumcheck: the round checks, then the last comparison | `SumcheckFailed` |
+| 6 | Shplemini scalars | `InvertOfZero` on a zero denominator |
+| 7 | Consistency check | `GeminiChallengeInSubgroup`, `ConsistencyCheckFailed` |
+| 8 | Multi-scalar multiplication | `ShpleminiFailed` |
+| 9 | Pairing-point aggregation, only when a limb is non-zero | `ValueGeGroupOrder`, `PointAtInfinity`, `ShpleminiFailed` |
+| 10 | Pairing | `ShpleminiFailed` |
 
-1. Proof length.
-2. Limbs.
-3. Coordinates and scalars, in proof order.
-4. Public-input count.
-5. Public-input range.
-6. Sumcheck.
-7. Shplemini.
+Where the revert is raised: the library reverts for checks 1, 2 and 4, for a sumcheck round that does not hold and for checks 6 to 9. Check 3 is in the contract. The library returns a `bool` for the last sumcheck comparison and for the pairing, and the contract turns `false` into `SumcheckFailed` or `ShpleminiFailed`. The contract never returns `false`.
 
-Precompile results follow the `expect_word` / `expect_pair` / `expect_bool` match pattern of `crates/fe/tests/fixtures/fe_test/precompile_wrappers.fe` in the Fe repository.
+Recorded differences from the reference:
 
-### Std functions to reuse
+| Case | Reference | Fe | Tested |
+|---|---|---|---|
+| Proof word 138 with its low bit flipped: `shplonkQ` is off the curve, so the first multiplication of the multi-scalar multiplication fails | Goes on after the failed precompile call, which takes all the gas it was given, runs out of gas and reverts without data | Reverts with `ShpleminiFailed()` at the first failed call | Yes, in `verifier` and `lib` |
+| A carried pairing point off the curve | Reverts without data, according to the comment in `lib/src/opening.fe` | Reverts with `ShpleminiFailed()` | The Fe side, in `lib` |
+| The `modexp` precompile call itself fails | Reverts with the four raw bytes `0xf8d61709` | `fr::inv` reverts with `ModExpFailed()` (`0x1f7ec5f0`) | No test triggers it |
+
+`NotPowerOfTwo` is declared and never raised: `consistency.fe` computes `r^256` by eight squarings instead of the reference's `pow`.
+
+Precompile results are matched in place (`mul_point`, `add_points` and `pairing` in `opening.fe`, `inv` in `fr.fe`). A failed `ec_add` or `ec_mul` reverts with `ShpleminiFailed`. A failed pairing call counts as a pairing that does not hold, as in the reference.
+
+### Std functions used
 
 From the Fe repository at tag `v26.6.0`:
 
 | Module or use | Items |
 |---|---|
-| `ingots/std/src/evm/crypto.fe` | `addmod`, `mulmod`, `keccak256(MemSpan)`, `ec_add`, `ec_mul`, `ec_pairing(MemSpan)`, `modexp` |
-| `ingots/std/src/evm/packed.fe` | The `Packed` builder: `with_capacity(bytes:)`, `u256`, `append_span`, `keccak256`, `span` |
-| Single-word rehash | `keccak_words([x]) % P` |
+| `ingots/std/src/evm/crypto.fe` | `addmod`, `mulmod`, `modexp`, `ec_add`, `ec_mul`, `ec_pairing`, `keccak_words` |
+| `ingots/std/src/evm/packed.fe` | The `Packed` builder: `with_capacity(bytes:)`, `u256`, `u32`, `append_span`, `keccak256`, `span` |
+| `std::evm` | `staticcall_decode` for the call to the relations contract |
 | Test-input helpers | `std::abi::bytes_from_words`, `dyn_array_from` |
+
+`lib/src/std_assumptions.fe` holds seven tests that pin the behaviour the port depends on: `ec_add` and `ec_mul` agree on the generator, `ec_add` rejects a point off the curve, the pairing of the generator with its negation holds, and `Packed` and `keccak_words` give known hashes.
 
 ## Design: vault (integration contract)
 
-The vault follows the teaching page's sketch: storage `{ y, verifier, claimed }`, `init(y, verifier)` and `claim(bytes proof) -> bool`. It proves knowledge of a secret `x` with this circuit:
+The vault follows the teaching page's sketch. Its storage is `{ y, verifier, claimed, winner }`. It is deployed with `y` and the address of the verifier, and answers `claim(bytes proof) -> bool`, `claimed()` and `winner()`. A claimant proves knowledge of a secret `x` with this circuit:
 
 ```noir
 fn main(x: Field, y: pub Field, recipient: pub Field) {
@@ -369,133 +353,137 @@ fn main(x: Field, y: pub Field, recipient: pub Field) {
 
 `claim` does four things:
 
-1. Reject if already claimed.
+1. Return `false` if already claimed, without asking the verifier.
 2. Build the public inputs itself: `[y, caller]`. The claimant never supplies them, so a proof copied from the mempool is useless to anyone else.
-3. Call `verifier.verify(proof, public_inputs)` through `VerifierMsg`. A revert or `false` fails the claim.
-4. Set `claimed`.
+3. Ask `verifier.verify(proof, public_inputs)` through `VerifierMsg`, in a static call. If the verifier answers `false`, `claim` returns `false`. If it reverts, `claim` reverts with the same data.
+4. Set `claimed` and `winner`.
 
 | Aspect | Detail |
 |---|---|
-| Why ZK | `x` is the secret. A non-ZK proof leaks witness evaluations, so a vault that hides its secret needs the ZK flavor. |
-| Payout | Not implemented. The contract records the claim only. |
-| Tests | Fe tests. The cases from the plan: a valid claim by the recipient the proof was made for succeeds, a replay fails, a different caller fails. |
-| Caller in tests | These cases need the Fe test harness to choose the caller. The original plan treated that as unconfirmed (see [open points](#open-points)). |
+| Why ZK | `x` is the secret. A proof without zero-knowledge leaks witness evaluations. |
+| Payout | Not implemented, by decision. The contract records the claim and the claimant only. |
+| Tests | 11 Fe tests. Nine put a stand-in behind the vault: a valid claim, a replay, another caller, a wrong proof, a verifier that reverts, a verifier address without code, a verifier that writes storage, the calldata the verifier receives, and the fixed address of the test contract. Two put the vault in front of `HonkVerifier`. |
+| Caller in tests | A Fe test cannot choose the caller of a call. A caller is a `Claimer` contract that forwards `claim`, or the test contract itself, whose address is always `0xbd770416a3345f91e4b34576cb804a576fa48eb1` with `fe` 26.6.0. |
+| Real claim | The second pinned proof is made for that test address, so a test claims through the vault in front of the real verifier. The first pinned proof, made for `0xc0ffe`, cannot be claimed from a Fe test. |
+
+Details and measurements: [`ultrahonk/vault/README.md`](../ultrahonk/vault/README.md).
 
 ## Design: toy verifier
 
-A port of the teaching page's `verify(vk, proof, pis, ch)`: 4 rows, 3 wires, 23 evaluations, 7 subrelations, 2 sumcheck rounds of 6 values, and 10 challenges passed in as inputs (the toy is interactive, as on the page). See [ADR-0011](adr/0011-toy-verifier-vectors-from-reference-js.md).
+A port of the teaching page's `verify(vk, proof, pis, ch)`: 4 rows, 3 wires, 23 evaluations, 7 subrelations, 2 sumcheck rounds of 6 values, and 10 challenges passed in as inputs (the toy is interactive, as on the page). See [ADR-0011](adr/0011-toy-verifier-vectors-from-reference.md).
 
-The toy stays the non-ZK toy protocol of the teaching page, independent of the real verifier's switch to ZK. Its optional ZK sumcheck-mask scenarios may be added as a later step; they are not part of T1 or T2.
+The toy also verifies proofs whose sumcheck is masked, the one part of the ZK flavor that the page computes. A masked toy proof is still not zero-knowledge: the 23 evaluations travel unmasked.
 
 | Module | Content |
 |---|---|
 | `f17.fe` | Arithmetic mod 17. |
-| `curve.fe` | F_101, F_101², the curve y² = x³ + 3, G1/G2 addition and scalar multiplication, Miller-loop pairing (no precompile exists for this curve). |
-| `sumcheck.fe`, `relations.fe` | Public-input delta, round checks, Lagrange evaluation, partial pow, the 7 subrelations, final check `pow·A + l1 == target`. |
-| `shplemini.fe` | Batched evaluation, fold evaluations, MSM over the 22 unshifted commitments plus `[Q]`, `[A₁]`, `[1]`, then `e(P0, G2)·e(P1, τG2) == 1`. |
-| `reference/gen_vectors.js` | Runs the page's scenarios and writes `src/vectors.fe`. |
+| `relations.fe`, `sumcheck.fe` | The 7 subrelations and their batching; public-input delta, round checks, Lagrange evaluation, partial pow, final check. |
+| `curve.fe` | F_101, F_101², the curve y² = x³ + 3, G1 and G2 arithmetic, Miller-loop Tate pairing (no precompile exists for this curve). |
+| `shplemini.fe` | Batched evaluation, fold evaluations, scalars, MSM, P0 and P1, pairing check. |
+| `libra.fe` | The sumcheck mask: KZG check of the two mask openings, initial target, final term. |
+| `verifier.fe` | `verify`, `verify_masked`. |
+| `reference/honk.py` | The reference: a Python port of the page's math block. |
+| `reference/gen_vectors.py` | Runs the reference on 15 scenarios and writes `src/vectors.fe`: 8 of the page's scenarios, 2 more honest runs and 5 masked ones. |
+
+The Fe verdict equals the reference verdict in every scenario, including the "lucky dice" cheat that both accept. Limits, among them that the toy is not secure: [`ultrahonk/toy/README.md`](../ultrahonk/toy/README.md).
 
 ## Stages
 
-Hard rule: at **Nov 24, 2026 14:00 UTC** feature work stops and the docs stage starts. The status table in `ultrahonk/README.md` is updated at the end of every stage.
-
-The Status column reflects 2026-11-22. Only stage 0 is recorded as complete, and only for the original non-ZK target.
+All stages are done. The table keeps the plan's stage numbers and states what each one produced.
 
 ### Main line (branch `feature/ultrahonk-verifier`)
 
-How to read this table:
+"Ports:" names the upstream Barretenberg reference functions a stage ports. They are references, not project code.
 
-- "Ports:" names the upstream Barretenberg reference functions a stage ports. They are references, not project code.
-- Rows 1–8 and all estimates (25 h in total, stage 0 included) come from the original plan. Their test wording is restated here for Fe tests, but the stages have not been re-cut: names, counts and slot numbers are **[ZK: TBC]**, and the ZK-specific steps (Libra masking, the small-subgroup consistency check, the Gemini masking polynomial) are not yet assigned to a stage or estimated.
+| # | Work | Outcome |
+|---|---|---|
+| 0 | Tooling, Noir circuit, `vectors.sh`, the ZK vector, the recorded reference reverts, ingot skeletons, checks of the std | Done. The pipeline ends with `bb verify` accepting both proofs. |
+| 1 | `abi.fe` and the `Vault` contract, with Fe tests | Done. 11 tests. A valid claim returns `true`; a replay and another caller fail. |
+| 2 | `fr`, `types`, `proof`, `transcript`. Ports: `FrLib`, the checks of `loadProof`, the transcript | Done. Every challenge equals the oracle's value. A scalar ≥ P and a coordinate ≥ Q revert as in the reference. |
+| 3–5 | Sumcheck: public-input delta, round checks, the ten relations, the last comparison. Ports: `computePublicInputDelta`, `verifySumcheck`, `computeNextTargetSum`, the ten relations, `scaleAndBatchSubrelations` | Done. The delta, every round target and the partial pow match. The 31 subrelations match one by one, for the pinned proof and for a synthetic input that makes all 31 non-zero. The relations are the contract `HonkRelations`. |
+| 6 | The opening: Shplemini scalars, Libra consistency check, multi-scalar multiplication, pairing-point aggregation, pairing. Ports: `computeSquares`, `computeFoldPosEvaluations`, `checkEvalsConsistency`, `batchMul`, the aggregation, `pairing` | Done. The scalars match slot by slot, and the two pairing points match. The aggregation matches the reference on limbs put in place of the zeros, because no proof of this circuit carries pairing points. |
+| 7 | `HonkVerifier` accepting proofs, negative tests over the recorded invalid calls, the vault in front of the Fe verifier, size and gas | Done, except the code-size script: size and gas were measured by hand. |
+| 8 | README, reproduce steps, `scripts/check.sh` | README and reproduce steps are done. `scripts/check.sh` was not written. |
 
-| # | Work | Acceptance | Est. | If the deadline hits here | Status |
-|---|---|---|---|---|---|
-| 0 | Tooling, Noir circuit, `vectors.sh`, oracle tests, ingot skeletons, spikes | Pipeline ends with bb verify OK; oracle tests pass; `fe test` green | 3 h | Reproducible oracle pipeline + skeleton | Done on 2026-11-22 for the original non-ZK target |
-| 0b | Switch the stage 0 artifacts to the ZK flavor (`-t evm`) and to the Fe-only layout: generated verifier in the untracked `.oracle/`, no tracked Solidity, expected values and tamper-case selectors as Fe constants | Not stated in the scope changes | — | — | In progress |
-| 1 | `abi.fe` + `Vault` contract, with Fe tests | `fe test`: valid claim true; replay and wrong caller fail | 2 h | To be restated: the original cut line ("A Fe contract that verifies Noir proofs", through the Solidity verifier) relied on the tracked oracle | Planned |
-| 2 | `fr`, `types`, `proof`, `transcript`; transcript challenges captured from the local oracle. Ports: `FrLib`, `loadProof` checks, all `generate*Challenge` | `fe test -f transcript`: every challenge equals the oracle value; reverts on scalar ≥ P and coordinate ≥ Q | 2.5 h | + bit-exact UltraHonk transcript in Fe | Planned |
-| 3 | Risk spike. Ports: `accumulateMemoryRelation` (largest, 169 lines) | Compiles; slots 14–19 match; record `runtime.bin` size at `-O 1/2/s` | 1.5 h | Decides single contract vs split | Planned |
-| 4 | `sumcheck` without relations. Ports: `computePublicInputDelta`, `checkSum`, `computeNextTargetSum`, `partiallyEvaluatePOW` | delta, every round target and final pow match | 1.5 h | + sumcheck reduction | Planned |
-| 5 | Other nine relations; finish `sumcheck::verify`. Ports: the nine relations, `scaleAndBatchSubrelations` | 31 slots match one by one; grand sum equals target; tampered evaluation → false | 5 h | "Full sumcheck verifier in Fe; no opening proof" | Planned |
-| 6 | `shplemini`. Ports: `computeSquares`, `computeFoldPosEvaluations`, scalars, `batchMul`, pairing-point aggregation, `pairing` | scalars match by index; P0, P1 match; `verifier::verify` returns true | 4 h | Complete verifier library | Planned |
-| 7 | `HonkVerifier` Fe contract, negative Fe tests over the fixed tamper list, vault tests against the Fe verifier, code-size script, gas | the Fe verifier accepts the proof and reverts with the reference selector on every tamper case; vault claim passes with the Fe verifier; runtime ≤ 24,576 bytes | 2.5 h | Full submission | Planned |
-| 8 | README, `scripts/check.sh`, reproduce steps | fresh clone passes `scripts/check.sh` with only `fe` | 3 h | — | Planned |
+The plan gave each stage an estimate and a cut line, so that a run stopped by the deadline would still leave a coherent result ([ADR-0014](adr/0014-staged-delivery-incremental-commits.md)). Every stage was reached, so they are not repeated here.
 
-### Stage 0 spikes
+### Toy line (branch `feature/honk-toy`, merged)
 
-The original plan's spikes, each kept as real code or as a test. They belong to stage 0, which is recorded as completed for the non-ZK target (pipeline, oracle tests, Fe skeleton). This document does not record individual spike outcomes.
+| # | Work | Outcome |
+|---|---|---|
+| T1 | The reference and the generator; `f17`, `sumcheck`, `relations` | Done. For the honest run, the delta, round targets, pow, the 7 subrelations and the final check equal the reference. Each cheating scenario fails at the same check as in the reference. |
+| T2 | `curve` (with the Miller-loop pairing), `shplemini`, `verifier` | Done. The batched evaluation, the scalars, P0, P1 and both pairing values equal the reference. `verify` gives the reference's verdict in every scenario. |
+| Later step | The sumcheck mask | Done: `libra.fe` and `verify_masked`, with 5 masked vectors. |
+| Later step | Reference and generator in Python | Done on 2026-11-23. The first version ran the page's JavaScript. The Python generator reproduced the committed vectors byte for byte before the JavaScript was removed. |
 
-| # | Spike | Why | Under the Fe-only layout |
+### Stage 0 spikes and what became of them
+
+The plan started with six small experiments. Each one answered a question.
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | Does a `msg` with `Bytes` + `Vec<Bytes32>` work for `verify(bytes,bytes32[])`? | Yes: `VerifierMsg` in `lib/src/abi.fe`, used by `HonkVerifier`, `Vault` and their tests. |
+| 2 | Can a Fe contract call another one, and take constructor arguments? | Yes: `Vault` calls the verifier with the typed message, `HonkVerifier` calls `HonkRelations` with `staticcall_decode`, and both take constructor arguments. |
+| 3 | How are precompile `Result`s handled? | `match`, as in the tests of `lib/src/fr.fe` and `lib/src/std_assumptions.fe`. |
+| 4 | Does the hash helper give a known hash? | Yes: the `Packed` and `keccak_words` tests of `lib/src/std_assumptions.fe`, and the `absorb` tests of `lib/src/transcript.fe`. |
+| 5 | Can Foundry deploy a Fe `.bin`? | Dropped. No committed test uses Foundry. |
+| 6 | Which flags and output names does `bb` 6.0.0 use? | Settled in `scripts/vectors.sh`. |
+
+## Measured results
+
+With `fe` 26.6.0. The figures are the ones in [`ultrahonk/README.md`](../ultrahonk/README.md) and [`ultrahonk/vault/README.md`](../ultrahonk/vault/README.md), which state the method and its caveats.
+
+| | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| 1 | Contract skeleton with `verify(bytes,bytes32[])` that checks lengths then always reverts, called from a Fe test and from Foundry with ABI-encoded calldata | Settles the untested `Bytes` + `Vec<Bytes32>` msg shape | The Foundry-side call is not part of the committed tests |
-| 2 | A Fe contract calling another contract through `VerifierMsg`, and constructor arguments passed to Fe initcode from Foundry | Both are needed by the vault | The vault is tested with Fe tests |
-| 3 | `mul(inv(2), 2) == 1`, `ec_add(G, G) == ec_mul(G, 2)`, a two-pair pairing check | Settles precompile `Result` handling | Unchanged |
-| 4 | `absorb` over 32 zero bytes equals `keccak(0x00…00) % P` | Checks the transcript hash helper against a known hash | Unchanged |
-| 5 | Foundry deploys a Fe `.bin` | Confirms the format, and that Foundry runs Osaka bytecode (`evm_version = "osaka"`; Sonatina emits `CLZ`) | Not needed by the committed tests |
-| 6 | `bb prove --help` | Confirms the `bb` 6.0.0 flags and output file names | To be repeated for `-t evm` |
+| Runtime size of `HonkVerifier`, bytes | 16,446 | 16,274 | 16,174 |
+| Runtime size of `HonkRelations`, bytes | 8,527 | 6,336 | 6,343 |
+| Runtime size of `Vault`, bytes | 655 | 647 | 651 |
+| Gas of `verify` on the pinned proof, accepted | 2,108,994 | 2,106,426 | 2,124,076 |
+| Gas of a vault claim in front of `HonkVerifier` | 2,120,252 | 2,117,762 | 2,133,741 |
 
-### Code-size strategy
-
-`fe test` cannot catch the EIP-170 limit (its revm allows 1 MiB), so the limit is checked outside the tests. No size is recorded in this document. See [ADR-0012](adr/0012-code-size-strategy.md).
-
-| Step | Detail |
+| Reference (Solidity verifier, solc 0.8.34) | |
 |---|---|
-| Measure early | Stage 3 compiles the largest relation and records `runtime.bin` size at `-O 1`, `-O 2` and `-O s`. |
-| Project | Stage 3's number × ~4.5 projects the size of the relations. The ZK flavor adds protocol steps on top of the shared relations; their effect on size is unmeasured. |
-| Enforce | A script checks the built `.runtime.bin` against 24,576 bytes. |
-| Fallback 1 | `-O 2` / `-O s`. |
-| Fallback 2 | A second contract, `HonkRelations`, staticcalled by the verifier (the upstream reference does the same with `RelationsLib`). |
+| Runtime size | `HonkVerifier` 16,946 bytes, plus the linked libraries `RelationsLib` 8,211 and `ZKTranscriptLib` 6,008 |
+| Gas of a valid `verify` | 2,654,961 (forge gas report) |
 
-### Toy line (branch `feature/honk-toy`, separate git worktree, runs in parallel)
+The limit for one contract is 24,576 bytes (EIP-170). `fe test` cannot catch it: its revm allows 1 MiB. A size is read from the build: `fe build --contract <Name> -O <level>` writes `out/<Name>.runtime.bin` as hex text, and the size is half its length. The nine sizes in the table were measured again this way on 2026-11-23. The gas figures were not measured again: the tests that measured them are not committed.
 
-Estimates sum to 5.5 h.
-
-| # | Work | Acceptance | Est. | If cut here | Status |
-|---|---|---|---|---|---|
-| T1 | `reference/` extraction + generator; `f17`, `sumcheck`, `relations` | `fe test` in `ultrahonk/toy`: for the honest run, delta, round targets, pow, the 7 subrelations and the final check equal the reference; each cheating scenario fails at the same check as on the page | 2.5 h | Toy sumcheck verifier | Planned |
-| T2 | `curve` (incl. Miller-loop pairing), `shplemini`, `verifier` | batched evaluation, κ, P0, P1 and both pairing values equal the reference; `verify` accepts the honest proof and gives the page's verdict for all nine non-ZK scenarios, including the "lucky dice" cheat that is accepted | 3 h | Complete toy Honk verifier | Planned |
-
-### Order of sacrifice
-
-If time runs short: T2 first, then vault extras, never the main-line stage in progress.
+The relations are a contract of their own, as the reference keeps them in a linked library ([ADR-0012](adr/0012-code-size-strategy.md)). The two Fe runtimes add up to 24,973 bytes at `-O 1`, 22,610 at `-O 2` and 22,517 at `-O s`. The repository records no size for a single Fe contract holding everything, so these sums only indicate what it would weigh.
 
 ## Porting hazards (real verifier)
 
-Implementer checklist for the port, written against the non-ZK upstream reference. Items are grouped by area and keep the plan's original numbers.
-
-- Items tagged **[ZK: TBC]** contain orderings, counts or indices to be confirmed from the generated ZK contract (stage 0b, in progress).
-- The ZK-specific steps (Libra masking, the small-subgroup consistency check, the Gemini masking polynomial) have no checklist items yet.
-- "Solidity" in an item means the upstream Barretenberg reference.
+The implementer's checklist, restated for the ZK verifier. Every item is handled in the code named. "The reference" is the upstream Barretenberg verifier.
 
 **Orderings and offsets**
 
-- [ ] 1. Three different orderings: proof order (w1, w2, w3, readCounts, readTags, w4, lookupInverses, zPerm), WIRE/commitment order (w1..w4, zPerm, lookupInverses, readCounts, readTags), and VK struct order. **[ZK: TBC]**
-- [ ] 2. Shplemini scalars are offset by one (index 0 is shplonkQ with scalar 1); shifted wires are `scalars[29..33]` with evaluations 36..40; the rho power is not reset between the two loops. **[ZK: TBC]**
-- [ ] 15. Length checks first: `proof.len() == (82 + 12L)*32` for the ZK flavor (the original plan had `(67 + 11L)*32`) and `public_inputs.len() == num_public_inputs − 8`. **[ZK: TBC]** for the public-input count.
+- [x] 1. Three orderings. Proof order: masking commitment, w1, w2, w3, lookupReadCounts, lookupReadTags, w4, lookupInverses, zPerm. Order of the multi-scalar multiplication (slots 30–37): w1, w2, w3, w4, zPerm, lookupInverses, lookupReadCounts, lookupReadTags. Verification-key order: `vectors/vk` already lists its points in the order of slots 2–29. Handled by `shplemini::commitment`; a test compares the commitment of every slot.
+- [x] 2. Shplemini slots: slot 0 is `shplonkQ` with scalar 1 and slot 1 the masking polynomial; the shifted wires are slots 30–34 and take evaluations 37–41; the ρ power is not reset between the unshifted and the shifted sum. Handled by `shplemini::scalars`; tests compare every scalar.
+- [x] 15. Length checks first: `proof.len() == (82 + 12L)·32`, then the range of each word, then `public_inputs.len() == num_public_inputs − 8`. Handled by `proof::validate` and `verifier/src/lib.fe`.
 
 **Field arithmetic**
 
-- [ ] 3. `sub` needs b < P; `neg(0)` is P in Solidity and 0 in Fe (equal after reduction, never compare raw).
-- [ ] 4. `inv(0)` must revert; modexp returns 0 silently.
+- [x] 3. `sub(a, b)` needs `b ≤ P`. `neg(0)` is `P` in the reference and 0 in Fe; the two are equal after reduction, so raw values are never compared.
+- [x] 4. `inv(0)` reverts with `InvertOfZero`; `modexp` would return 0 silently.
 
 **Transcript**
 
-- [ ] 5. eta: vkHash first; each public input checked `< P`; the 8 pairing limbs follow the public inputs; `publicInputsSize` includes those 8. **[ZK: TBC]**
-- [ ] 6. All challenges are full `keccak % P`. Gate challenges are successive squares of g0 and g0 is the chained value. `alphas[i] = alpha^(i+1)`. **[ZK: TBC]**
+- [x] 5. `eta`: the VK hash first, then each public input (checked `< P`), then proof words 0–15: the 8 pairing limbs, the masking commitment, w1, w2, w3. `num_public_inputs` counts the 8 limbs.
+- [x] 6. All challenges are full `keccak % P`. Gate challenges are successive squares of the first one. `alphas[i] = alpha^(i+1)`. The Fe `Transcript` keeps the seeds, and the consumers multiply as they go.
 
 **Sumcheck and relations**
 
-- [ ] 7. Sumcheck: initial target 0; copy the eight barycentric denominators verbatim; pow update is `pow * (1 + u*(g − 1))`. **[ZK: TBC]** (the ZK flavor has 9 values per round, not 8)
-- [ ] 8. Relations: slots are not in call order (arithmetic 6–7, permutation 0–2); slots 4 and 21 are not multiplied by the domain separator; batching is `evals[0] + Σ evals[i]·alpha^i`. (The relations code is shared by both flavors upstream: same 31 subrelations.)
-- [ ] 9. Public-input delta: numerator starts at `gamma + beta*(2^28 + 5)`, denominator at `gamma − beta*6`; real inputs first, then the 8 limbs. **[ZK: TBC]**
+- [x] 7. Sumcheck: the initial target is `libraChallenge · libraSum`; the nine barycentric denominators are copied verbatim; the pow update is `pow · (1 + u·(g − 1))`. The last comparison multiplies the relations by the row-disabling factor and adds `libraEvaluation · libraChallenge`.
+- [x] 8. Relations: slots are not in call order (arithmetic 6–7, permutation 0–2); slots 4 and 21 are not multiplied by the domain separator; batching is `evals[0] + Σ evals[i]·alpha^i`.
+- [x] 9. Public-input delta: the numerator starts at `gamma + beta·(2^28 + 5)`, the denominator at `gamma − beta·6`; real inputs first, then the 8 limbs.
 
-**Shplemini, MSM and pairing**
+**Shplemini, consistency check, MSM and pairing**
 
-- [ ] 10. `computeFoldPosEvaluations` iterates L down to 1 (use `while`); nu power starts at nu² and multiplies by nu² each step. **[ZK: TBC]**
-- [ ] 11. MSM: start the accumulator at (0,0) explicitly (Solidity relies on zeroed memory); generator (1,2) at index 36+L, kzgQuotient with scalar z at 36+L+1; any precompile failure rejects. **[ZK: TBC]**
-- [ ] 12. Negate kzgQuotient on a copy (Solidity mutates in place after `batchMul`); negation is mod Q and skips y = 0. **[ZK: TBC]**
-- [ ] 13. Pairing-point aggregation runs only if any limb is non-zero; coordinates are `lo | (hi << 136)`; the test circuit exercises one branch only, and the README must say which. **[ZK: TBC]**
-- [ ] 14. Pairing input order: (P0, fixed G2), (P1, SRS G2); copy the eight G2 words verbatim. **[ZK: TBC]**
+- [x] 10. The fold evaluations are computed from round L down to 1. The ν power starts at ν² and multiplies by ν² each step.
+- [x] 11. MSM: the accumulator starts at `(0, 0)` explicitly (the reference relies on zeroed memory); the generator `(1, 2)` is slot 40 + L and `kzgQuotient`, with scalar `z`, slot 41 + L; a failed precompile call rejects.
+- [x] 12. `kzgQuotient` is negated on a copy (the reference negates in place after the MSM); the negation is mod Q and skips `y = 0`.
+- [x] 13. Pairing-point aggregation runs only if a limb is non-zero; coordinates are `lo | (hi << 136)`. The pinned proofs have all limbs at zero, so they exercise only the branch that skips it. The aggregation is tested in `lib` against values the reference computed with limbs put in place of the zeros.
+- [x] 14. Pairing input order: (P0, the G2 generator), (P1, the G2 point of the key); the eight G2 words are copied verbatim.
+- [x] 16. Consistency check: every scalar is computed before it and no curve operation runs before it, so a proof that fails both it and the MSM reverts with `ConsistencyCheckFailed`. `r^256 = 1` reverts with `GeminiChallengeInSubgroup`.
 
 ## Workflow
 
@@ -503,83 +491,87 @@ See [ADR-0014](adr/0014-staged-delivery-incremental-commits.md).
 
 | Topic | Rule |
 |---|---|
-| Branches | Two branches off `develop` (gitflow): `feature/ultrahonk-verifier` in the main checkout and `feature/honk-toy` in a separate git worktree. |
-| Parallelism | The approved plan allows that one parallel implementation writer in its own worktree. The two lines touch disjoint directories. |
+| Branches | Feature branches off `develop` (gitflow). `feature/ultrahonk-verifier` is the main line. `feature/honk-toy`, `feature/ultrahonk-relations`, `feature/ultrahonk-opening`, `feature/ultrahonk-integration` and `feature/ultrahonk-docs` each had their own git worktree and are merged into it. |
+| Parallelism | The plan allowed one parallel line, the toy. The relations, the opening, the integration of the opening into the verifier, and the documents also had lines of their own. |
 | Incremental commits | Owner's rule of 2026-11-22: commit each working unit as soon as its tests pass, several per stage, not one commit per stage. |
-| Commit hygiene | Conventional commits, no tool-attribution trailers, explicit `ultrahonk/` pathspecs only. No push unless asked. |
-| Writers | One writer per stage on each line. A coordinator reports each stage's test output. |
-| Review | Stages do not wait for review. Each stage is a self-contained run of commits, so review can happen at any time and a stage can be reverted alone. Work pauses only for a real decision (for example single contract vs split after stage 3). |
+| Commit hygiene | Conventional commits, no tool-attribution trailers, explicit pathspecs only. No push unless asked. |
+| Review | Stages do not wait for review. Each stage is a self-contained run of commits, so review can happen at any time. |
 | Boundaries | No changes to global tools, the root library or `calculator/`. |
-| Documentation | Files under `docs/` are written on their own branch, `feature/ultrahonk-docs`, and touch no code directory. |
 
 ## Verification
 
-A reader needs only `fe`. No `forge` command is needed.
+A reader needs only `fe`.
 
 | Level | How |
 |---|---|
-| Per ingot | `fe check`, `fe fmt --check` and `fe test` inside the ingot. |
-| Per stage | The acceptance command in the stage tables: `fe test -f <name>` in the ingot. |
-| End to end | `scripts/check.sh`: `fe build` the contracts, `fe test` all ingots including the toy, check the code size of the built `.runtime.bin`, then print an accept/reject table plus size and gas. |
-| Regeneration (proof, key, local oracle) | `scripts/vectors.sh`. From a clean `vectors/` it reproduces the committed files if proving is deterministic; otherwise the README pins the committed proof. Needs the [project-local tools](#project-local-tooling). |
-| Regeneration (expected values) | Not possible from the repository alone: it needs the local capture harness to be recreated. Their documented provenance (tool, version, how captured) stands in for it. |
-| Regeneration (toy) | `node toy/reference/gen_vectors.js` reproduces `toy/src/vectors.fe`. Needs Node 24. |
+| Per ingot | `fe test` inside the ingot. `fe check` type-checks it. |
+| One group of tests | `fe test -f <name>` in the ingot. |
+| Committed proofs and key against the raw `bb` output | `scripts/proof_to_fe.sh --check`. Needs bash, `xxd` and `shasum`. |
+| Regeneration (proofs, key, oracle source) | `scripts/vectors.sh`. Proving is randomized, so it writes different valid proofs; the README pins the committed ones. Needs the [project-local tools](#project-local-tooling). |
+| Regeneration (captured values) | Not possible from the repository alone: it needs the local Foundry tests to be recreated. Their documented provenance stands in for it. |
+| Regeneration (toy) | `python3 toy/reference/gen_vectors.py` reproduces `toy/src/vectors.fe`; `--check` compares without writing. Needs Python 3. |
+| End-to-end script | Not written. Run the five `fe test` commands of the [Quick path](#quick-path). |
 
-What the Fe tests and the script are meant to show in the end-to-end run:
+What the Fe tests show:
 
-- [ ] The Fe verifier accepts the committed proof.
-- [ ] Every intermediate value equals the committed expected value from the reference oracle.
-- [ ] The Fe verifier reverts with the reference selector on each tamper case.
-- [ ] The vault claim works.
-- [ ] Code size is within EIP-170.
+- [x] The Fe verifier accepts the committed proof.
+- [x] Every intermediate value captured from the reference oracle equals the value the Fe code computes.
+- [x] The Fe verifier reverts with the reference's selector on each recorded invalid call. For proof word 138 the reference returned no data, and the Fe verifier reverts with `ShpleminiFailed()`.
+- [x] No proof with the low bit of one word flipped is accepted.
+- [x] A vault claim succeeds in front of the Fe verifier, and a replay is refused.
+- [ ] Every proof the reference rejects is rejected. The tests do not show this.
+
+Code size is within EIP-170 for each contract by measurement, not by a test.
 
 ## Assumptions, risks, out of scope
 
 ### Assumptions and limitations
 
 - The project owner is registered for the contest (registration closed Nov 17).
-- The test circuit exercises only one branch of pairing-point aggregation. The README must say which.
-- Committed expected values are trusted on their documented provenance, because the oracle and the capture harness are not in the repository.
+- The pinned proofs exercise only the branch that skips pairing-point aggregation. The aggregation is tested at library level only.
+- One circuit, with `LOG_N = 5`. No other circuit size is exercised.
+- Committed expected values are trusted on their documented provenance, because the oracle and the local Foundry tests are not in the repository.
+- The port is not audited.
 
-### Risks
+### Risks and how they turned out
 
-| Risk | Where it is addressed |
+| Risk in the plan | Outcome |
 |---|---|
-| Fe compiler crash or code size on the relations | Measured in stage 3 |
-| Cross-contract call or constructor arguments from Fe | Stage 0, spike 2 |
-| Reaching stage 7 by the deadline is not guaranteed | Cut lines in the stage tables |
-| The ZK flavor adds protocol steps (Libra masking, a small-subgroup consistency check, a Gemini masking polynomial), so the risk of not reaching the final pairing check by the deadline is higher | Cut lines in the stage tables; the stages are not yet re-cut for ZK |
-| A fixed list of tamper cases replaces in-EVM fuzzed differential testing | Accepted in [ADR-0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
-
-The original plan also listed "Osaka-only bytecode in forge" (stage 0, spike 5). No committed test depends on Foundry under the Fe-only layout.
+| Fe compiler crash or code size on the relations | The relations compile. They are a contract of their own, 8,527 bytes at `-O 1`. |
+| Cross-contract call or constructor arguments from Fe | Both work and are tested. |
+| Reaching stage 7 by the deadline | Reached on 2026-11-23. |
+| The ZK flavor adds protocol steps | All ported. |
+| A fixed list of invalid calls replaces fuzzed differential testing | Still true. Accepted in [ADR-0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md). |
 
 ### Out of scope
 
 - Anything running on the Aztec network.
-- The non-ZK flavor of the real verifier (`-t evm-no-zk`): dropped, not built alongside the ZK one.
-- Solidity in the repository, Foundry tests, and in-EVM fuzzed differential testing against the Solidity verifier.
+- The non-ZK flavor of the real verifier (`-t evm-no-zk`): not built.
+- Solidity in the repository, Foundry tests, and fuzzed differential testing against the reference verifier.
 - Vault payout logic.
 - Gas optimisation.
 - A VK generator CLI.
 - Multiple circuits.
 - Any change to the teaching page.
 
-Not in the current stages, possible as a later step: the toy's optional ZK sumcheck-mask scenarios.
+### Not done
 
-### Open points
+- `scripts/check.sh`, the end-to-end script.
+- A script that checks each `.runtime.bin` against 24,576 bytes.
+- A re-cut of the stage estimates for the ZK verifier. The stages were carried out in the plan's order instead.
 
-Places where the plan and the scope changes leave a detail unassigned. They are recorded here so a reviewer does not have to rediscover them.
+### Questions the plan left open, and their answers
 
-| Point | Current reading |
+| Question | Answer |
 |---|---|
-| Stage plan after the scope changes | Stages 1–8 and their estimates were written for the non-ZK target. The ZK-specific steps are not yet assigned to a stage, and stage 0b has no stated acceptance or estimate. |
-| Contiguous absorbs for the ZK transcript | The one-`absorb`-per-round design is being re-validated against the ZK transcript. |
-| Capture of expected values | How the values and selectors are captured from the local oracle (tool, version, method) is to be documented as provenance. How `verifier/src/vk.fe` is produced without the original generator is not stated. |
-| Fixed tamper list | Its source is not restated. The original plan followed the upstream negative test base's case list. |
-| Vault tests in Fe | They need the Fe test harness to choose the caller, which the original plan treated as unconfirmed. Which verifier answers the vault in tests before the Fe verifier exists (stage 7) is not stated, and the stage 1 cut line needs restating. |
-| Size and gas "next to Solidity" | The original plan printed size and gas next to the Solidity verifier. Whether that comparison is kept, using captured figures, is not stated. |
-| External transcript library | The generated ZK contract links its transcript library externally. What that means for running the local oracle is to be confirmed (stage 0b, in progress). |
-| Library `-> bool` vs contract revert | The sketches and the stage 5 and 6 acceptance lines speak of `false` / `true` results, while the verifier contract must revert with the reference errors. The plan does not say at which layer the revert is raised. |
+| Which stage holds the ZK-specific steps? | The Libra terms of sumcheck are in stages 3–5. The consistency check and the masking slot are in stage 6. |
+| Does one `absorb` per round fit the ZK transcript? | Yes. Only `eta` differs: it has no previous challenge and hashes the VK hash and the public inputs before the proof words. |
+| How are expected values captured, and how is the key produced? | Each vectors file states its capture method at the top, and `ultrahonk/README.md` describes it. `scripts/proof_to_fe.sh` prints the key from `vectors/vk`. |
+| Where does the list of invalid calls come from? | It is the list in `lib/src/expected.fe`. |
+| How do Fe tests set the caller, and which verifier answers the vault? | Callers are `Claimer` contracts or the test contract. Nine tests put a stand-in behind the vault and two put `HonkVerifier` there. |
+| Are size and gas shown next to the reference? | Yes, in `ultrahonk/README.md` and in [Measured results](#measured-results). |
+| What does the externally linked transcript library mean for the oracle? | The local Foundry project builds and links it. Its runtime size is listed with the reference's. |
+| Does the library return `bool` or revert? | Both, by step: see [Failure behaviour](#failure-behaviour). |
 
 ## References
 
@@ -587,14 +579,16 @@ Upstream Solidity files are listed as the reference being ported or consulted. N
 
 | Reference | Location |
 |---|---|
-| Reference oracle | Generated locally into `ultrahonk/.oracle/` with `-t evm` (untracked). Upstream at `aztec-packages` commit `b225653c4d0521907559ae80baa626bbbff49e55`: template `honk_zk_contract.hpp`, sources `BaseZKHonkVerifier.sol` and `ZKTranscript.sol` |
-| Teaching page | `https://claude.ai/artifact/TiC5eZeQs2U1Q9V3nAudPZ`. Sections `#practica` (the vault) and `#noir-fe` (modules and milestones). The first `<script>` block is the toy reference. |
+| Reference oracle | Generated locally into `ultrahonk/.oracle/src/HonkVerifier.sol` with `-t evm` (untracked). Upstream at `aztec-packages` commit `b225653c4d0521907559ae80baa626bbbff49e55`: template `honk_zk_contract.hpp`, sources `BaseZKHonkVerifier.sol` and `ZKTranscript.sol` |
+| Teaching page | "UltraHonk by hand", `https://claude.ai/artifact/TiC5eZeQs2U1Q9V3nAudPZ`: its section on practice (the vault) and its section on integration with Fe (modules and milestones). Its first inline script block is the math that `toy/reference/honk.py` ports. |
 | Fe std at the installed version | A local checkout of the Fe repository at tag `v26.6.0`: `ingots/std/src/evm/crypto.fe`, `ingots/std/src/evm/packed.fe`, `ingots/core/src/ptr.fe`, `ingots/core/src/abi.fe`, `ingots/std/src/abi.fe`, `docs/language/accesses.md` |
 | Msg and test idioms (same checkout) | `crates/fe/tests/evm_compiler_bench/merkle_verifier.fe`, `crates/fe/tests/fixtures/fe_test/abi_dynamic_payload.fe`, `crates/fe/tests/fixtures/fe_test/address_call_method.fe`, `crates/fe/tests/fixtures/fe_test/precompile_wrappers.fe` |
 | Pattern to mirror | `calculator/src/lib.fe` and `calculator/fe.toml` in this repository |
 | Upstream negative test base | `barretenberg/sol/test/honk/negative/NegativeTestBase.sol` (marked `UNLICENSED`; nothing is copied) |
-| Structure only | `fe-lang/rosetta`: `examples/verifier/fe/src/{field,transcript,msm}.fe`, `shared/ec/fe/src/bn254.fe`. The original plan also cited its `examples/verifier/test/PlonkBench.t.sol` as a test pattern, which no longer applies. |
+| Structure only | `fe-lang/rosetta`: `examples/verifier/fe/src/{field,transcript,msm}.fe`, `shared/ec/fe/src/bn254.fe` |
 
 ## Related documents
 
 - [Architecture Decision Records](adr/README.md): one record per decision in the [Decisions](#decisions) table.
+- [`ultrahonk/README.md`](../ultrahonk/README.md): status, test coverage, measurements, how to regenerate the vectors.
+- [`ultrahonk/docs/zk-verifier-reference.md`](../ultrahonk/docs/zk-verifier-reference.md): the proof layout, the transcript, the formulas and the errors.
