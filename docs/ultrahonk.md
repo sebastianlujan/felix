@@ -43,14 +43,14 @@ Regenerating inputs is optional and is not needed to verify: see [Verification](
 | # | Deliverable | Package | What it is | Status |
 |---|---|---|---|---|
 | 1 | Real verifier | `ultrahonk/lib`, `ultrahonk/verifier` | Port of Barretenberg's ZK UltraHonk verifier (BN254, Keccak transcript with zero-knowledge) | Stage 0 done for the non-ZK target; stage 0b in progress; later stages planned |
-| 2 | Integration contract | `ultrahonk/vault` | A Fe application contract that consumes a Noir + Barretenberg proof through the verifier (the teaching page's vault, "cofre") | Planned |
+| 2 | Integration contract | `ultrahonk/vault` | A Fe application contract that consumes a Noir + Barretenberg proof through the verifier (the teaching page's vault) | Planned |
 | 3 | Toy verifier | `ultrahonk/toy` | The teaching page's hand-sized Honk over F_17 (the page's non-ZK toy protocol), ported to Fe | Planned |
 
 ## Purpose and context
 
 ### Why this is being built
 
-The goal is UltraHonk verification written natively in Fe, built gradually in new packages of this repository, the same way the root library and `calculator` pair was built. The project's teaching page ("UltraHonk a mano", sections "En la práctica" and "Integración con Fe") sketches the modules, the milestones and a vault application, but nothing in it was ever compiled.
+The goal is UltraHonk verification written natively in Fe, built gradually in new packages of this repository, the same way the root library and `calculator` pair was built. The project's teaching page ("UltraHonk by hand", its sections on practice and on integration with Fe) sketches the modules, the milestones and a vault application, but nothing in it was ever compiled.
 
 The research behind the plan established:
 
@@ -143,7 +143,7 @@ ultrahonk/
         vectors.fe     expected values captured from the local oracle (Fe constants)
   verifier/            ingot "ultrahonk_verifier": contract HonkVerifier
     src/lib.fe  src/vk.fe (per circuit)
-  vault/               ingot "ultrahonk_vault": contract Vault (the teaching page's "cofre")
+  vault/               ingot "ultrahonk_vault": contract Vault (the teaching page's vault)
     src/lib.fe
   toy/                 ingot "honk_toy": Honk over F_17, pure library
     src/lib.fe f17.fe curve.fe sumcheck.fe relations.fe shplemini.fe verifier.fe

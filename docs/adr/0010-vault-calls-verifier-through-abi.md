@@ -6,7 +6,7 @@
 
 ## Context
 
-- The integration deliverable is the vault ("cofre") sketched on the project's teaching page: a contract that records a claim when the caller proves knowledge of a secret.
+- The integration deliverable is the vault sketched on the project's teaching page: a contract that records a claim when the caller proves knowledge of a secret.
 - The verifier is large. Staying under the 24,576-byte code-size limit is already a risk for the verifier alone (ADR-0012).
 - The verifier's entry point is `verify(bytes,bytes32[])`, the same ABI as the upstream Barretenberg reference (ADR-0008).
 - The Fe verifier contract only exists at stage 7. The vault is stage 1.
