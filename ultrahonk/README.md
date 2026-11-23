@@ -163,7 +163,38 @@ which fails the proof-length check. Measured before the opening was ported and n
 `HonkRelations` alone, whose runtime has not changed since. The test deploys both contracts in
 the transaction that calls them, so the two accounts are warm (a second identical call was not
 cheaper); a call in a transaction of its own pays the cold surcharges on top, and the
-transaction's own cost.
+transaction's own cost: the next section measures it.
+
+## On a local node
+
+`scripts/demo_anvil.sh` runs the built artifacts outside the Fe test harness. It builds the three
+contracts, starts `anvil` (Foundry) with the real code-size limit, deploys them with `cast`, and
+checks that `verify` answers `true` for the pinned proof, that the same proof with one bit flipped
+reverts with `ShpleminiFailed()`, and that `0xc0ffe`, the recipient the first pinned proof was
+made for, claims through the vault while another caller cannot. It passes at `-O 1`, `-O 2` and
+`-O s`.
+
+Gas used by the transactions, measured with it on 2026-11-23 (anvil 1.5.1, `-O 1`):
+
+| | Osaka | Prague, Cancun |
+|---|---|---|
+| `verify` of the pinned proof | 1,239,609 | 937,321 |
+| A claim through the vault | 1,267,443 | 965,155 |
+| Deploying `HonkRelations`, `HonkVerifier`, `Vault` | 1,893,267, 3,594,885, 213,756 | not recorded |
+
+These include the 21,000 of the transaction and its calldata. The forks differ by 302,288 gas,
+about 2,700 for each of the 112 modexp calls: Osaka prices that precompile higher (EIP-7883). On
+Osaka, `-O 2` gives 1,238,096 and 1,265,930, and `-O s` 1,253,851 and 1,281,804. The deployed
+code is 8,527, 16,670 and 735 bytes at `-O 1`: the runtime, plus 32 bytes for each immutable
+field.
+
+What a chain needs:
+
+- **Cancun or later.** On Shanghai `HonkVerifier` does not deploy: the node reports an opcode that
+  is not activated. `HonkRelations` deploys there.
+- **The precompiles at 0x05 to 0x08:** `modexp` and the three BN254 operations.
+
+The contracts were not run on a public test network.
 
 ## Limits
 
@@ -212,6 +243,8 @@ no contract to build.
 |---|---|
 | `circuit/` | Noir package `vault`: `x * x == y`, with `y` and `recipient` public. Prover inputs: `Prover.toml` (recipient `0xc0ffe`) and `Prover_test_address.toml` (the Fe test address) |
 | `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output. `test_address/`: the second proof and its public inputs, for the same `vk` |
+| `scripts/check.sh` | Builds and tests everything in one command, and checks the code size of the three contracts |
+| `scripts/demo_anvil.sh` | Deploys the built contracts on a local `anvil` node, verifies the pinned proof and claims through the vault |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
 | `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--test-address` prints the second proof; `--check` compares them with `lib/src/vectors.fe` and `lib/src/test_address_vectors.fe` |
 | `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi` |
