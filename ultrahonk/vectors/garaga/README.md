@@ -29,6 +29,7 @@ The toolchain, as recorded in `noir_artifacts.json` of that directory:
 | Bundle | `LOG_N` | Public inputs | Pairing-point limbs (proof words 0-7) | Proof |
 |---|---|---|---|---|
 | `hello` | 12 | 1 | All zero | 7232 bytes |
+| `mutator_set` | 17 | 3 | All zero | 9152 bytes |
 
 Each file is 32-byte big-endian words, as `bb` writes them. The sha256 of each equals the one
 `noir_artifacts.json` records for it.
@@ -39,6 +40,10 @@ Each file is 32-byte big-endian words, as `bb` writes them. The sha256 of each e
 | `hello/public_inputs` | `public_inputs_ultra_keccak.bin` | `9267d3dbed802941483f1afa2a6bc68de5f653128aca9bf1461c5d0a3ad36ed2` |
 | `hello/vk` | `vk_ultra_keccak.bin` | `d46d8978b63f8a74457e7f211b44b4450ad9a7a6c53b2b5f70e851a4a6c1817f` |
 | `hello/vk_hash` | `vk_hash_ultra_keccak.bin` | `aa77f65715081b4e5a29304d21c9c29aa398aaa58d78c8fde6153985395dca76` |
+| `mutator_set/proof` | `mutator_set/proof.bin` | `ce341a3ff5d807f2cb6238d3379d9265aa66775ea1206b290163e7829abc48c3` |
+| `mutator_set/public_inputs` | `mutator_set/public_inputs.bin` | `d437be64fd04cc426363354a58720c6e87f00d21cdaaa0a93e3814e893483654` |
+| `mutator_set/vk` | `mutator_set/vk.bin` | `07b9940d010c10be31114bac7c460b4c7541e25a4051c00014ba87755ffd37f8` |
+| `mutator_set/vk_hash` | `mutator_set/vk_hash.bin` | `5d6799a209806b342564b2d23dd48a20c8a951c528c2ac10c3163f39f3321443` |
 
 ## Checked with `bb`
 
@@ -51,6 +56,7 @@ bb verify -k <bundle>/vk -p <bundle>/proof -i <bundle>/public_inputs -t evm
 | Bundle | Result |
 |---|---|
 | `hello` | `Proof verified successfully` |
+| `mutator_set` | `Proof verified successfully` |
 
 ## In the Fe tests
 
