@@ -11,8 +11,10 @@
 // `accumulateRelationEvaluations`, on one shared array, then
 // `scaleAndBatchSubrelations` and `accumulateRelationEvaluations` itself, and writes
 // the values below. The harness also checked that both batching entry points agree,
-// that each relation run alone on a zeroed array writes exactly its own slots, and that
-// every captured subrelation is reduced (< P).
+// that each relation run alone on a zeroed array writes exactly its own slots, that
+// every captured subrelation is reduced (< P), and that `PROOF_BATCHED` satisfies the
+// final equation of the reference's `verifySumcheck` for the pinned proof while
+// `PROOF_BATCHED_TAMPERED` does not.
 //
 // Two input sets:
 //
