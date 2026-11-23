@@ -1,0 +1,154 @@
+// The `mutator_set` proof bundle of Garaga: its verification key, then the tests that verify the
+// proof of `garaga_mutator_set_proof.fe` with it.
+//
+// Source: https://github.com/keep-starknet-strange/garaga at commit
+// 86b6025567c5e2395947f9c6d40262c9ead2a54c, directory
+// `hydra/garaga/starknet/honk_contract_generator/examples/`. Licence: MIT, Copyright (c) 2023
+// Keep StarkNet Strange (`vectors/garaga/LICENSE`). Made with `bb` 6.0.0, flavor
+// `ultra_keccak_zk`, target `evm`, and accepted by `bb verify` (`vectors/garaga/README.md`).
+//
+// GENERATED PART. `scripts/proof_to_fe.sh --garaga-key mutator_set` prints everything down to the line
+// "END OF GENERATED PART" from `vectors/garaga/mutator_set/`, and `scripts/proof_to_fe.sh --check` fails
+// if this file starts with anything else. Words are 32 bytes, big-endian.
+//
+//   07b9940d010c10be31114bac7c460b4c7541e25a4051c00014ba87755ffd37f8  vectors/garaga/mutator_set/vk
+//   5d6799a209806b342564b2d23dd48a20c8a951c528c2ac10c3163f39f3321443  vectors/garaga/mutator_set/vk_hash
+//
+// `vectors/garaga/mutator_set/vk` is laid out as `vectors/vk` (`vectors.fe`): three header words, then
+// the 28 points in the order of `vectors::VK_POINTS`.
+pub const LOG_N: usize = 17
+
+/// Public inputs of the circuit, counting the 8 pairing-point limbs carried in the proof.
+pub const NUM_PUBLIC_INPUTS: usize = 11
+pub const VK_HASH: u256 = 0x226612cd321779c12d61d2cc3285e04ac2e1ee2a5fc2daa4fafaf2f8e7cdeb3d
+
+pub const VK_POINTS: [u256; 56] = [
+    0x041adf81c8ffa79a8cf8bd884c22fc2f0b01869270a12c5398ef0870a4aca3db,
+    0x16d108b62f01bd1f519cae7442a2ba14bddc5574070a4b289b03a675a47b0e57,
+    0x0ee6e0d996a6604cd98584d71d67450966f76e7a064c47b09b92da83d39ba545,
+    0x196ca70729b14aedf540d8f29b8e52f7b2fd117c1c76c040e168fd965b338317,
+    0x0df6f452cb8194caa46b07aaafe89eae4fbc724be9e546dd081d30ed64609b66,
+    0x2e63cc0cb8d79d9cb852aa1926e5969b299461bd8944fa4fa51538dc06fd7335,
+    0x0803f99463a6bc9df37c8800155867dc956dcc8e2289a334e2c3c8bf799db660,
+    0x2733a214a5dba7041b0db4b923b4758df2176a34a5a768a339d2e0df4143ac90,
+    0x151862a3229d348930807b72ba41ce162e6bf6b89f31e3c6aa5afd2b8b2839b0,
+    0x0e4ac9d2852524cfd0046b9cbead9ff905a17295727ff2bc75ceea2cb7d3438c,
+    0x20fd175bfa30800b568575ee0dde935ed1a62f9af13ade1d7f9da98f3b8e84fa,
+    0x13c781d1d6017170b2ae6e02ea2b297e797991f6308ad5d6585715244a7b8d32,
+    0x2f100b10504d0d4d5882ebde526fe94b8bbaf363df27cdbf9227217a01da2f69,
+    0x16ba199c75f9054caec542d8e0b17dc74fbc15de49b8337e1a66c65134259237,
+    0x0bcc69a33e12914c8b1cdd433edd740c3852d0ed386e0d9d52d9648bf42822b5,
+    0x279060e785f8363dc42df642f23de7b64ea98b885b2c6cf95c5e8648fe6f011c,
+    0x2a56ce41f6b0be13b9c26747621b821eee81b23a887f299049b14c11e98460d6,
+    0x1aa98f2de3ddda547d8f6de4e725ded5827d6338c78656c0d12ca1aea6ef2c7c,
+    0x01117bcbd4febba6256cefede845aea0c616da8253e8873a4dd9c0e847dc0fae,
+    0x2cfa7671eb5d57e6556086a1d65ac45dc5768fac4a665b53abb59d745ff68b5e,
+    0x22439f0e48240b5fee3f3844f8a995218bfa7bb0c419bfee3a2db51aa948ee25,
+    0x1b8443f25f4ae61b968a6de5829d0f3c3011074b4d08350ce24fdc28c37f81ac,
+    0x06239655271e6700c1f9acdb9a0b5c7a87bad03ba88ebddabbc95dee9cd2fa86,
+    0x0ff4f645ea88dc6e0f96a3aeab2074a7b6b6da13878c44cbdf26c818067a2dc3,
+    0x1b6c74bf15076276f7f7ef4b1056e710203775e70bbd50b8c0f6ee33ec3ed09a,
+    0x01d9a7749368d7342c38e475b02277a74470d7ecf5cd2a4d03c0186d032d2796,
+    0x119b429cdd2706e24ab93d36c77993809409968aef65d4f7b167a8a638a531de,
+    0x13926a48f9bb0341cf1d29dfec974f487d9a3c8c15ec6c42a2b8ae0202484fbc,
+    0x11d955709248fdee46985c721de9785cb4d0e08a941521950e06c5e2887475d9,
+    0x21798826c4151613f94eb246bac9c92beba75c72d9468b956fa03d581cbb4ff8,
+    0x17096d84a591c267d34a5eb025919a51e779229755fb962c3a4b3e45f308e76b,
+    0x20e1d12f53e2ac4a02ffc2f5253a9f4f5a6f181d5825d7142a13f840c530d3df,
+    0x2fb824c452fe7380efe3e4bd17c43059af8cdc00f297e0357e8f6b59d71eb530,
+    0x113e8ac610332e4d1f5539ab9a223d093c888c25947b62e5040047098f0b32d6,
+    0x22f115524de2a46c8ea02fb5f18fa9d2e8f350f848d7b9dbbf37bd86a23945b9,
+    0x261c51786cae7eb3e5dc32216044088798f6673a6c46198c173bcd4b62ea07e8,
+    0x1f5135b5f4a13e0898024e5f89140afb3553745a7f2a5f0f3185f66ee084309b,
+    0x082084f96852e213a8f29cec16458a92491b0b4db086d08818af751e2ed51222,
+    0x25a373e4b8f80c2b7d649b5ada8cd767b41a9afd6ada6415a877a95a7d6ed02b,
+    0x2c8a50a2fd01659a57d3b77e047cab126321a137fabdcbb953139b24e5714fb7,
+    0x14abc7a470ac30380b9202f80aa52b628924a5939b67c3ec9661dd3cc3c77da2,
+    0x1880c299d8b428b5b4327e87f9d11d770da6b936fe5c725c2508a42ce9f99200,
+    0x2ec4ab768fb7f7c1abec43acfee5e0a789c6c20c8313c37fc9672a99a2aead91,
+    0x0798a3b9942d5f6cc5e16e5106b9fe51a080530233f7250d87cad5cb1d3a59fd,
+    0x044012a7b61cf2343899775bad577bcc8a4f5ae24fb619d383184e2dbda05938,
+    0x004cd0bf517feb8c7b73efbfbf1168990ff2235faddab6324fc41489b70ba15a,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x057283963b98400355b0596452d0dd9a2bf64cbc226b1c9ee32665711b825b5e,
+    0x1c8c79bdbab115af1b4908cca9eb1c8fc8b4e169e27f9eec63ab48d92e84580f,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+]
+
+// END OF GENERATED PART
+use std::abi::{Bytes32, bytes_from_words, dyn_array_from}
+use super::garaga_mutator_set_proof::{PROOF, PUBLIC_INPUTS}
+use super::types::VerificationKey
+
+pub const VK: VerificationKey = VerificationKey {
+    log_n: LOG_N,
+    num_public_inputs: NUM_PUBLIC_INPUTS,
+    vk_hash: VK_HASH,
+    points: VK_POINTS,
+}
+
+fn proof() -> Bytes {
+    bytes_from_words(PROOF)
+}
+
+/// The three public inputs, with the one at `index` replaced by `value`.
+fn public_inputs_with(index: usize, value: u256) -> Vec<Bytes32> {
+    var inputs = PUBLIC_INPUTS
+    inputs[index] = value
+    dyn_array_from(
+        [Bytes32 { val: inputs[0] }, Bytes32 { val: inputs[1] }, Bytes32 { val: inputs[2] }],
+    )
+}
+
+fn public_inputs() -> Vec<Bytes32> {
+    public_inputs_with(index: 0, value: PUBLIC_INPUTS[0])
+}
+
+// Tests: every step of the verifier (`verifier::verify`), at `LOG_N = 17` and with three
+// public inputs. Garaga pins no challenges for this proof.
+use std::evm::Evm
+use super::verifier::{accepted_bit_flips, accepts, deploy_keyed_verifier, verify}
+
+#[test]
+fn test_garaga_mutator_set_is_accepted() {
+    assert!(verify(vk: VK, proof(), public_inputs()))
+}
+
+// The low bit of each of the 286 proof words, one word at a time.
+#[test]
+fn test_garaga_mutator_set_with_one_bit_changed_is_never_accepted()
+uses (evm: mut Evm)
+{
+    assert!(PROOF.len() == 286)
+    assert!(
+        accepted_bit_flips(vk: VK, words: PROOF, public_inputs: public_inputs()) == 0,
+    )
+}
+
+// Each of the three public inputs in turn, one more than the proof was made for.
+#[test]
+fn test_garaga_mutator_set_with_a_changed_public_input_is_not_accepted()
+uses (evm: mut Evm)
+{
+    let verifier = deploy_keyed_verifier()
+    assert!(
+        accepts(
+            verifier,
+            vk: VK,
+            proof: proof(),
+            public_inputs: public_inputs(),
+        ),
+    )
+    for index in 0 .. PUBLIC_INPUTS.len() {
+        let changed = public_inputs_with(index, value: PUBLIC_INPUTS[index] + 1)
+        assert!(
+            !accepts(verifier, vk: VK, proof: proof(), public_inputs: changed),
+        )
+    }
+}
