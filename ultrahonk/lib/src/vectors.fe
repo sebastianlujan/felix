@@ -235,6 +235,17 @@ pub const PROOF: [u256; 142] = [
 ]
 
 // END OF GENERATED PART
+use super::types::VerificationKey
+
+/// Verification key of the vault circuit.
+pub fn vk() -> VerificationKey {
+    VerificationKey {
+        log_n: LOG_N,
+        num_public_inputs: NUM_PUBLIC_INPUTS,
+        vk_hash: VK_HASH,
+        points: VK_POINTS,
+    }
+}
 
 // VALUES CAPTURED FROM THE REFERENCE VERIFIER, for the proof and public inputs above.
 //
