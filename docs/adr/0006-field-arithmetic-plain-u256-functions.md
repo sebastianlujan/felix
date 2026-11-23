@@ -28,7 +28,7 @@ pub fn inv(_ a: u256) -> u256            // reverts on 0; modexp with exponent P
 
 ## Outcome (2026-11-23)
 
-Carried out as decided. The relations, sumcheck and the opening use these functions only. `inv(0)` reverts with `InvertOfZero`, and a failed `modexp` call reverts with `ModExpFailed`. Six tests in `fr.fe` cover the wrap-around of each function and the revert of `inv(0)`.
+Carried out as decided. The relations, sumcheck and the opening use these functions only. `inv(0)` reverts with `InvertOfZero`, and a failed `modexp` call reverts with `ModExpFailed`. Since issue #4, `inv` also reverts with `ModExpFailed` unless `a * answer == 1`, which the reference does not check. Nine tests in `fr.fe` cover the wrap-around of each function, the reverts of `inv(0)` and `inv(P)`, and two large operands against values computed with Python's integers.
 
 ## Options Considered
 

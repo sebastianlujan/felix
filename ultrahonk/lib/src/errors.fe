@@ -6,6 +6,9 @@
 // One revert of that verifier has no counterpart: when the modexp precompile call
 // itself fails, `FrLib` reverts with the raw four bytes 0xf8d61709, which is not the
 // selector of `ModExpFailed()` (0x1f7ec5f0). `fr::inv` raises `ModExpFailed` there.
+//
+// `fr::inv` also raises `ModExpFailed` when the call succeeds and its answer is not
+// the inverse. That verifier uses the answer unchecked.
 use core::error::ErrorVariant
 use std::abi::Sol
 
