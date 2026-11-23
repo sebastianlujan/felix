@@ -1,0 +1,448 @@
+// Shplemini: the scalars and the commitments of the multi-scalar multiplication that the
+// opening verification ends with. Port of the scalar part of `verifyShplemini` and of
+// `CommitmentSchemeLib.computeSquares` and `computeFoldPosEvaluations`.
+//
+// Slot `i` of the multi-scalar multiplication pairs `commitment(slot: i)` with scalar `i`; the
+// table of slots is in `docs/zk-verifier-reference.md`. `scalars` fills every scalar before
+// any curve operation takes place, so that the caller can run the consistency check between
+// the two as the reference does. The proof must have passed `proof::validate`.
+use super::fr::{add, inv, mul, neg, sub}
+use super::proof::{
+    COMMITMENTS,
+    LIBRA_SUM,
+    evaluations,
+    fold_commitments,
+    gemini_evaluations,
+    libra_commitments,
+    shplonk_q,
+    word,
+}
+use super::types::{MAX_LOG_N, Transcript, VerificationKey}
+
+/// Evaluations opened at the challenge point only: the masking polynomial and 36 entities
+/// (`NUMBER_UNSHIFTED_ZK`). They are evaluations `0..37` and slots `1..=37`.
+pub const NUMBER_UNSHIFTED: usize = 37
+
+/// Evaluations of the shifted `w1, w2, w3, w4, zPerm`: evaluations `37..42`.
+pub const NUMBER_TO_BE_SHIFTED: usize = 5
+
+/// Slot of `w1`, the first commitment that is also opened shifted.
+pub const SHIFTED_COMMITMENTS_START: usize = 30
+
+/// Slots for the largest circuit the reference sizes its arrays for: `42 + MAX_LOG_N`. A
+/// circuit uses the first `slots(log_n)`.
+pub const MAX_SLOTS: usize = 67
+
+/// Generator of the subgroup of order 256 that the Libra polynomials are defined over.
+pub const SUBGROUP_GENERATOR: u256 = 0x07b0c561a6148404f086204a9f36ffb0617942546750f230c893619174a57a76
+
+/// Proof word of the x coordinate of the commitments of slots `30..=37`:
+/// `w1, w2, w3, w4, zPerm, lookupInverses, lookupReadCounts, lookupReadTags`. The proof holds
+/// them in another order (`w1, w2, w3, lookupReadCounts, lookupReadTags, w4, lookupInverses,
+/// zPerm`).
+const WITNESS_WORDS: [usize; 8] = [10, 12, 14, 20, 24, 22, 16, 18]
+
+/// `NUMBER_UNSHIFTED_ZK + log_n + LIBRA_COMMITMENTS + 2`: `shplonkQ`, the 37 unshifted
+/// commitments, `log_n - 1` fold commitments, 3 Libra commitments, `(1, 2)` and `kzgQuotient`.
+pub fn slots(_ log_n: usize) -> usize {
+    42 + log_n
+}
+
+/// `r^(2^i)` for `i < log_n`; the other entries stay zero.
+fn squares(_ r: u256, log_n: usize) -> [u256; MAX_LOG_N] {
+    var out: [u256; MAX_LOG_N] = [0; MAX_LOG_N]
+    out[0] = r
+    for i in 1 .. log_n {
+        out[i] = mul(out[i - 1], out[i - 1])
+    }
+    out
+}
+
+/// `(1 / (z - point), 1 / (z + point))`. Reverts with `InvertOfZero` if `z` is `point` or
+/// `-point`.
+fn inverted_denominators(z: u256, point: u256) -> (u256, u256) {
+    (inv(sub(z, point)), inv(add(z, point)))
+}
+
+/// Scalars of slots `1..=37`, `-unshifted * rho^(slot - 1)`, to which slots `30..=34` add
+/// `-shifted * rho^(37 + i)` for the shifted opening of the same commitment. Returns the
+/// batched evaluation `sum of evaluation[i] * rho^i` over the 42 evaluations. The power of
+/// `rho` runs on from the unshifted evaluations into the shifted ones.
+fn batch(
+    _ proof: Bytes,
+    rho: u256,
+    log_n: usize,
+    unshifted: u256,
+    shifted: u256,
+    out: mut [u256; MAX_SLOTS],
+) -> u256 {
+    let unshifted_neg = neg(unshifted)
+    let shifted_neg = neg(shifted)
+    let first = evaluations(log_n)
+    var power: u256 = 1
+    var batched: u256 = 0
+    // Slot 1 is the masking polynomial, evaluation 0: entity `e` is evaluation `e + 1`.
+    for slot in 1 .. NUMBER_UNSHIFTED + 1 {
+        out[slot] = mul(unshifted_neg, power)
+        batched = add(batched, mul(word(proof, first + slot - 1), power))
+        power = mul(power, rho)
+    }
+    for i in 0 .. NUMBER_TO_BE_SHIFTED {
+        let slot = SHIFTED_COMMITMENTS_START + i
+        out[slot] = add(out[slot], mul(shifted_neg, power))
+        batched = add(
+            batched,
+            mul(word(proof, first + NUMBER_UNSHIFTED + i), power),
+        )
+        power = mul(power, rho)
+    }
+    batched
+}
+
+/// `A_l(r^(2^l))` for `l < log_n`, the values of the fold polynomials at the positive points,
+/// which the proof does not carry: from the batched evaluation down to `l = 0`, each from the
+/// one above it and from `A_l(-r^(2^l))`, the Gemini evaluation `l` of the proof.
+fn fold_pos_evaluations(
+    _ proof: Bytes,
+    t: Transcript,
+    log_n: usize,
+    batched: u256,
+    powers: [u256; MAX_LOG_N],
+) -> [u256; MAX_LOG_N] {
+    var out: [u256; MAX_LOG_N] = [0; MAX_LOG_N]
+    let gemini = gemini_evaluations(log_n)
+    var acc = batched
+    var i = log_n
+    while i > 0 {
+        i -= 1
+        let u = t.u[i]
+        // power * (1 - u)
+        let scaled = mul(powers[i], sub(1, u))
+        let numerator = sub(
+            mul(mul(powers[i], acc), 2),
+            mul(word(proof, gemini + i), sub(scaled, u)),
+        )
+        acc = mul(numerator, inv(add(scaled, u)))
+        out[i] = acc
+    }
+    out
+}
+
+/// `1 / (z - point)` for the five Libra opening points `r, g * r, r, 1, r`. `first` is
+/// `1 / (z - r)`, which the caller has: the reference inverts `z - r` again.
+fn libra_denominators(z: u256, r: u256, first: u256) -> [u256; 5] {
+    [first, inv(sub(z, mul(SUBGROUP_GENERATOR, r))), first, inv(sub(z, 1)), first]
+}
+
+/// Fills `out[0 .. slots(log_n))` with the scalars of the multi-scalar multiplication,
+/// the constant term at `40 + log_n` included; `out` must come in zeroed. Reverts with
+/// `InvertOfZero` where the reference does: a challenge that makes a denominator zero.
+pub fn scalars(_ proof: Bytes, t: Transcript, log_n: usize, out: mut [u256; MAX_SLOTS]) {
+    let z = t.shplonk_z
+    let nu = t.shplonk_nu
+    let r = t.gemini_r
+    let powers = squares(r, log_n)
+
+    let (first_pos, first_neg) = inverted_denominators(z, point: powers[0])
+    let unshifted = add(first_pos, mul(nu, first_neg))
+    let shifted = mul(inv(r), sub(first_pos, mul(nu, first_neg)))
+
+    // shplonkQ
+    out[0] = 1
+    let batched = batch(proof, rho: t.rho, log_n, unshifted, shifted, out: mut out)
+    let fold_pos = fold_pos_evaluations(proof, t, log_n, batched, powers)
+
+    // Constant term: what the claimed evaluations contribute, as a multiple of `(1, 2)`.
+    // A_0 at r and at -r, with the first pair of inverted denominators.
+    let gemini = gemini_evaluations(log_n)
+    var constant = add(
+        mul(fold_pos[0], first_pos),
+        mul(mul(word(proof, gemini), nu), first_neg),
+    )
+
+    // Fold commitment `i` is A_(i + 1), opened at r^(2^(i + 1)) and at its negation. The power
+    // of nu starts at nu^2 and ends the loop at nu^(2 * log_n).
+    var power = mul(nu, nu)
+    var boundary = NUMBER_UNSHIFTED + 1
+    for i in 0 .. log_n - 1 {
+        let (pos, negative) = inverted_denominators(z, point: powers[i + 1])
+        let factor_pos = mul(power, pos)
+        let factor_neg = mul(mul(power, nu), negative)
+        out[boundary + i] = add(neg(factor_neg), neg(factor_pos))
+        constant = add(
+            constant,
+            add(
+                mul(factor_neg, word(proof, gemini + i + 1)),
+                mul(factor_pos, fold_pos[i + 1]),
+            ),
+        )
+        power = mul(mul(power, nu), nu)
+    }
+    boundary += log_n - 1
+
+    // Libra: five opening claims on three commitments. Claim `k` has the batching scalar
+    // `-den[k] * nu^(2 * log_n + k)`. The claimed values are the four Libra polynomial
+    // evaluations, in order, for claims 0, 1, 2 and 4; claim 3 claims the value 0 and adds
+    // nothing to the constant term.
+    let den = libra_denominators(z, r, first: first_pos)
+    let libra = gemini + log_n
+    var batching: [u256; 5] = [0; 5]
+    for k in 0 .. 5 {
+        let factor = mul(den[k], power)
+        batching[k] = neg(factor)
+        power = mul(power, nu)
+        if k != 3 {
+            let evaluation = if k < 3 { k } else { k - 1 }
+            constant = add(constant, mul(factor, word(proof, libra + evaluation)))
+        }
+    }
+    out[boundary] = batching[0]
+    out[boundary + 1] = add(add(batching[1], batching[2]), batching[3])
+    out[boundary + 2] = batching[4]
+    // (1, 2)
+    out[boundary + 3] = constant
+    // kzgQuotient
+    out[boundary + 4] = z
+}
+
+/// The commitment of `slot`, for `slot < slots(vk.log_n)`, read where it is: in the proof,
+/// in the verification key, or the constant `(1, 2)`.
+pub fn commitment(vk: VerificationKey, _ proof: Bytes, slot: usize) -> (u256, u256) {
+    let log_n = vk.log_n
+    if slot >= 2 && slot < SHIFTED_COMMITMENTS_START {
+        return (vk.points[2 * (slot - 2)], vk.points[2 * (slot - 2) + 1])
+    }
+    if slot == 40 + log_n {
+        return (1, 2)
+    }
+    let at = if slot == 0 {
+        shplonk_q(log_n)
+    } else if slot == 1 {
+        // Gemini masking polynomial
+        COMMITMENTS
+    } else if slot <= NUMBER_UNSHIFTED {
+        WITNESS_WORDS[slot - SHIFTED_COMMITMENTS_START]
+    } else if slot < 37 + log_n {
+        fold_commitments(log_n) + 2 * (slot - NUMBER_UNSHIFTED - 1)
+    } else if slot == 37 + log_n {
+        // libraCommitments[0], the last point before the Libra sum
+        LIBRA_SUM - 2
+    } else if slot < 40 + log_n {
+        // libraCommitments[1], libraCommitments[2]
+        libra_commitments(log_n) + 2 * (slot - 38 - log_n)
+    } else {
+        // kzgQuotient, after shplonkQ
+        shplonk_q(log_n) + 2
+    }
+    (word(proof, at), word(proof, at + 1))
+}
+
+// Tests, against the values the reference verifier computed for the pinned proof
+// (`opening_vectors.fe`). The scalars are asserted one group of slots per test, so that a
+// failure names the group.
+use super::opening_vectors::{
+    BATCHED_EVAL,
+    COMMITMENTS as SLOT_COMMITMENTS,
+    CONSTANT_TERM,
+    FOLD_NEG_INV,
+    FOLD_POS,
+    FOLD_POS_INV,
+    LIBRA_DENOMINATORS,
+    LIBRA_SCALING_FACTORS,
+    NEG_INV,
+    POS_INV,
+    SCALARS,
+    SHIFTED,
+    SQUARES,
+    UNSHIFTED,
+}
+use super::transcript::generate
+use super::vectors::{GEMINI_R, LOG_N, RHO, SHPLONK_NU, SHPLONK_Z, VK, proof, public_inputs}
+
+fn pinned_scalars() -> [u256; MAX_SLOTS] {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    var out: [u256; MAX_SLOTS] = [0; MAX_SLOTS]
+    scalars(pinned, t, log_n: LOG_N, out: mut out)
+    out
+}
+
+/// Asserts that the scalars of slots `start..end` are the reference's.
+fn assert_scalars(start: usize, end: usize) {
+    let computed = pinned_scalars()
+    for slot in start .. end {
+        assert!(computed[slot] == SCALARS[slot])
+    }
+}
+
+#[test]
+fn test_slots_is_the_reference_msm_size() {
+    assert!(slots(LOG_N) == SCALARS.len())
+    assert!(slots(MAX_LOG_N) == MAX_SLOTS)
+}
+
+#[test]
+fn test_squares_match_reference() {
+    let powers = squares(GEMINI_R, log_n: LOG_N)
+    for i in 0 .. LOG_N {
+        assert!(powers[i] == SQUARES[i])
+    }
+    for i in LOG_N .. MAX_LOG_N {
+        assert!(powers[i] == 0)
+    }
+}
+
+#[test]
+fn test_first_inverted_denominators_match_reference() {
+    let (pos, negative) = inverted_denominators(z: SHPLONK_Z, point: SQUARES[0])
+    assert!(pos == POS_INV)
+    assert!(negative == NEG_INV)
+}
+
+#[test]
+fn test_fold_inverted_denominators_match_reference() {
+    for i in 0 .. LOG_N - 1 {
+        let (pos, negative) = inverted_denominators(z: SHPLONK_Z, point: SQUARES[i + 1])
+        assert!(pos == FOLD_POS_INV[i])
+        assert!(negative == FOLD_NEG_INV[i])
+    }
+}
+
+#[test]
+fn test_unshifted_and_shifted_scalars_match_reference() {
+    assert!(add(POS_INV, mul(SHPLONK_NU, NEG_INV)) == UNSHIFTED)
+    assert!(
+        mul(inv(GEMINI_R), sub(POS_INV, mul(SHPLONK_NU, NEG_INV))) == SHIFTED,
+    )
+}
+
+#[test]
+fn test_batched_evaluation_matches_reference() {
+    var out: [u256; MAX_SLOTS] = [0; MAX_SLOTS]
+    let batched = batch(
+        proof(),
+        rho: RHO,
+        log_n: LOG_N,
+        unshifted: UNSHIFTED,
+        shifted: SHIFTED,
+        out: mut out,
+    )
+    assert!(batched == BATCHED_EVAL)
+}
+
+#[test]
+fn test_fold_pos_evaluations_match_reference() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    let fold_pos = fold_pos_evaluations(
+        pinned,
+        t,
+        log_n: LOG_N,
+        batched: BATCHED_EVAL,
+        powers: squares(GEMINI_R, log_n: LOG_N),
+    )
+    for i in 0 .. LOG_N {
+        assert!(fold_pos[i] == FOLD_POS[i])
+    }
+}
+
+#[test]
+fn test_libra_denominators_match_reference() {
+    let den = libra_denominators(z: SHPLONK_Z, r: GEMINI_R, first: POS_INV)
+    for k in 0 .. 5 {
+        assert!(den[k] == LIBRA_DENOMINATORS[k])
+    }
+}
+
+#[test]
+fn test_scalar_of_shplonk_q_is_one() {
+    assert!(pinned_scalars()[0] == 1)
+    assert_scalars(start: 0, end: 1)
+}
+
+#[test]
+fn test_scalar_of_the_masking_slot_matches_reference() {
+    assert!(SCALARS[1] == neg(UNSHIFTED))
+    assert_scalars(start: 1, end: 2)
+}
+
+#[test]
+fn test_scalars_of_the_vk_slots_match_reference() {
+    assert_scalars(start: 2, end: SHIFTED_COMMITMENTS_START)
+}
+
+// w1, w2, w3, w4, zPerm: the unshifted and the shifted scalar added up.
+#[test]
+fn test_scalars_of_the_shifted_slots_match_reference() {
+    assert_scalars(
+        start: SHIFTED_COMMITMENTS_START,
+        end: SHIFTED_COMMITMENTS_START + NUMBER_TO_BE_SHIFTED,
+    )
+}
+
+// lookupInverses, lookupReadCounts, lookupReadTags.
+#[test]
+fn test_scalars_of_the_unshifted_wire_slots_match_reference() {
+    assert_scalars(
+        start: SHIFTED_COMMITMENTS_START + NUMBER_TO_BE_SHIFTED,
+        end: NUMBER_UNSHIFTED + 1,
+    )
+}
+
+#[test]
+fn test_scalars_of_the_fold_slots_match_reference() {
+    assert_scalars(start: NUMBER_UNSHIFTED + 1, end: 37 + LOG_N)
+}
+
+#[test]
+fn test_scalars_of_the_libra_slots_match_reference() {
+    assert_scalars(start: 37 + LOG_N, end: 40 + LOG_N)
+}
+
+// The reference's batching scalars are the negated scaling factors; the middle Libra
+// commitment is opened three times.
+#[test]
+fn test_reference_libra_scalars_are_the_negated_scaling_factors() {
+    let first = 37 + LOG_N
+    assert!(SCALARS[first] == neg(LIBRA_SCALING_FACTORS[0]))
+    assert!(
+        SCALARS[first + 1]
+            == neg(
+                add(
+                    add(LIBRA_SCALING_FACTORS[1], LIBRA_SCALING_FACTORS[2]),
+                    LIBRA_SCALING_FACTORS[3],
+                ),
+            ),
+    )
+    assert!(SCALARS[first + 2] == neg(LIBRA_SCALING_FACTORS[4]))
+}
+
+#[test]
+fn test_constant_term_matches_reference() {
+    assert!(pinned_scalars()[40 + LOG_N] == CONSTANT_TERM)
+    assert_scalars(start: 40 + LOG_N, end: 41 + LOG_N)
+}
+
+#[test]
+fn test_scalar_of_the_kzg_quotient_is_the_shplonk_challenge() {
+    assert!(pinned_scalars()[41 + LOG_N] == SHPLONK_Z)
+    assert_scalars(start: 41 + LOG_N, end: slots(LOG_N))
+}
+
+#[test]
+fn test_scalars_beyond_the_msm_stay_zero() {
+    let computed = pinned_scalars()
+    for slot in slots(LOG_N) .. MAX_SLOTS {
+        assert!(computed[slot] == 0)
+    }
+}
+
+#[test]
+fn test_commitment_of_every_slot_matches_reference() {
+    let pinned = proof()
+    for slot in 0 .. slots(LOG_N) {
+        let (x, y) = commitment(vk: VK, pinned, slot)
+        assert!(x == SLOT_COMMITMENTS[2 * slot])
+        assert!(y == SLOT_COMMITMENTS[2 * slot + 1])
+    }
+}
