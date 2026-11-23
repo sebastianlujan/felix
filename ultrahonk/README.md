@@ -28,7 +28,7 @@ for the valid proof in `lib/src/vectors.fe`.
 | Stage | Scope | State |
 |---|---|---|
 | 0 | Tooling, circuit, ZK vector, recorded reference reverts, ingot skeletons | Done |
-| 1 | Vault contract calling a verifier through `verify(bytes,bytes32[])` | Done against stand-in verifiers (`vault/README.md`). `HonkVerifier` accepts the pinned proof, but no claim succeeds through the vault: that needs a proof made for the caller |
+| 1 | Vault contract calling a verifier through `verify(bytes,bytes32[])` | Done (`vault/README.md`). A claim succeeds through the vault in front of `HonkVerifier`, with a second pinned proof made for the address of the Fe test contract; the first pinned proof, made for `0xc0ffe`, cannot be claimed from a Fe test |
 | 2 | Proof validation (length, range of every word) and Fiat-Shamir transcript | Done |
 | 3-5 | Sumcheck: public-input delta and the round checks | Done |
 | 3-5 | Sumcheck: the ten relations (`HonkRelations`) and the final check against them | Done |
@@ -123,12 +123,13 @@ build in `vault/` the five contracts its tests deploy.
 
 | Path | Content |
 |---|---|
-| `circuit/` | Noir package `vault`: `x * x == y`, with `y` and `recipient` public |
-| `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output |
+| `circuit/` | Noir package `vault`: `x * x == y`, with `y` and `recipient` public. Prover inputs: `Prover.toml` (recipient `0xc0ffe`) and `Prover_test_address.toml` (the Fe test address) |
+| `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output. `test_address/`: the second proof and its public inputs, for the same `vk` |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
-| `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--check` compares them with `lib/src/vectors.fe` |
+| `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--test-address` prints the second proof; `--check` compares them with `lib/src/vectors.fe` and `lib/src/test_address_vectors.fe` |
 | `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`), `fr`, `errors`, `types`, `abi` |
 | `lib/src/vectors.fe` | The pinned proof and the verification key, plus the challenges, delta, round targets and pow captured from the reference |
+| `lib/src/test_address_vectors.fe` | The second pinned proof and its public inputs, which the vault test claims with |
 | `lib/src/relations_vectors.fe` | Inputs and outputs of the reference's relations, for the pinned proof and for a synthetic input that makes all 31 subrelations non-zero |
 | `lib/src/expected.fe` | The reverts of the reference verifier on invalid calls, and what its sumcheck alone does with them |
 | `docs/zk-verifier-reference.md` | What the port must reproduce: proof layout, check order, transcript, formulas, errors |
@@ -161,6 +162,18 @@ same inputs gave three different proofs, each accepted by `bb verify`. The other
 the generated Solidity verifier, came out byte-identical every time. No test regenerates the
 vector or reads `vectors/`; the values in `lib/src/expected.fe` and `lib/src/vectors.fe` belong
 to the pinned proof.
+
+A second pinned proof, `vectors/test_address/proof`, has the same witness and verification key
+and the public inputs `y = 9`, `recipient = 0xbd770416a3345f91e4b34576cb804a576fa48eb1`: the
+address of the Fe test contract, so a vault test can claim with it (`vault/README.md`).
+`bb write_vk` on the compiled circuit gave `vectors/vk` and `vectors/vk_hash` byte for byte, and
+`bb verify` accepted the proof against `vectors/vk`. Only the vault test uses it; no value was
+captured from the reference for it.
+
+```
+ae40808061c90671310321108d88e50985c6f83e8f12afcc12a8567ed390268a  vectors/test_address/proof
+d6906f479962dbe20325f74826e61cc1b19c5a77af4acce826522605f4cfcc47  vectors/test_address/public_inputs
+```
 
 ## The reference oracle
 
@@ -209,10 +222,12 @@ curl -sSfL https://github.com/noir-lang/noir/releases/download/v1.0.0/noir-aarch
 scripts/vectors.sh
 ```
 
-The script ends with `bb verify` accepting the new proof. It **overwrites `vectors/proof` with a
-different valid proof**; run `git checkout -- vectors/proof` afterwards to return to the pinned
-one. Committing a new proof means capturing `lib/src/expected.fe` and the second part of
-`lib/src/vectors.fe` again, and regenerating the first part with `scripts/proof_to_fe.sh`.
+The script ends with `bb verify` accepting both new proofs. It **overwrites `vectors/proof` and
+`vectors/test_address/proof` with different valid proofs**; run
+`git checkout -- vectors/proof vectors/test_address/proof` afterwards to return to the pinned
+ones. Committing a new first proof means capturing `lib/src/expected.fe` and the second part of
+`lib/src/vectors.fe` again, and regenerating the first part with `scripts/proof_to_fe.sh`. A new
+second proof only needs `scripts/proof_to_fe.sh --test-address > lib/src/test_address_vectors.fe`.
 
 The archives are the macOS arm64 builds. The script calls the tools by path and exits unless they
 report the versions below; tools installed elsewhere on the machine are not used.
