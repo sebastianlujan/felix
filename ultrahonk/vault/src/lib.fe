@@ -82,8 +82,10 @@ pub contract Vault {
 // yet. A Fe test cannot choose the caller of a call, so a caller is a `Claimer` contract
 // that forwards `claim`: two of them are two different callers.
 use core::error::ErrorVariant
+use core::message::MsgVariant
+use core::ptr::MemBuffer
 use std::abi::Sol
-use std::evm::{Evm, revert_selector}
+use std::evm::{Evm, RawOps, encode_msg_calldata, revert_selector}
 use ultrahonk::errors::SumcheckFailed
 
 const GAS: u256 = 20000000
@@ -289,4 +291,63 @@ uses (evm: mut Evm)
     assert!(outcome.returndata_len() == 0)
     assert!(!claimed(vault))
     assert!(winner(vault) == Address::zero())
+}
+
+/// Reverts with the calldata it received, which the vault passes on unchanged: that is
+/// how a test reads what the vault sent. A static call leaves the stand-in no storage to
+/// write it to.
+contract EchoVerifier {
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool uses (ops: mut RawOps) {
+            let size = ops.calldatasize()
+            var data = MemBuffer::new(size.downcast_truncate())
+            ops.calldatacopy(dest: mut data, dest_offset: 0, src_offset: 0, len: size)
+            ops.revert(data: data.span())
+        }
+    }
+}
+
+// The call the verifier receives, word by word: `verify(bytes,bytes32[])` with the proof
+// as it came, then `[y, caller]`. The caller is one whole word equal to its address, so
+// the twelve bytes before the address are zero.
+#[test]
+fn test_the_verifier_is_sent_the_proof_then_y_and_the_caller()
+uses (evm: mut Evm)
+{
+    let alice = deploy_claimer(salt: 0)
+    let verifier = evm.create2<EchoVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+    let outcome = evm
+        .try_call(
+            addr: alice,
+            gas: GAS,
+            value: Wei::zero(),
+            message: ClaimerMsg::ClaimFrom { vault, proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    let sent = Bytes::from_payload(source: outcome.returndata())
+
+    // Selector, two offsets, the proof (length, one padded word), the array (length, two words).
+    assert!(sent.len() == 4 + 7 * 32)
+    assert!(
+        revert_selector(outcome.returndata()).unwrap()
+            == <VerifierMsg::Verify as MsgVariant<Sol>>::SELECTOR,
+    )
+    assert!(sent.word_at(4) == 64)
+    assert!(sent.word_at(36) == 128)
+    assert!(sent.word_at(68) == 5)
+    assert!(sent.word_at(100) == 0x70726f6f66 << 216)
+    assert!(sent.word_at(132) == 2)
+    assert!(sent.word_at(164) == Y)
+    assert!(sent.word_at(196) == alice.word())
+    assert!(sent.word_at(196) >> 160 == 0)
+
+    // The same bytes as the standard encoding of the message.
+    let standard = encode_msg_calldata(
+        VerifierMsg::Verify {
+            proof: right_proof(),
+            public_inputs: dyn_array_from([Bytes32 { val: Y }, Bytes32 { val: alice.word() }]),
+        },
+    )
+    assert!(sent == Bytes::from_payload(source: standard.span()))
 }
