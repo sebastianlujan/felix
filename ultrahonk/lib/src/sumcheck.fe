@@ -152,9 +152,9 @@ pub fn relations_query(
 
 /// The calldata of the message `relations_query` returns, written without building the
 /// message: the selector, the 41 evaluations copied from the proof where they lie, and the
-/// last seven words. A contract that sends the typed message carries about 3,100 bytes
-/// more code (measured, `fe build --emit sizes`): a zeroed array of 41 words, and one copy
-/// per word into the message and again into its encoding.
+/// last seven words. Sending the typed message instead made the verifier contract 2,103
+/// bytes larger and its call 13,708 gas dearer (measured at `-O 1`): a zeroed array of 41
+/// words in the code, and one copy per word into the message and again into its encoding.
 pub fn relations_calldata(
     _ proof: Bytes,
     t: Transcript,
@@ -352,6 +352,12 @@ fn rounds_with_bit_flip(case: usize) {
 }
 
 // selector of SumcheckFailed()
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_rounds_reject_a_flipped_masking_commitment() {
+    assert!(BIT_FLIPS[0].word == 8)
+    rounds_with_bit_flip(case: 0)
+}
+
 #[test(should_revert, selector = 0x9fc3a218)]
 fn test_rounds_reject_a_flipped_libra_sum() {
     assert!(BIT_FLIPS[1].word == 28)

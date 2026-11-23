@@ -4,10 +4,13 @@ A port of Barretenberg's zero-knowledge UltraHonk verifier (BN254, Keccak transc
 `bb` selects with `-t evm`) from Solidity to [Fe](https://fe-lang.org).
 
 **The Fe verifier does not verify proofs yet.** It has the ABI of the Solidity verifier and runs
-its first steps (proof validation, the Fiat-Shamir transcript, the public-input delta and the
-sumcheck round checks) in the same order and with the same errors. The relations, Shplemini and the
-pairing are not ported, so a call that passes every implemented check reverts with
-`VerificationNotImplemented`. The contract never returns `true`.
+its first steps (proof validation, the Fiat-Shamir transcript, the public-input delta and the whole
+sumcheck, relations included) in the same order and with the same errors. Shplemini, the Libra
+consistency check and the pairing are not ported, so a call that passes every implemented check
+reverts with `VerificationNotImplemented`. The contract never returns `true`.
+
+It is two contracts, as the reference is a contract and two linked libraries: `HonkVerifier`
+asks `HonkRelations` for the value of the relations with a static call.
 
 ## What the repository contains
 
@@ -27,7 +30,7 @@ for the valid proof in `lib/src/vectors.fe`.
 | 1 | Vault contract calling a verifier through `verify(bytes,bytes32[])` | Pending |
 | 2 | Proof validation (length, range of every word) and Fiat-Shamir transcript | Done |
 | 3-5 | Sumcheck: public-input delta and the round checks | Done |
-| 3-5 | Sumcheck: the relations and the final check against them | Pending |
+| 3-5 | Sumcheck: the ten relations (`HonkRelations`) and the final check against them | Done |
 | 6 | Shplemini, the Libra consistency check and the pairing check | Pending |
 | 7 | Verifier contract accepting proofs | Pending: it runs the steps marked done, then reverts |
 
@@ -41,37 +44,61 @@ In the order of the reference verifier, each with the reference's error:
 | Every proof word in range for what it holds | `lib/src/proof.fe` | `ValueGeLimbMax`, `ValueGeGroupOrder`, `ValueGeFieldOrder` |
 | Number of public inputs | `verifier/src/lib.fe` | `PublicInputsLengthWrong` |
 | Public inputs in range, then the 16 challenges | `lib/src/transcript.fe` | `ValueGeFieldOrder` |
-| Public-input delta | `lib/src/sumcheck.fe` | (computed, not used yet) |
+| Public-input delta | `lib/src/sumcheck.fe` | (a value the relations read) |
 | The `LOG_N` sumcheck round checks | `lib/src/sumcheck.fe` | `SumcheckFailed` |
-| Everything after: relations, Shplemini, consistency check, pairing | not ported | `VerificationNotImplemented`, always |
+| The ten relations at the sumcheck point, asked from `HonkRelations` | `lib/src/relations.fe`, `relations/src/lib.fe` | whatever that contract reverts with, unchanged |
+| Last sumcheck comparison: relations, row-disabling factor and Libra evaluation against the target | `lib/src/sumcheck.fe` | `SumcheckFailed` |
+| Everything after: Shplemini, consistency check, pairing | not ported | `VerificationNotImplemented`, always |
 
-For the pinned proof, every challenge, the delta, the target of every sumcheck round and the final
-partial pow equal the values captured from the reference verifier.
+For the pinned proof, every challenge, the delta, the target of every sumcheck round, the final
+partial pow and the batched value of the relations equal the values captured from the reference
+verifier.
+
+`HonkVerifier` takes the address of `HonkRelations` as its constructor argument and keeps it in
+storage, so `HonkRelations` is deployed first. The calldata it sends is the encoding of
+`RelationsMsg::Accumulate` (`lib/src/relations.fe`), written from the proof bytes instead of through
+the typed message: sending the typed message made the runtime 2,103 bytes larger and the call
+13,708 gas dearer (9,712 bytes and 326,250 gas against 7,609 and 312,542, at `-O 1`), and a
+library test asserts that both encodings are the same bytes. If the relations contract reverts,
+the verifier reverts with the same data; if the address holds no code, the verifier reverts with
+no data.
 
 Of the reverts recorded from the reference, the contract tests assert the ones these steps decide:
 
 | Recorded case | Asserted now |
 |---|---|
-| 3 wrong proof lengths | Yes, the whole revert data |
+| 4 wrong proof lengths, the empty proof among them | Yes, the whole revert data |
 | 7 overwritten proof words (range checks) | Yes |
 | Each of the 142 proof words set to `Q` | Yes |
-| 3 changed public inputs, 2 wrong public-input counts | Yes |
+| 3 changed public inputs, 3 wrong public-input counts (0, 1, 3) | Yes |
 | 4 calls that break two rules at once (order of the checks) | Yes |
-| Bit flips in proof words 8, 28, 29 | Yes: `SumcheckFailed` |
-| Bit flips in words 74, 75, 116, 121, 129, 134, 137, 138, 140 | No: decided by steps not ported. A test asserts that they reach `VerificationNotImplemented` |
+| Bit flips in proof words 8, 28, 29 | Yes: `SumcheckFailed`, from a round check |
+| Bit flips in words 75, 116 | Yes: `SumcheckFailed`, from the last comparison |
+| Every proof word at its largest allowed value, with and without the limbs | Yes: `SumcheckFailed` |
+| Bit flips in words 74, 121, 129, 134, 137, 138, 140 | No: decided by steps not ported. A test asserts that they reach `VerificationNotImplemented` |
+| The all-zero proof (reference: `ShpleminiFailed`) | No, for the same reason: it passes sumcheck in the reference too |
+| What the reference's sumcheck alone does with the bit flips, the changed public inputs, the all-zero proof and the largest values | Yes, in the library tests of `lib/src/sumcheck.fe` |
 
 Measured at this stage, with `fe` 26.6.0:
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| Runtime size of `HonkVerifier`, bytes (`fe build`) | 6,801 | 6,795 | 6,638 |
-| Gas of `verify` on the valid proof, up to the revert | 283,247 | 283,179 | 287,984 |
+| Runtime size of `HonkVerifier`, bytes (`fe build`) | 7,609 | 7,570 | 7,498 |
+| Runtime size of `HonkRelations`, bytes (`fe build`) | 8,527 | 6,336 | 6,343 |
+| Gas of `verify` on the valid proof, up to the revert | 312,542 | 312,199 | 318,385 |
 
-2,976 bytes of the runtime are constants (the verification key, the zeroed challenge array, the
-barycentric denominators). The gas is the difference of `evm.gas()` around the call in a Fe test,
-so it includes encoding the calldata in the caller; a call that fails the proof-length check costs
-4,751 measured the same way. Most of it is the 46 modular inversions, one modexp call each at
-about 4,400 gas (measured the same way).
+2,976 bytes of the `HonkVerifier` runtime are constants (the verification key, the zeroed challenge
+array, the barycentric denominators); `HonkRelations` has none. The limit for one contract is
+24,576 bytes.
+
+The gas is the difference of `evm.gas()` around the call in a Fe test, with the proof built
+before, so it includes encoding the calldata in the caller. Measured the same way: 283,050 for the
+previous stage (the same steps without the relations and the last comparison), 1,979 for a call
+that fails the proof-length check, 29,359 for a call to `HonkRelations` alone. Most of the total
+is the 46 modular inversions, one modexp call each at about 4,400 gas. The test deploys both
+contracts in the transaction that calls them, so the two accounts and the storage slot are warm
+(a second identical call was not cheaper); a call in a transaction of its own pays the cold
+surcharges on top, and the transaction's own cost.
 
 ## Run the tests
 
@@ -79,11 +106,15 @@ Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo` or Foundry.
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # field arithmetic, proof checks, transcript, sumcheck rounds
-(cd verifier && fe test)   # the contract against the recorded reference reverts
+(cd lib && fe test)        # field arithmetic, proof checks, transcript, relations, sumcheck
+(cd relations && fe test)  # the relations contract against the reference values
+(cd verifier && fe test)   # both contracts against the recorded reference reverts
 ```
 
-`fe build` in `verifier/` writes the contract bytecode to `verifier/out/`.
+`fe build --contract HonkRelations` in `relations/` and `fe build --contract HonkVerifier` in
+`verifier/` write the bytecode to `out/` in each directory. Without `--contract`, the build in
+`verifier/` also writes `FixedRelations` and `FailingRelations`, two stand-ins for the relations
+contract that only its tests deploy.
 
 ## Layout
 
@@ -93,11 +124,13 @@ cd ultrahonk
 | `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
 | `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--check` compares them with `lib/src/vectors.fe` |
-| `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`), `fr`, `errors`, `types`, `abi` |
+| `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`), `fr`, `errors`, `types`, `abi` |
 | `lib/src/vectors.fe` | The pinned proof and the verification key, plus the challenges, delta, round targets and pow captured from the reference |
-| `lib/src/expected.fe` | The reverts of the reference verifier on invalid calls |
+| `lib/src/relations_vectors.fe` | Inputs and outputs of the reference's relations, for the pinned proof and for a synthetic input that makes all 31 subrelations non-zero |
+| `lib/src/expected.fe` | The reverts of the reference verifier on invalid calls, and what its sumcheck alone does with them |
 | `docs/zk-verifier-reference.md` | What the port must reproduce: proof layout, check order, transcript, formulas, errors |
-| `verifier/` | Ingot `ultrahonk_verifier`: contract `HonkVerifier` |
+| `relations/` | Ingot `ultrahonk_relations`: contract `HonkRelations` |
+| `verifier/` | Ingot `ultrahonk_verifier`: contract `HonkVerifier`; its tests deploy both contracts |
 | `.oracle/` | Not committed: Barretenberg's Solidity verifier, for local reference |
 | `.tools/` | Not committed: `bb` and `nargo` binaries |
 
@@ -136,10 +169,15 @@ How the reverts in `lib/src/expected.fe` were captured:
 2. A Foundry test kept locally in `.oracle/test/` deployed `HonkVerifier`, read `vectors/proof`
    and `vectors/public_inputs`, and required `verify` to return `true`.
 3. For each case the same test changed one thing (the proof length, one proof word, one public
-   input), called `verify` with 20,000,000 gas and logged the revert data.
+   input) or replaced the proof with one built from a rule (all zeros, every word at its largest
+   allowed value), called `verify` with 20,000,000 gas and logged the revert data.
 4. The logged values were copied into `lib/src/expected.fe`.
 
-The values in the second part of `lib/src/vectors.fe` came from the same local test: a contract
+The verdicts of sumcheck alone in `lib/src/expected.fe` came from the same local test: a contract
+inheriting from the generated verifier ran the steps of its `verify` up to `verifySumcheck` and
+returned the result.
+
+The values in the second part of `lib/src/vectors.fe` came from the same local test too: a contract
 inheriting from the generated verifier logged the challenges of its transcript, its public-input
 delta, and the target and partial pow of its sumcheck round loop for the pinned proof. The first
 part of that file (proof, public inputs, verification key) is printed by `scripts/proof_to_fe.sh`

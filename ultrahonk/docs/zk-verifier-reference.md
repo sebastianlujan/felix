@@ -144,6 +144,10 @@ Length check, load VK, load proof with range checks, public-input count, transcr
 
 Observed on the pinned proof with the lowest bit of one word flipped: words 8, 28, 29, 75, 116 → `SumcheckFailed`; words 74, 121, 134, 137 → `ConsistencyCheckFailed`; words 129, 140 → `ShpleminiFailed`; word 138 (`shplonkQ` x) → revert with empty data. Changing either public input → `SumcheckFailed`.
 
+Observed on `verifySumcheck` alone (a contract inheriting from the reference ran `verify` up to it): it reverts inside its round loop for words 8, 28, 29 and for either changed public input, returns false for words 75 and 116, and returns true for the other seven flips.
+
+Observed on proofs built from a rule: the all-zero proof of the right length → `ShpleminiFailed`, with the valid public inputs and with zero public inputs, and `verifySumcheck` returns true for it (every check compares 0 with 0); every word at its largest in-range value, with or without the limbs → `SumcheckFailed` in the first round; the empty proof → `ProofLengthWrongWithLogN(5, 0, 4544)`; no public inputs → `PublicInputsLengthWrong`.
+
 ## Risks for the port
 
 - **Code size.** The reference deploys three contracts (16,946 + 8,211 + 6,008 runtime bytes = 31,165), above the 24,576-byte limit for one contract. The Fe verifier must be split or size-optimised.
@@ -159,3 +163,10 @@ Observed on the pinned proof with the lowest bit of one word flipped: words 8, 2
 - Const tables of structs work; iterate with `for ref x in TABLE` or make the struct `Copy`.
 - Raw bytecode can be deployed in a test with `evm.create_raw(value:, init_code:)` and called with `evm.try_call_raw`.
 - Hashing: `use std::evm::packed::Packed`; `Packed::with_capacity(bytes:)`, `.u256(x)`, `.append_span(span)`, `.keccak256()`, `.span()`.
+- A contract type of another ingot deploys in a test once that ingot is a path dependency: `use ultrahonk_relations::HonkRelations`, then `evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)`. Constructor arguments are a tuple: `args: (relations,)`.
+- Contract storage set at construction: field `mut relations: Address,`, `init(relations_address: Address) uses (mut relations) { relations = relations_address }`, and a handler that reads it declares `uses (relations, call: Call, ctx: Ctx)`.
+- Static call with calldata built by hand: `staticcall_decode(addr:, gas: ctx.gas(), args: packed.span())` (`std::evm`) decodes one return value, reverts with the callee's revert data when the call fails, and reverts with no data when the callee returns nothing. `Address::static(message)` does the same for a typed message, at a higher cost when the message holds a large array.
+- A message variant is a type: `RelationsMsg::Accumulate` can be a return type, and its selector is `<RelationsMsg::Accumulate as core::message::MsgVariant<Sol>>::SELECTOR`. `std::evm::encode_msg_calldata(message)` gives its calldata without calling.
+- No `cfg(test)` exists in the std or the compiler fixtures: a contract declared for the tests is also written by `fe build`, unless `--contract` names the one wanted.
+- `Vec<T>` is an alias of `std::abi::DynArray<T>`; the empty one is `DynArray::empty()` (`Vec::empty()` does not resolve).
+- `fe test -O <level>` and `fe build -O <level>` take the same levels. A test prints a measured number by ending in `revert(value)`.
