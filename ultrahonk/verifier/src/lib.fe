@@ -18,7 +18,7 @@ use ultrahonk::proof::validate
 use ultrahonk::sumcheck::{public_input_delta, verify_with_relations_at}
 use ultrahonk::transcript::generate
 use ultrahonk::types::PAIRING_POINTS_SIZE
-use ultrahonk::vectors::VK
+use ultrahonk::vk::VK
 
 /// `relations` is the address of a `HonkRelations` contract.
 fn verify(_ proof: Bytes, _ public_inputs: Vec<Bytes32>, relations: Address) -> bool

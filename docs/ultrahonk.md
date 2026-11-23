@@ -151,7 +151,8 @@ ultrahonk/
         proof.fe transcript.fe sumcheck.fe relations.fe
         shplemini.fe consistency.fe opening.fe
         std_assumptions.fe        tests that pin std precompile and Keccak behaviour
-        vectors.fe                pinned proof and key (generated), then captured values
+        vk.fe                     verification key (generated)
+        vectors.fe                pinned proof (generated), then captured values
         test_address_vectors.fe   second pinned proof (generated)
         relations_vectors.fe opening_vectors.fe expected.fe   captured from the oracle
   relations/           ingot "ultrahonk_relations": contract HonkRelations
@@ -170,7 +171,7 @@ ultrahonk/
 | Rule | Detail |
 |---|---|
 | Shared ABI | `lib/src/abi.fe` holds the `msg` for `verify(bytes,bytes32[])`, shared by the verifier (which receives it) and the vault (which sends it). |
-| Verification key | The constant `VK` in `lib/src/vectors.fe`, printed from `vectors/vk` by `scripts/proof_to_fe.sh`. There is no per-circuit `vk.fe`. |
+| Verification key | The constant `VK` in `lib/src/vk.fe`, printed from `vectors/vk` and `vectors/vk_hash` alone by `scripts/proof_to_fe.sh --vk` (since 2026-11-23; before, it sat in `lib/src/vectors.fe` with the test vectors). |
 | No Solidity | The repository tracks no Solidity file, no JavaScript file, no Foundry project and no forge-std. |
 | Local oracle | `ultrahonk/.oracle/` is a local, untracked reference tool. `scripts/vectors.sh` regenerates the verifier in it. |
 | Tests | Every committed test is a Fe test, run with `fe test` in its ingot. |
