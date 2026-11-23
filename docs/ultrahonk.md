@@ -127,7 +127,7 @@ Each row links to the Architecture Decision Record that holds the context, the o
 | Circuit | The teaching page's vault circuit (shown in [Design: vault](#design-vault-integration-contract)). | [0010](adr/0010-vault-calls-verifier-through-abi.md) |
 | Vault ↔ verifier | A static call through the standard ABI `verify(bytes,bytes32[])`, not library linking. The vault stays small and is not tied to one verifier implementation. | [0010](adr/0010-vault-calls-verifier-through-abi.md) |
 | Source of truth (toy) | A Python port of the teaching page's math block, function by function (`honk-toy/reference/honk.py`). A generator runs it and writes the vectors. Challenges are inputs. The toy includes the page's sumcheck mask. | [0011](adr/0011-toy-verifier-vectors-from-reference.md) |
-| Code size | The relations are a second contract, `HonkRelations`, asked with a static call. Sizes are measured with `fe build` at `-O 1`, `-O 2` and `-O s`. No script enforces the limit. | [0012](adr/0012-code-size-strategy.md) |
+| Code size | The relations are a second contract, `HonkRelations`, asked with a static call. Sizes are measured with `fe build` at `-O 1`, `-O 2` and `-O s`. `scripts/check.sh` enforces the limit. | [0012](adr/0012-code-size-strategy.md) |
 | Scope and framing | Noir proofs verified natively in Fe, on the EVM. Not the Aztec network. | [0013](adr/0013-scope-noir-barretenberg-on-evm.md) |
 | Delivery | Stages, incremental commits, and parallel lines in separate worktrees. | [0014](adr/0014-staged-delivery-incremental-commits.md) |
 | `fe-lang/rosetta` | Structure only. It targets the 26.1 std and does not compile on 26.6.0. It has no licence, so nothing is copied from it. | [0001](adr/0001-port-bb-6-zk-verifier.md) |
