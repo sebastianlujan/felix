@@ -1,0 +1,209 @@
+// The UltraHonk relations, evaluated at the sumcheck point.
+//
+// Port of `RelationsLib` in the Solidity verifier that Barretenberg 6.0.0 generates
+// with `-t evm`. Each relation reads the 41 entity evaluations and writes its
+// subrelations into fixed slots of a shared array of 31; the slots are not in call
+// order. `accumulate` runs all ten and batches the 31 values with powers of alpha.
+//
+// Every input must be reduced (< P): `fr::sub` panics on a larger subtrahend where
+// the reference wraps. Outputs are reduced, so they equal the reference's bit for bit.
+//
+// Where the reference repeats a product or writes `x * MINUS_ONE + ONE`, this port
+// computes it once or writes `1 - x`; the values are the same field elements.
+use super::fr::{add, mul, sub}
+use super::relations_vectors as vectors
+use super::wire::{
+    Q_4,
+    Q_C,
+    Q_L,
+    Q_M,
+    Q_MEMORY,
+    Q_O,
+    Q_R,
+    W_4,
+    W_4_SHIFT,
+    W_L,
+    W_L_SHIFT,
+    W_O,
+    W_O_SHIFT,
+    W_R,
+    W_R_SHIFT,
+}
+
+pub const NUMBER_OF_SUBRELATIONS: usize = 31
+
+/// Challenges and derived values shared by the relations.
+pub struct RelationParameters {
+    pub eta: u256,
+    /// Additive offset of the ROM log-derivative argument.
+    pub rom_logup_gamma: u256,
+    pub beta: u256,
+    pub gamma: u256,
+    pub public_inputs_delta: u256,
+}
+
+/// RAM/ROM memory relation: slots 14 to 19.
+///
+/// Gate layout: `w1` index, `w2` timestamp (RAM) or second value (ROM), `w3` value,
+/// `w4` record, `q_c` access type (RAM only).
+pub fn memory(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+    evals: mut [u256; NUMBER_OF_SUBRELATIONS],
+) {
+    let eta = rp.eta
+    let eta_two = mul(eta, eta)
+    let eta_three = mul(eta_two, eta)
+    let q_memory_by_scaling = mul(p[Q_MEMORY], pow)
+
+    // Record check: q_c + w1 * eta + w2 * eta^2 + w3 * eta^3 - w4 = 0.
+    var memory_record_check = mul(p[W_O], eta_three)
+    memory_record_check = add(memory_record_check, mul(p[W_R], eta_two))
+    memory_record_check = add(memory_record_check, mul(p[W_L], eta))
+    memory_record_check = add(memory_record_check, p[Q_C])
+    let partial_record_check = memory_record_check
+    memory_record_check = sub(memory_record_check, p[W_4])
+
+    // ROM consistency: in the sorted records, indices increase by 0 or 1, and
+    // records with the same index are equal.
+    let index_delta = sub(p[W_L_SHIFT], p[W_L])
+    let record_delta = sub(p[W_4_SHIFT], p[W_4])
+    let index_is_monotonically_increasing = mul(index_delta, sub(index_delta, 1))
+    let indices_match = sub(1, index_delta)
+    let adjacent_values_match_if_adjacent_indices_match = mul(indices_match, record_delta)
+
+    let q_l_by_q_r = mul(p[Q_L], p[Q_R])
+    evals[15] = mul(
+        mul(
+            adjacent_values_match_if_adjacent_indices_match,
+            q_l_by_q_r,
+        ),
+        q_memory_by_scaling,
+    )
+    evals[16] = mul(
+        mul(index_is_monotonically_increasing, q_l_by_q_r),
+        q_memory_by_scaling,
+    )
+    let rom_consistency_check_identity = mul(memory_record_check, q_l_by_q_r)
+
+    // RAM consistency: the access type `w4 - partial_record_check` is boolean, and two
+    // adjacent records with the same index hold the same value when the next one is a read.
+    let access_type = sub(p[W_4], partial_record_check)
+    let access_check = mul(access_type, sub(access_type, 1))
+
+    var next_gate_access_type = mul(p[W_O_SHIFT], eta_three)
+    next_gate_access_type = add(next_gate_access_type, mul(p[W_R_SHIFT], eta_two))
+    next_gate_access_type = add(next_gate_access_type, mul(p[W_L_SHIFT], eta))
+    next_gate_access_type = sub(p[W_4_SHIFT], next_gate_access_type)
+
+    let value_delta = sub(p[W_O_SHIFT], p[W_O])
+    let adjacent_values_match_if_adjacent_indices_match_and_next_access_is_a_read_operation = mul(
+        mul(indices_match, value_delta),
+        sub(1, next_gate_access_type),
+    )
+    // The last sorted record has no successor to run the check above against, so the
+    // next gate's access type is constrained to be boolean as well.
+    let next_gate_access_type_is_boolean = sub(
+        mul(next_gate_access_type, next_gate_access_type),
+        next_gate_access_type,
+    )
+
+    let q_o_by_scaling = mul(p[Q_O], q_memory_by_scaling)
+    evals[17] = mul(
+        adjacent_values_match_if_adjacent_indices_match_and_next_access_is_a_read_operation,
+        q_o_by_scaling,
+    )
+    evals[18] = mul(index_is_monotonically_increasing, q_o_by_scaling)
+    evals[19] = mul(next_gate_access_type_is_boolean, q_o_by_scaling)
+    let ram_consistency_check_identity = mul(access_check, p[Q_O])
+
+    // RAM timestamp check: (1 - index_delta) * timestamp_delta - w3 = 0.
+    let timestamp_delta = sub(p[W_R_SHIFT], p[W_R])
+    let ram_timestamp_check_identity = sub(mul(indices_match, timestamp_delta), p[W_O])
+
+    var memory_identity = rom_consistency_check_identity
+    memory_identity = add(
+        memory_identity,
+        mul(ram_timestamp_check_identity, mul(p[Q_4], p[Q_L])),
+    )
+    memory_identity = add(
+        memory_identity,
+        mul(memory_record_check, mul(p[Q_M], p[Q_L])),
+    )
+    memory_identity = add(memory_identity, ram_consistency_check_identity)
+    evals[14] = mul(memory_identity, q_memory_by_scaling)
+}
+
+fn proof_params() -> RelationParameters {
+    RelationParameters {
+        eta: vectors::PROOF_ETA,
+        rom_logup_gamma: vectors::PROOF_ROM_LOGUP_GAMMA,
+        beta: vectors::PROOF_BETA,
+        gamma: vectors::PROOF_GAMMA,
+        public_inputs_delta: vectors::PROOF_PUBLIC_INPUTS_DELTA,
+    }
+}
+
+fn synth_params() -> RelationParameters {
+    RelationParameters {
+        eta: vectors::SYNTH_ETA,
+        rom_logup_gamma: vectors::SYNTH_ROM_LOGUP_GAMMA,
+        beta: vectors::SYNTH_BETA,
+        gamma: vectors::SYNTH_GAMMA,
+        public_inputs_delta: vectors::SYNTH_PUBLIC_INPUTS_DELTA,
+    }
+}
+
+/// True if `evals` holds `expected` in slots `first..end` and zero in every other slot:
+/// what a relation run alone on a zeroed array must leave.
+fn only_slots(_ evals: [u256; 31], expected: [u256; 31], first: usize, end: usize) -> bool {
+    var i: usize = 0
+    while i < NUMBER_OF_SUBRELATIONS {
+        let want = if i >= first && i < end {
+            expected[i]
+        } else {
+            0
+        }
+        if evals[i] != want {
+            return false
+        }
+        i += 1
+    }
+    true
+}
+
+#[test]
+fn test_memory_relation_matches_reference() {
+    var evals: [u256; 31] = [0; 31]
+    memory(
+        p: vectors::SYNTH_EVALS,
+        rp: synth_params(),
+        pow: vectors::SYNTH_POW,
+        evals: mut evals,
+    )
+    assert!(
+        only_slots(
+            evals,
+            expected: vectors::SYNTH_SUBRELATIONS,
+            first: 14,
+            end: 20,
+        ),
+    )
+
+    var proof_evals: [u256; 31] = [0; 31]
+    memory(
+        p: vectors::PROOF_EVALS,
+        rp: proof_params(),
+        pow: vectors::PROOF_POW,
+        evals: mut proof_evals,
+    )
+    assert!(
+        only_slots(
+            proof_evals,
+            expected: vectors::PROOF_SUBRELATIONS,
+            first: 14,
+            end: 20,
+        ),
+    )
+}
