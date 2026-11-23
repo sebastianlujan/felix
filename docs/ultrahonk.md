@@ -257,6 +257,7 @@ This table is the project's record of what was reused and what was only read.
 | Fe repository fixtures | Apache-2.0 | The `expect_*` test helpers in `lib/src/std_assumptions.fe` follow `precompile_wrappers.fe`, with the attribution in the file. |
 | `fe-lang/rosetta` | No licence | Learn from it, copy nothing. |
 | Upstream negative test base (`NegativeTestBase.sol`) | Marked `UNLICENSED` | Nothing is copied from it. The invalid calls the tests use are listed in `lib/src/expected.fe`, with how each was captured. |
+| Garaga (`keep-starknet-strange/garaga` at commit `86b6025`) | MIT | The `hello` proof bundle (proof, public input, key, key hash: raw `bb` 6.0.0 output) is copied unchanged into `ultrahonk/vectors/garaga/`, with the licence text and the provenance next to it. |
 | Other contest entries | — | Nothing is taken from them. |
 
 ## Design: real verifier
