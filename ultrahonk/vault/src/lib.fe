@@ -475,7 +475,8 @@ uses (evm: mut Evm)
     assert!(TEST_ADDRESS_PUBLIC_INPUTS[1] == TEST_ADDRESS)
     let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
     let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
-    let vault = evm.create2<Vault>(
+    let vault = evm
+        .create2<Vault>(
             value: Wei::zero(),
             args: (TEST_ADDRESS_PUBLIC_INPUTS[0], verifier),
             salt: 0,
@@ -502,7 +503,13 @@ uses (evm: mut Evm)
         )
     assert!(!again)
     let bob = deploy_claimer(salt: 0)
-    assert!(!claim_from(claimer: bob, vault, proof: bytes_from_words(TEST_ADDRESS_PROOF)))
+    assert!(
+        !claim_from(
+            claimer: bob,
+            vault,
+            proof: bytes_from_words(TEST_ADDRESS_PROOF),
+        ),
+    )
     assert!(claimed(vault))
     assert!(winner(vault).word() == TEST_ADDRESS)
 }

@@ -53,9 +53,10 @@ pub contract HonkVerifier {
 
 // Tests. Each deploys both contracts and compares the revert data of one or more calls with
 // what the reference verifier returned for the same call, as recorded in
-// `ultrahonk::expected`. The exceptions say so: the calls that pass every implemented check
-// (the reference accepted the valid proof; nothing here does), the all-zero proof, and the
-// tests of the call between the two contracts, at the end.
+// `ultrahonk::expected`. The exceptions say so: the valid proof, accepted here as by the
+// reference; the flip of one bit in every proof word, which the reference was not asked
+// about; proof word 138, where the reference reverts without data; and the tests of the call
+// between the two contracts, at the end.
 use core::error::ErrorVariant
 use std::abi::{DynArray, Sol, bytes_from_words, dyn_array_from}
 use std::evm::{Evm, revert_selector}
@@ -178,7 +179,9 @@ fn test_the_largest_values_revert_as_the_reference() uses (evm: mut Evm) {
 #[test]
 fn test_the_valid_proof_is_accepted() uses (evm: mut Evm) {
     let verifier = deploy()
-    assert!(accepts(verifier, proof: proof(), public_inputs: public_inputs()))
+    assert!(
+        accepts(verifier, proof: proof(), public_inputs: public_inputs()),
+    )
 }
 
 // What matters once the contract can return true: no proof with one bit changed is
@@ -190,7 +193,9 @@ fn test_no_proof_with_one_bit_changed_is_accepted() uses (evm: mut Evm) {
     var word: usize = 0
     while word < PROOF.len() {
         let tampered = proof_with(word, value: PROOF[word] ^ 1)
-        assert!(!accepts(verifier, proof: tampered, public_inputs: public_inputs()))
+        assert!(
+            !accepts(verifier, proof: tampered, public_inputs: public_inputs()),
+        )
         word += 1
     }
 }
@@ -423,7 +428,13 @@ uses (evm: mut Evm)
 {
     // The reference's value for the pinned proof: sumcheck passes.
     let right = deploy_with_fixed_relations(answer: PROOF_BATCHED)
-    assert!(accepts(verifier: right, proof: proof(), public_inputs: public_inputs()))
+    assert!(
+        accepts(
+            verifier: right,
+            proof: proof(),
+            public_inputs: public_inputs(),
+        ),
+    )
     // Any other value: the last comparison of sumcheck fails.
     let wrong = deploy_with_fixed_relations(answer: PROOF_BATCHED_TAMPERED)
     assert!(
