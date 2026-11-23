@@ -24,8 +24,11 @@ pub msg VaultMsg {
 ///
 /// A static call: `verify` is a view function, and the vault writes its storage only
 /// after the answer, so the verifier must not be able to change any state, or to call
-/// back into a vault that could, while it runs. A revert of the verifier reverts with the
-/// same data, and so does an answer that is not one ABI `bool`.
+/// back into a vault that could, while it runs.
+///
+/// A revert of the verifier reverts with the same data. An answer that is not one ABI
+/// `bool` reverts without data: a word other than 0 and 1, or nothing at all, which is
+/// what a call to an address without code returns.
 fn proves(verifier: Address, proof: own Bytes, y: u256, claimer: Address) -> bool
 uses (call: Call)
 {
@@ -55,7 +58,8 @@ pub contract Vault {
 
     recv VaultMsg {
         /// `true` when this call made the claim. `false`, with nothing recorded, when the
-        /// vault was claimed before or the verifier answered `false`.
+        /// vault was claimed before or the verifier answered `false`. Reverts, with nothing
+        /// recorded either, when the call to the verifier does (see `proves`).
         Claim { proof } -> bool uses (y, verifier, mut claimed, mut winner, call: Call, ctx: Ctx) {
             if claimed { return false }
             let claimer = ctx.caller()
@@ -87,6 +91,9 @@ use core::ptr::MemBuffer
 use std::abi::Sol
 use std::evm::{Evm, RawOps, encode_msg_calldata, revert_selector}
 use ultrahonk::errors::SumcheckFailed
+use ultrahonk::vectors::{PUBLIC_INPUTS, proof, public_inputs}
+use ultrahonk_relations::HonkRelations
+use ultrahonk_verifier::{HonkVerifier, VerificationNotImplemented}
 
 const GAS: u256 = 20000000
 const Y: u256 = 9
@@ -244,7 +251,7 @@ contract RevertingVerifier {
     }
 }
 
-// The verifier rejects a proof by reverting, never by answering `false`: the claim must
+// `HonkVerifier` rejects a proof by reverting, never by answering `false`: the claim must
 // revert with what the verifier said, and leave no trace.
 #[test]
 fn test_a_revert_of_the_verifier_reaches_the_caller_unchanged()
@@ -280,6 +287,39 @@ uses (evm: mut Evm)
             args: (Y, Address::new(0xdead)),
             salt: 0,
         )
+    let outcome = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 0)
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+}
+
+/// Counts the queries in its storage, then accepts.
+contract CountingVerifier {
+    mut queries: u256,
+
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool uses (mut queries) {
+            queries += 1
+            true
+        }
+    }
+}
+
+// The vault asks with a static call, in which a write to storage fails: a verifier that
+// changes state while it answers cannot make a claim succeed.
+#[test]
+fn test_a_verifier_that_writes_storage_makes_the_claim_revert()
+uses (evm: mut Evm)
+{
+    let verifier = evm.create2<CountingVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
     let outcome = evm
         .try_call(
             addr: vault,
@@ -353,9 +393,6 @@ uses (evm: mut Evm)
 }
 
 // The real verifier, and the caller a claim that succeeds will need.
-use ultrahonk::vectors::{PUBLIC_INPUTS, proof, public_inputs}
-use ultrahonk_relations::HonkRelations
-use ultrahonk_verifier::{HonkVerifier, VerificationNotImplemented}
 
 /// The address of every Fe test contract with `fe` 26.6.0, whatever its code: the test
 /// runner creates it from the zero address with nonce 0. It is the caller of the calls a
