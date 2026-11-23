@@ -208,10 +208,27 @@ and the verdict of `bb verify` (`vectors/garaga/README.md`).
 |---|---|---|---|
 | `hello` | 12 | 1 | The 23 challenges of the transcript equal the ones Garaga pins for this proof. The proof is accepted. It is not accepted with the low bit of any one of its 226 words flipped, nor with its public input changed |
 | `mutator_set` | 17 | 3 | The proof is accepted. It is not accepted with the low bit of any one of its 286 words flipped, nor with any one of its three public inputs changed |
+| `recursive` | 20 | 1 | The proof is accepted. Its circuit verifies another proof, so it carries pairing points (the eight limbs are not zero) and is accepted through the aggregation: the second point of its pairing is not the negated KZG quotient. It is not accepted with the low bit of any one of its 322 words flipped |
 
-The flips and the changed input go through `KeyedVerifier`, a contract only the tests deploy,
+The flips and the changed inputs go through `KeyedVerifier`, a contract only the tests deploy,
 which runs `verifier::verify` with the key in the calldata. None of these tests goes through
 `HonkVerifier` and `HonkRelations`.
+
+These proofs also reach relations the pinned proof does not. The range, elliptic, memory,
+non-native field and Poseidon2 relations are scaled by their selector, so where the selector
+evaluates to zero at the sumcheck point an accepted proof says nothing about them. In the pinned
+proof every gate selector but `qArith` is zero there. A test asserts which are not in Garaga's:
+
+| Selector not zero at the sumcheck point | In |
+|---|---|
+| `qDeltaRange` | `hello`, `mutator_set`, `recursive` |
+| `qLookup` | `mutator_set` |
+| `qMemory` | `mutator_set`, `recursive` |
+| `qNnf`, `qPoseidon2External`, `qPoseidon2Internal` | `recursive` |
+| `qElliptic` | None: see [Limits](#limits) |
+
+Garaga's fourth bundle, `memory` (`LOG_N = 12`), is not used: `bb verify` accepts it, and its
+key has no selector the three others lack.
 
 ## Limits
 
@@ -223,8 +240,12 @@ which runs `verifier::verify` with the key in the calldata. None of these tests 
   the constant `VK` in `lib/src/vectors.fe`. Other circuits and sizes are verified in the library
   only, on proofs this project did not make ([Other circuits](#other-circuits)).
 - No pinned proof carries pairing points: the eight limbs are zero, so the contract tests run
-  only the branch that skips the aggregation. The aggregation is tested in the library, against
-  values the reference computed with limbs put in place of the zeros.
+  only the branch that skips the aggregation. The aggregation is tested in the library: against
+  values the reference computed with limbs put in place of the zeros, and on Garaga's `recursive`
+  proof, which carries pairing points and is accepted through it.
+- No accepted proof exercises the elliptic-curve relation: `qElliptic` is zero in the four
+  circuits. That relation is tested only against the reference's values for a synthetic input
+  (`lib/src/relations_vectors.fe`).
 - The captured values rest on their documented provenance. The oracle and the local tests that
   read it are not committed.
 - This port has not been audited.
@@ -241,7 +262,7 @@ runs these commands and the other checks at once; its two vector checks also nee
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # 195: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call, Garaga's proofs
+(cd lib && fe test)        # 199: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call, Garaga's proofs
 (cd relations && fe test)  # 2: the relations contract against the reference values
 (cd verifier && fe test)   # 19: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound
 (cd vault && fe test)      # 13: the vault against stand-in verifiers, and in front of HonkVerifier
@@ -275,7 +296,7 @@ its tests. `../honk-toy/` has no contract to build.
 | `lib/src/vectors.fe` | The pinned proof and the verification key, plus the challenges, delta, round targets and pow captured from the reference |
 | `lib/src/test_address_vectors.fe` | The second pinned proof and its public inputs, which the vault test claims with |
 | `lib/src/garaga_<bundle>_proof.fe` | A proof of `vectors/garaga/` and its public inputs, generated |
-| `lib/src/garaga_<bundle>.fe` | The verification key of that bundle, generated, then the tests that verify its proof with `verifier::verify`. For `hello`, also the challenges Garaga pins |
+| `lib/src/garaga_<bundle>.fe` | The verification key of that bundle, generated, then the tests that verify its proof with `verifier::verify`. For `hello`, also the challenges Garaga pins; in `garaga_recursive.fe`, also which gate selectors the three proofs reach |
 | `lib/src/relations_vectors.fe` | Inputs and outputs of the reference's relations, for the pinned proof and for a synthetic input that makes all 31 subrelations non-zero |
 | `lib/src/opening_vectors.fe` | What the reference computes after sumcheck for the pinned proof: Shplemini scalars, terms of the consistency check, pairing points, and the aggregation on limbs put in place of the zeros |
 | `lib/src/expected.fe` | The reverts of the reference verifier on invalid calls, and what its sumcheck alone does with them |

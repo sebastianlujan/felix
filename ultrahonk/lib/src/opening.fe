@@ -7,9 +7,10 @@
 // rejected with: all the scalars, the consistency check, the multi-scalar multiplication,
 // the aggregation of the pairing points carried in the proof, the pairing.
 //
-// No proof exercises the aggregation: the circuit of this project carries no pairing points,
+// No proof of this project exercises the aggregation: its circuit carries no pairing points,
 // and its proofs have the eight limbs at zero. That step is tested against the reference
-// with limbs put in place of the zeros (`opening_vectors.fe`).
+// with limbs put in place of the zeros (`opening_vectors.fe`), and on a proof of another
+// circuit that carries pairing points (`garaga_recursive.fe`).
 use std::evm::crypto::{ec_add, ec_mul, ec_pairing, keccak_words}
 use std::evm::packed::Packed
 use super::consistency::check
