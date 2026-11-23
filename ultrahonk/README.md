@@ -1,30 +1,45 @@
 # UltraHonk verifier in Fe
 
 A port of Barretenberg's zero-knowledge UltraHonk verifier (BN254, Keccak transcript: the flavor
-`bb` selects with `-t evm`) from Solidity to [Fe](https://fe-lang.org).
+`bb` selects with `-t evm`) from Solidity to [Fe](https://fe-lang.org). Noir proofs verified
+natively in Fe: a Noir circuit is proved by Barretenberg, and the proof is verified on the EVM by
+Fe code. Nothing here runs on the Aztec network.
+
+Three deliverables, all built and tested:
+
+| Deliverable | Where | State |
+|---|---|---|
+| The verifier: contracts `HonkVerifier` and `HonkRelations` | `lib/`, `relations/`, `verifier/` | Accepts the pinned proof and rejects every recorded invalid call |
+| A vault that takes a proof through the verifier | `vault/` ([README](vault/README.md)) | A claim succeeds in front of the real verifier. No payout, by decision |
+| A hand-sized toy Honk verifier over F_17 | `toy/` ([README](toy/README.md)) | Its verdict equals its reference's in every scenario. A teaching model, not secure |
 
 **The Fe verifier accepts the pinned valid proof.** It has the ABI of the Solidity verifier and
 runs its steps (proof validation, the Fiat-Shamir transcript, the public-input delta, sumcheck with
 the relations, then the opening: Shplemini scalars, Libra consistency check, multi-scalar
 multiplication, pairing-point aggregation and pairing) in the same order and with the same errors,
-with one recorded exception: where the reference runs out of gas on a point off the curve and
-reverts without data (proof word 138), this contract reverts with `ShpleminiFailed()`. It returns
-`true` only if the pairing holds. The tests cover the pinned proof, the recorded bit flips, the
+with one exception among the recorded cases: where the reference runs out of gas on a point off
+the curve and reverts without data (proof word 138), this contract reverts with
+`ShpleminiFailed()`. It returns `true` only if the pairing holds. The tests cover the pinned proof, the recorded bit flips, the
 all-zero proof, and a low-bit flip in each of the 142 proof words, none of which is accepted; they
 do not show that every proof the reference rejects is rejected.
 
 It is two contracts, as the reference is a contract and two linked libraries: `HonkVerifier`
 asks `HonkRelations` for the value of the relations with a static call.
 
+The plan, the decisions behind it and their outcome are in [`../docs/ultrahonk.md`](../docs/ultrahonk.md)
+and [`../docs/adr/`](../docs/adr/README.md).
+
 ## What the repository contains
 
-Fe, one Noir circuit and shell scripts. **No Solidity is committed.**
+Fe, one Noir circuit, shell scripts and the toy's Python reference (`toy/reference/`).
+**No Solidity and no JavaScript is committed.**
 
 Barretenberg's generated Solidity verifier is used only as a local reference oracle.
 `scripts/vectors.sh` writes it to `.oracle/`, which git ignores. Values captured from it are
 committed as Fe constants, with the tools and versions that produced them, and the Fe tests assert
 against those constants: how it reverts on invalid calls in `lib/src/expected.fe`, what it computes
-for the valid proof in `lib/src/vectors.fe`.
+for the valid proof in `lib/src/vectors.fe`, `lib/src/relations_vectors.fe` and
+`lib/src/opening_vectors.fe`.
 
 ## Status
 
@@ -37,8 +52,12 @@ for the valid proof in `lib/src/vectors.fe`.
 | 3-5 | Sumcheck: the ten relations (`HonkRelations`) and the final check against them | Done |
 | 6 | Shplemini, the Libra consistency check and the pairing check | Done |
 | 7 | Verifier contract accepting proofs | Done: accepts both pinned proofs and rejects every recorded invalid call |
+| Toy | Honk over F_17 with KZG over F_101, with the sumcheck mask (`toy/README.md`) | Done |
 
-### What the contract checks today
+Not written: an end-to-end script and a script that checks the code size. The sizes below were
+measured by hand.
+
+### What the contract checks
 
 In the order of the reference verifier, each with the reference's error:
 
@@ -52,11 +71,20 @@ In the order of the reference verifier, each with the reference's error:
 | The `LOG_N` sumcheck round checks | `lib/src/sumcheck.fe` | `SumcheckFailed` |
 | The ten relations at the sumcheck point, asked from `HonkRelations` | `lib/src/relations.fe`, `relations/src/lib.fe` | whatever that contract reverts with, unchanged |
 | Last sumcheck comparison: relations, row-disabling factor and Libra evaluation against the target | `lib/src/sumcheck.fe` | `SumcheckFailed` |
-| Everything after: Shplemini, consistency check, pairing | ported | `ConsistencyCheckFailed`, `ShpleminiFailed` |
+| Shplemini scalars | `lib/src/shplemini.fe` | `InvertOfZero` on a zero denominator |
+| Consistency check of the Libra evaluations | `lib/src/consistency.fe` | `GeminiChallengeInSubgroup`, `ConsistencyCheckFailed` |
+| Multi-scalar multiplication | `lib/src/opening.fe` | `ShpleminiFailed` |
+| Pairing-point aggregation, only when a limb is non-zero | `lib/src/opening.fe` | `ValueGeGroupOrder`, `PointAtInfinity`, `ShpleminiFailed` |
+| Pairing | `lib/src/opening.fe`, `verifier/src/lib.fe` | `ShpleminiFailed` |
 
 For the pinned proof, every challenge, the delta, the target of every sumcheck round, the final
-partial pow and the batched value of the relations equal the values captured from the reference
+partial pow, the batched value of the relations, every Shplemini scalar, the terms of the
+consistency check and the two points of the pairing equal the values captured from the reference
 verifier.
+
+One more difference from the reference is recorded in `lib/src/errors.fe` and reached by no
+test: if the modexp precompile call itself fails, the reference reverts with four raw bytes
+(`0xf8d61709`) and `fr::inv` reverts with `ModExpFailed()`.
 
 `HonkVerifier` takes the address of `HonkRelations` as its constructor argument and keeps it in
 storage, so `HonkRelations` is deployed first. The calldata it sends is the encoding of
@@ -68,9 +96,10 @@ library test asserts that both encodings are the same bytes. If the relations co
 the verifier reverts with the same data; if the address holds no code, the verifier reverts with
 no data.
 
-Of the reverts recorded from the reference, the contract tests assert the ones these steps decide:
+Every revert recorded from the reference is asserted, in the contract tests unless the row says
+otherwise:
 
-| Recorded case | Asserted now |
+| Recorded case | Asserted |
 |---|---|
 | 4 wrong proof lengths, the empty proof among them | Yes, the whole revert data |
 | 7 overwritten proof words (range checks) | Yes |
@@ -85,7 +114,7 @@ Of the reverts recorded from the reference, the contract tests assert the ones t
 | The low bit of each of the 142 proof words flipped, one at a time (not recorded from the reference) | Yes: none is accepted |
 | What the reference's sumcheck alone does with the bit flips, the changed public inputs, the all-zero proof and the largest values | Yes, in the library tests of `lib/src/sumcheck.fe` |
 
-Measured at this stage, with `fe` 26.6.0:
+Measured with `fe` 26.6.0:
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
@@ -99,8 +128,11 @@ share was not measured again. `HonkRelations` has none. The limit for one contra
 bytes. The reference's Solidity verifier is 16,946 bytes plus 14,219 of linked libraries
 (`The reference oracle` below).
 
+A size is half the length of the hex text `fe build` writes to `out/<Contract>.runtime.bin`.
+
 The gas is the difference of `evm.gas()` around the call in a Fe test, with the proof built
-before, so it includes encoding the calldata in the caller. Measured the same way, at `-O 1`:
+before, so it includes encoding the calldata in the caller. The tests that measured it are not
+committed. Measured the same way, at `-O 1`:
 312,542 up to the end of sumcheck before the opening was ported (most of it the 46 modular
 inversions, one modexp call each at about 4,400 gas), so the opening costs about 1,796,000;
 283,050 for sumcheck without the relations and the last comparison; 1,979 for a call that fails
@@ -109,23 +141,41 @@ contracts in the transaction that calls them, so the two accounts and the storag
 (a second identical call was not cheaper); a call in a transaction of its own pays the cold
 surcharges on top, and the transaction's own cost.
 
+## Limits
+
+- The tests do not show that every proof the reference rejects is rejected. The evidence is the
+  recorded invalid calls and the 142 low-bit flips above.
+- One circuit, with `LOG_N = 5`. No other circuit or size is exercised. The verification key is
+  the constant `VK` in `lib/src/vectors.fe`.
+- No pinned proof carries pairing points: the eight limbs are zero, so the contract tests run
+  only the branch that skips the aggregation. The aggregation is tested in the library, against
+  values the reference computed with limbs put in place of the zeros.
+- The captured values rest on their documented provenance. The oracle and the local tests that
+  read it are not committed.
+- This port has not been audited.
+- The vault has no payout, and the toy is a teaching model that protects nothing.
+
 ## Run the tests
 
-Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo` or Foundry.
+Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo`, Python or Foundry.
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # field arithmetic, proof checks, transcript, relations, sumcheck
-(cd relations && fe test)  # the relations contract against the reference values
-(cd verifier && fe test)   # both contracts against the recorded reference reverts
-(cd vault && fe test)      # the vault against stand-in verifiers, and in front of HonkVerifier
+(cd lib && fe test)        # 176: field arithmetic, proof checks, transcript, relations, sumcheck, opening
+(cd relations && fe test)  # 2: the relations contract against the reference values
+(cd verifier && fe test)   # 16: both contracts against the recorded reference reverts
+(cd vault && fe test)      # 11: the vault against stand-in verifiers, and in front of HonkVerifier
+(cd toy && fe test)        # 70: the toy verifier against its Python reference's vectors
 ```
+
+The numbers are the tests that pass in each ingot, counted on 2026-11-23.
 
 `fe build --contract HonkRelations` in `relations/`, `fe build --contract HonkVerifier` in
 `verifier/` and `fe build --contract Vault` in `vault/` write the bytecode to `out/` in each
 directory. Without `--contract`, the build in `verifier/` also writes `FixedRelations` and
 `FailingRelations`, two stand-ins for the relations contract that only its tests deploy, and the
-build in `vault/` the five contracts its tests deploy.
+build in `vault/` the five contracts its tests deploy. `lib/` and `toy/` are libraries and have
+no contract to build.
 
 ## Layout
 
@@ -135,15 +185,20 @@ build in `vault/` the five contracts its tests deploy.
 | `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output. `test_address/`: the second proof and its public inputs, for the same `vk` |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
 | `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--test-address` prints the second proof; `--check` compares them with `lib/src/vectors.fe` and `lib/src/test_address_vectors.fe` |
-| `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`), `fr`, `errors`, `types`, `abi` |
+| `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi` |
+| `lib/src/std_assumptions.fe` | Tests only: they pin the behaviour of the std precompile wrappers and of Keccak hashing that the port depends on |
 | `lib/src/vectors.fe` | The pinned proof and the verification key, plus the challenges, delta, round targets and pow captured from the reference |
 | `lib/src/test_address_vectors.fe` | The second pinned proof and its public inputs, which the vault test claims with |
 | `lib/src/relations_vectors.fe` | Inputs and outputs of the reference's relations, for the pinned proof and for a synthetic input that makes all 31 subrelations non-zero |
+| `lib/src/opening_vectors.fe` | What the reference computes after sumcheck for the pinned proof: Shplemini scalars, terms of the consistency check, pairing points, and the aggregation on limbs put in place of the zeros |
 | `lib/src/expected.fe` | The reverts of the reference verifier on invalid calls, and what its sumcheck alone does with them |
-| `docs/zk-verifier-reference.md` | What the port must reproduce: proof layout, check order, transcript, formulas, errors |
+| `docs/zk-verifier-reference.md` | What the port reproduces: proof layout, check order, transcript, formulas, errors |
 | `relations/` | Ingot `ultrahonk_relations`: contract `HonkRelations` |
 | `verifier/` | Ingot `ultrahonk_verifier`: contract `HonkVerifier`; its tests deploy both contracts |
 | `vault/` | Ingot `ultrahonk_vault`: contract `Vault`, which records the first caller with a proof for `[y, caller]`; no payout. See `vault/README.md` |
+| `toy/` | Ingot `honk_toy`: a hand-sized Honk verifier over F_17 with KZG over F_101, with its Python reference and vector generator in `toy/reference/`. See `toy/README.md` |
+| `../docs/ultrahonk.md` | At the repository root: the project plan and its outcome |
+| `../docs/adr/` | At the repository root: the 14 decision records |
 | `.oracle/` | Not committed: Barretenberg's Solidity verifier, for local reference |
 | `.tools/` | Not committed: `bb` and `nargo` binaries |
 
@@ -209,6 +264,9 @@ part of that file (proof, public inputs, verification key) is printed by `script
 from `vectors/`; the local test also checks that `vectors/vk` lists the key's points in the order
 the verifier uses them.
 
+`lib/src/relations_vectors.fe` and `lib/src/opening_vectors.fe` came from two more local tests
+in `.oracle/test/`. Each file states at its top what was run and how the values were read.
+
 Measured on that verifier for the pinned proof:
 
 | | |
@@ -218,7 +276,8 @@ Measured on that verifier for the pinned proof:
 
 To rebuild the oracle after cloning, run `scripts/vectors.sh` (next section), then
 `forge install foundry-rs/forge-std --no-git` and `forge build --sizes` inside `.oracle/`. The
-script does not write the local test.
+script does not write the local tests, so the captured values cannot be regenerated from the
+repository alone.
 
 ## Regenerate the vector
 
@@ -233,9 +292,14 @@ scripts/vectors.sh
 The script ends with `bb verify` accepting both new proofs. It **overwrites `vectors/proof` and
 `vectors/test_address/proof` with different valid proofs**; run
 `git checkout -- vectors/proof vectors/test_address/proof` afterwards to return to the pinned
-ones. Committing a new first proof means capturing `lib/src/expected.fe` and the second part of
-`lib/src/vectors.fe` again, and regenerating the first part with `scripts/proof_to_fe.sh`. A new
-second proof only needs `scripts/proof_to_fe.sh --test-address > lib/src/test_address_vectors.fe`.
+ones. Committing a new first proof means capturing `lib/src/expected.fe`, the second part of
+`lib/src/vectors.fe`, the `PROOF_*` values of `lib/src/relations_vectors.fe` and
+`lib/src/opening_vectors.fe` again, and regenerating the first part of `lib/src/vectors.fe` with
+`scripts/proof_to_fe.sh`. A new second proof only needs
+`scripts/proof_to_fe.sh --test-address > lib/src/test_address_vectors.fe`.
+
+The toy has its own generator, which needs Python 3 and nothing else:
+`python3 toy/reference/gen_vectors.py --check` (`toy/README.md`).
 
 The archives are the macOS arm64 builds. The script calls the tools by path and exits unless they
 report the versions below; tools installed elsewhere on the machine are not used.
