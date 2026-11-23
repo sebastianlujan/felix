@@ -124,9 +124,9 @@ Measured with `fe` 26.6.0:
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| Runtime size of `HonkVerifier`, bytes (`fe build`) | 16,446 | 16,274 | 16,174 |
+| Runtime size of `HonkVerifier`, bytes (`fe build`) | 16,638 | 16,476 | 16,346 |
 | Runtime size of `HonkRelations`, bytes (`fe build`) | 8,527 | 6,336 | 6,343 |
-| Gas of `verify` on the valid proof, accepted | 2,108,994 | 2,106,426 | 2,124,076 |
+| Gas of `verify` on the valid proof, accepted | 1,152,338 | 1,150,828 | 1,166,583 |
 
 Before the opening was ported, 2,976 bytes of the then 7,609-byte `HonkVerifier` runtime were
 constants (the verification key, the zeroed challenge array, the barycentric denominators); that
@@ -136,16 +136,33 @@ bytes. The reference's Solidity verifier is 16,946 bytes plus 14,219 of linked l
 
 A size is half the length of the hex text `fe build` writes to `out/<Contract>.runtime.bin`.
 
-The gas is the difference of `evm.gas()` around the call in a Fe test, with the proof built
-before, so it includes encoding the calldata in the caller. The tests that measured it are not
-committed. Measured the same way, at `-O 1`:
-312,542 up to the end of sumcheck before the opening was ported (most of it the 46 modular
-inversions, one modexp call each at about 4,400 gas), so the opening costs about 1,796,000;
-283,050 for sumcheck without the relations and the last comparison; 1,979 for a call that fails
-the proof-length check; 29,359 for a call to `HonkRelations` alone. The test deploys both
-contracts in the transaction that calls them, so the two accounts and the storage slot are warm
-(a second identical call was not cheaper); a call in a transaction of its own pays the cold
-surcharges on top, and the transaction's own cost.
+The gas is the difference of `evm.gas()` around the call in a Fe test, with the proof and the
+public inputs built before, so it includes encoding the calldata in the caller. The tests that
+measured it are not committed, except one: a verifier test asserts that `verify` on the valid
+proof stays below 1,270,000 gas.
+
+The table was measured on 2026-11-23, after three changes: `fr::inv` checks the answer of the
+precompile, the relations address is immutable, and the consistency check inverts only the
+denominators it uses (`consistency::evaluate_sparse`: 9 x 5 + 2 of them, where the reference
+inverts all 256). The same test gives 2,106,146 gas at `-O 1` with the first two changes only,
+so the third saves 953,808: about 4,560 for each of the 209 inversions left out. On the code
+before the three changes it gives 2,094,295, 2,091,825 and 2,107,685 at the three levels. This
+README gave 2,108,994, 2,106,426 and 2,124,076 for that code, which the test does not
+reproduce; it gives 2,107,422 at `-O 1` when the proof is built inside the measured call.
+
+A `verify` of the pinned proof makes 112 modexp calls, counted in a call trace of the
+valid-proof test (`fe test --call-trace`): 46 up to the end of sumcheck and 66 in the opening,
+48 of them in the consistency check (the 47 denominators and the inverse of 256). It made 321
+before the consistency check changed.
+
+Measured the same way, at `-O 1`: 312,293 with the opening left out (most of it the 46 modular
+inversions), so the opening costs about 840,000; 2,849 for a call with a proof of three words,
+which fails the proof-length check. Measured before the opening was ported and not again:
+283,050 for sumcheck without the relations and the last comparison, and 29,359 for a call to
+`HonkRelations` alone, whose runtime has not changed since. The test deploys both contracts in
+the transaction that calls them, so the two accounts are warm (a second identical call was not
+cheaper); a call in a transaction of its own pays the cold surcharges on top, and the
+transaction's own cost.
 
 ## Limits
 
@@ -170,9 +187,9 @@ Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo`, Python or Foundry.
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # 179: field arithmetic, proof checks, transcript, relations, sumcheck, opening
+(cd lib && fe test)        # 182: field arithmetic, proof checks, transcript, relations, sumcheck, opening
 (cd relations && fe test)  # 2: the relations contract against the reference values
-(cd verifier && fe test)   # 18: both contracts against the recorded reference reverts, and the `relations()` getter
+(cd verifier && fe test)   # 19: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound
 (cd vault && fe test)      # 11: the vault against stand-in verifiers, and in front of HonkVerifier
 (cd ../honk-toy && fe test) # 70: the toy verifier against its Python reference's vectors
 ```

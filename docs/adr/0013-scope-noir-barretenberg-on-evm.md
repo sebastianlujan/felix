@@ -38,6 +38,7 @@ The work is presented as a contest entry and a readable reference, not as a repl
 - Carried out as decided. The three in-scope deliverables exist and are tested: the verifier port, the vault and the toy.
 - `ultrahonk/README.md` states the scope, the limits of the tests and which branch of pairing-point aggregation the pinned proofs exercise.
 - Nothing from the out-of-scope column was built. The vault has no payout, and one circuit is supported.
+- One exception to "gas optimisation", made on 2026-11-23 (issue #6): the consistency check inverts only the denominators it uses. It is recorded in the plan (`docs/ultrahonk.md`, "Out of scope"). No general optimisation pass was made.
 - The table of what was reused and what was only read is in the project plan (`docs/ultrahonk.md`, "Reuse and licences"), not in the README.
 - The port is not audited.
 
