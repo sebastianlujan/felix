@@ -20,7 +20,7 @@ One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is 
 - [x] #10 Say plainly that the vault protects nothing (M7)
 - [x] #11 Root README as the entry page (M9). The owner's three uncommitted edits (M2) stay with the owner
 - [x] #12 vectors.sh end to end (H5): run in a clone; ten fresh proofs accepted on anvil
-- [ ] #13 Verification key module and key-only generator mode (H6)
+- [x] #13 Verification key module and key-only generator mode (H6)
 - [ ] #14 Release (M10)
 
 ## Quick path
@@ -133,7 +133,7 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 | Limit | Consequence | Smallest fix |
 |---|---|---|
 | Run on a local `anvil` node only (#8), at the three optimisation levels, on Osaka, Prague and Cancun. Never on a public test network | No evidence from a chain with real state, fees and block limits | Deploy on a test network |
-| One verifier per circuit, with no generator | Verifying another circuit means editing the key constants by hand; the test suite then fails, because its captured values belong to the pinned proof | H6, then a generator |
+| One verifier per circuit | `scripts/proof_to_fe.sh --vk` prints `lib/src/vk.fe` from a key alone (#13). A verifier for another circuit is that file regenerated and the contracts rebuilt; the test suite then fails, because its captured values belong to the pinned proof | A verifier ingot per circuit, or a test suite that does not pin one proof |
 | A `verify` transaction uses 1,239,609 gas on Osaka and 937,321 on Prague and Cancun (measured on `anvil` at `-O 1`, #8), against 1,152,338 for the call alone in the Fe tests. Before #6 the estimate was about 2.2M | Osaka prices `modexp` higher, so the cost depends on the fork | Stated in `ultrahonk/README.md` |
 | Under low gas a valid proof reverts with the error of an invalid one | It fails closed, but the error misleads | Document it |
 | The key appears twice in the `-O s` runtime, about 1.8 KB | Size only | Later |
