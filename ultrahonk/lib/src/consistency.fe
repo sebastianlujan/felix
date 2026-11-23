@@ -1,0 +1,314 @@
+// Small-subgroup consistency check of the Libra evaluations (ZK only). Port of
+// `checkEvalsConsistency` and of the `require` around its call in `verifyShplemini`.
+//
+// The Libra polynomials are defined over a subgroup of order 256 with generator `g`. The
+// proof carries the values of four of them at (or next to) the Gemini challenge `r`; this
+// check ties them to each other and to the Libra evaluation that sumcheck used. It needs the
+// challenge polynomial at `r`: the polynomial whose values on the subgroup are 1, then for
+// each sumcheck round the powers `u^0 .. u^8` of the round challenge, then zeros.
+use super::errors::{ConsistencyCheckFailed, GeminiChallengeInSubgroup}
+use super::fr::{add, inv, mul, sub}
+use super::proof::{evaluations, gemini_evaluations, word}
+use super::types::Transcript
+
+pub const SUBGROUP_SIZE: usize = 256
+pub const SUBGROUP_GENERATOR_INVERSE: u256 = 0x204bd3277422fad364751ad938e2b5e6a54cf8c68712848a692c553d0329f5d6
+
+/// Values each sumcheck round contributes to the challenge polynomial.
+const LIBRA_UNIVARIATES_LENGTH: usize = 9
+
+/// What the check computes; it passes when `diff` is zero.
+pub struct Consistency {
+    /// `Z = r^256 - 1`: the vanishing polynomial of the subgroup at `r`.
+    pub vanishing: u256,
+    /// The challenge polynomial at `r`.
+    pub challenge_eval: u256,
+    /// The Lagrange polynomials of the first and of the last subgroup element at `r`.
+    pub lagrange_first: u256,
+    pub lagrange_last: u256,
+    pub diff: u256,
+}
+
+/// `base^256` by eight squarings. The reference calls the modexp precompile (`FrLib.pow`).
+fn pow_subgroup_size(_ base: u256) -> u256 {
+    var power = base
+    for _ in 0 .. 8 {
+        power = mul(power, power)
+    }
+    power
+}
+
+/// The values of the check. With `every`, the denominator of every subgroup element is
+/// inverted, as in the reference; without it, only the denominators that are used.
+///
+/// The reference fills an array with the 256 values of the challenge polynomial and then
+/// walks the subgroup. Here the value of element `idx` is made when the walk reaches it:
+/// 1 at index 0, then `u^0 .. u^8` for each round challenge `u`, then zeros.
+fn evaluate_terms(_ proof: Bytes, t: Transcript, log_n: usize, every: bool) -> Consistency {
+    let r = t.gemini_r
+    let vanishing = sub(pow_subgroup_size(r), 1)
+    if vanishing == 0 {
+        revert_error(GeminiChallengeInSubgroup {})
+    }
+
+    // Barycentric evaluation at r: denominator idx is 1 / (g^(-idx) * r - 1).
+    let non_zero = 1 + LIBRA_UNIVARIATES_LENGTH * log_n
+    var value: u256 = 1
+    var root_power: u256 = 1
+    var challenge_eval: u256 = 0
+    var first_denominator: u256 = 0
+    var last_denominator: u256 = 0
+    for idx in 0 .. SUBGROUP_SIZE {
+        if idx >= non_zero {
+            value = 0
+        } else if idx > 0 {
+            let position = idx - 1
+            value = if position % LIBRA_UNIVARIATES_LENGTH == 0 {
+                1
+            } else {
+                mul(value, t.u[position / LIBRA_UNIVARIATES_LENGTH])
+            }
+        }
+        // A denominator is used where the value is not zero, and at the last element,
+        // for the last Lagrange polynomial.
+        if every || idx < non_zero || idx == SUBGROUP_SIZE - 1 {
+            last_denominator = inv(sub(mul(root_power, r), 1))
+            if idx == 0 {
+                first_denominator = last_denominator
+            }
+            challenge_eval = add(challenge_eval, mul(value, last_denominator))
+        }
+        root_power = mul(root_power, SUBGROUP_GENERATOR_INVERSE)
+    }
+
+    let numerator = mul(vanishing, inv(SUBGROUP_SIZE as u256))
+    challenge_eval = mul(challenge_eval, numerator)
+    let lagrange_first = mul(first_denominator, numerator)
+    let lagrange_last = mul(last_denominator, numerator)
+
+    // The four Libra polynomial evaluations follow the Gemini evaluations; the Libra
+    // evaluation follows the 42 sumcheck evaluations.
+    let libra = gemini_evaluations(log_n) + log_n
+    let e0 = word(proof, libra)
+    let e1 = word(proof, libra + 1)
+    let e2 = word(proof, libra + 2)
+    let e3 = word(proof, libra + 3)
+    let libra_evaluation = word(proof, evaluations(log_n) + 42)
+
+    var diff = mul(lagrange_first, e2)
+    diff = add(
+        diff,
+        mul(
+            sub(r, SUBGROUP_GENERATOR_INVERSE),
+            sub(sub(e1, e2), mul(e0, challenge_eval)),
+        ),
+    )
+    diff = sub(
+        add(diff, mul(lagrange_last, sub(e2, libra_evaluation))),
+        mul(vanishing, e3),
+    )
+
+    Consistency { vanishing, challenge_eval, lagrange_first, lagrange_last, diff }
+}
+
+/// The values of the check, with one inversion per subgroup element as in the reference:
+/// 256 of them. Reverts with `GeminiChallengeInSubgroup` if `r` is in the subgroup; the
+/// denominators are zero exactly there, so no inversion can fail after that.
+pub fn evaluate(_ proof: Bytes, t: Transcript, log_n: usize) -> Consistency {
+    evaluate_terms(proof, t, log_n, every: true)
+}
+
+/// The same values and the same revert with `9 * log_n + 2` inversions. The reference
+/// multiplies the other denominators by zero, and none of them can be the inverse of zero
+/// (see `evaluate`), so leaving them out changes nothing but the gas. `check` does not use
+/// it.
+pub fn evaluate_sparse(_ proof: Bytes, t: Transcript, log_n: usize) -> Consistency {
+    evaluate_terms(proof, t, log_n, every: false)
+}
+
+/// Reverts with `ConsistencyCheckFailed` unless the Libra evaluations are consistent, and
+/// with `GeminiChallengeInSubgroup` if the check cannot be made.
+pub fn check(_ proof: Bytes, t: Transcript, log_n: usize) {
+    if evaluate(proof, t, log_n).diff != 0 {
+        revert_error(ConsistencyCheckFailed {})
+    }
+}
+
+// Tests, against the values the reference verifier computed for the pinned proof and for
+// proofs with one bit flipped (`opening_vectors.fe`), and against the reverts recorded in
+// `expected.fe`.
+use std::evm::crypto::modexp
+use super::expected::{BIT_FLIPS, CONSISTENCY_CHECK_FAILED}
+use super::fr::P
+use super::opening_vectors::{
+    CHALLENGE_EVAL,
+    CONSISTENCY_FLIPS,
+    DIFF,
+    DIFF_FLIPPED,
+    LAGRANGE_FIRST,
+    LAGRANGE_LAST,
+    VANISHING,
+}
+use super::shplemini::SUBGROUP_GENERATOR
+use super::transcript::generate
+use super::vectors::{LOG_N, PROOF, VK, proof, proof_with, public_inputs}
+
+fn pinned() -> Consistency {
+    let pinned = proof()
+    evaluate(
+        pinned,
+        t: generate(vk: VK, pinned, public_inputs()),
+        log_n: LOG_N,
+    )
+}
+
+/// The pinned proof with the lowest bit of word `word` flipped.
+fn flipped(word: usize) -> Bytes {
+    proof_with(word, value: PROOF[word] ^ 1)
+}
+
+/// Runs the check on the pinned proof with the bit flip `BIT_FLIPS[case]`, which the
+/// reference verifier rejected with `ConsistencyCheckFailed`.
+fn check_with_bit_flip(case: usize, word: usize) {
+    assert!(BIT_FLIPS[case].word == word)
+    assert!(BIT_FLIPS[case].selector == CONSISTENCY_CHECK_FAILED)
+    let tampered = flipped(word)
+    check(
+        tampered,
+        t: generate(vk: VK, tampered, public_inputs()),
+        log_n: LOG_N,
+    )
+}
+
+#[test]
+fn test_subgroup_generator_has_order_256() {
+    assert!(mul(SUBGROUP_GENERATOR, SUBGROUP_GENERATOR_INVERSE) == 1)
+    assert!(pow_subgroup_size(SUBGROUP_GENERATOR) == 1)
+    // g^128 is -1, so no smaller power of two is the order.
+    var half = SUBGROUP_GENERATOR
+    for _ in 0 .. 7 {
+        half = mul(half, half)
+    }
+    assert!(half == P - 1)
+}
+
+#[test]
+fn test_pow_subgroup_size_is_the_modexp_of_the_reference() {
+    match modexp(base: 3, exp: SUBGROUP_SIZE as u256, modulus: P) {
+        Result::Ok(value) => assert!(pow_subgroup_size(3) == value),
+        Result::Err(_) => assert!(false),
+    }
+}
+
+#[test]
+fn test_consistency_vanishing_matches_reference() {
+    assert!(pinned().vanishing == VANISHING)
+}
+
+#[test]
+fn test_consistency_challenge_polynomial_matches_reference() {
+    assert!(pinned().challenge_eval == CHALLENGE_EVAL)
+}
+
+#[test]
+fn test_consistency_lagrange_first_matches_reference() {
+    assert!(pinned().lagrange_first == LAGRANGE_FIRST)
+}
+
+#[test]
+fn test_consistency_lagrange_last_matches_reference() {
+    assert!(pinned().lagrange_last == LAGRANGE_LAST)
+}
+
+#[test]
+fn test_consistency_diff_of_the_pinned_proof_is_zero() {
+    assert!(DIFF == 0)
+    assert!(pinned().diff == DIFF)
+}
+
+#[test]
+fn test_consistency_check_accepts_the_pinned_proof() {
+    let pinned = proof()
+    check(
+        pinned,
+        t: generate(vk: VK, pinned, public_inputs()),
+        log_n: LOG_N,
+    )
+}
+
+#[test]
+fn test_consistency_diff_of_each_tampered_proof_matches_reference() {
+    for i in 0 .. CONSISTENCY_FLIPS.len() {
+        let tampered = flipped(word: CONSISTENCY_FLIPS[i])
+        let t = generate(vk: VK, tampered, public_inputs())
+        assert!(DIFF_FLIPPED[i] != 0)
+        assert!(
+            evaluate(tampered, t, log_n: LOG_N).diff == DIFF_FLIPPED[i],
+        )
+    }
+}
+
+// selector of ConsistencyCheckFailed()
+#[test(should_revert, selector = 0xa2a2ac83)]
+fn test_consistency_check_rejects_a_flipped_masking_evaluation() {
+    check_with_bit_flip(case: 3, word: 74)
+}
+
+#[test(should_revert, selector = 0xa2a2ac83)]
+fn test_consistency_check_rejects_a_flipped_fold_commitment() {
+    check_with_bit_flip(case: 6, word: 121)
+}
+
+#[test(should_revert, selector = 0xa2a2ac83)]
+fn test_consistency_check_rejects_a_flipped_first_libra_evaluation() {
+    check_with_bit_flip(case: 8, word: 134)
+}
+
+#[test(should_revert, selector = 0xa2a2ac83)]
+fn test_consistency_check_rejects_a_flipped_last_libra_evaluation() {
+    check_with_bit_flip(case: 9, word: 137)
+}
+
+// selector of GeminiChallengeInSubgroup(). The reference was not made to raise it: its
+// challenge is a hash. Here the challenge is replaced after the transcript is generated.
+#[test(should_revert, selector = 0x835eb8f7)]
+fn test_consistency_check_rejects_a_gemini_challenge_in_the_subgroup() {
+    let pinned = proof()
+    var t = generate(vk: VK, pinned, public_inputs())
+    t.gemini_r = SUBGROUP_GENERATOR
+    check(pinned, t, log_n: LOG_N)
+}
+
+// The variant with fewer inversions gives every value of the one that follows the reference.
+fn assert_sparse_matches(_ proof: Bytes) -> u256 {
+    let t = generate(vk: VK, proof, public_inputs())
+    let full = evaluate(proof, t, log_n: LOG_N)
+    let sparse = evaluate_sparse(proof, t, log_n: LOG_N)
+    assert!(sparse.vanishing == full.vanishing)
+    assert!(sparse.challenge_eval == full.challenge_eval)
+    assert!(sparse.lagrange_first == full.lagrange_first)
+    assert!(sparse.lagrange_last == full.lagrange_last)
+    assert!(sparse.diff == full.diff)
+    sparse.diff
+}
+
+#[test]
+fn test_sparse_evaluation_matches_on_the_pinned_proof() {
+    assert!(assert_sparse_matches(proof()) == 0)
+}
+
+#[test]
+fn test_sparse_evaluation_matches_on_each_tampered_proof() {
+    for i in 0 .. CONSISTENCY_FLIPS.len() {
+        let diff = assert_sparse_matches(flipped(word: CONSISTENCY_FLIPS[i]))
+        assert!(diff == DIFF_FLIPPED[i])
+    }
+}
+
+#[test(should_revert, selector = 0x835eb8f7)]
+fn test_sparse_evaluation_rejects_a_gemini_challenge_in_the_subgroup() {
+    let pinned = proof()
+    var t = generate(vk: VK, pinned, public_inputs())
+    t.gemini_r = SUBGROUP_GENERATOR
+    evaluate_sparse(pinned, t, log_n: LOG_N)
+}

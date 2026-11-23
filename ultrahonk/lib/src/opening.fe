@@ -1,0 +1,684 @@
+// Opening verification: everything the verifier does after sumcheck. Port of `verifyShplemini`
+// from the scalars on, and of `batchMul`, `negateInplace`, `arePairingPointsDefault`,
+// `convertPairingPointsToG1`, `generateRecursionSeparator`, `rejectPointAtInfinity`,
+// `mulWithSeperator` and `pairing`.
+//
+// The steps run in the order of the reference, which decides the error a bad proof is
+// rejected with: all the scalars, the consistency check, the multi-scalar multiplication,
+// the aggregation of the pairing points carried in the proof, the pairing.
+//
+// No proof exercises the aggregation: the circuit of this project carries no pairing points,
+// and its proofs have the eight limbs at zero. That step is tested against the reference
+// with limbs put in place of the zeros (`opening_vectors.fe`).
+use std::evm::crypto::{ec_add, ec_mul, ec_pairing, keccak_words}
+use std::evm::packed::Packed
+use super::consistency::check
+use super::errors::{PointAtInfinity, ShpleminiFailed, ValueGeGroupOrder}
+use super::fr::{P, Q}
+use super::proof::{shplonk_q, word}
+use super::shplemini::{MAX_SLOTS, commitment, scalars, slots}
+use super::types::{PAIRING_POINTS_SIZE, Transcript, VerificationKey}
+
+/// The fixed G2 point of `pairing`, the generator of G2, as the pairing precompile reads
+/// it: the imaginary part of `x`, its real part, then the same for `y`.
+const G2_GENERATOR: [u256; 4] = [
+    0x198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2,
+    0x1800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed,
+    0x090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b,
+    0x12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa,
+]
+
+/// The G2 point of the verification key in `pairing`: the trusted setup's `x` times the
+/// generator of G2, in the same encoding.
+const VK_G2: [u256; 4] = [
+    0x260e01b251f6f1c7e7ff4e580791dee8ea51d87a358e038b4efe30fac09383c1,
+    0x0118c4d5b837bcc2bc89b5b398b5974e9f5944073b32078b7e231fec938883b0,
+    0x04fc6369f7110fe3d25156c1bb9a72859cf2a04641f99ba4ee413c80da6a5fe4,
+    0x22febda3c0c0632a56475b4214e5615e11e6dd3f96e6cea2854a87d4dacc5e55,
+]
+
+/// The two G1 points of the final pairing check `e(P0, G2) * e(P1, x * G2) == 1`.
+pub struct PairingPoints { pub p0_x: u256, pub p0_y: u256, pub p1_x: u256, pub p1_y: u256 }
+
+/// `s * (x, y)`. Reverts with `ShpleminiFailed` if the precompile rejects the point: a
+/// coordinate not below `Q`, or a point that is not on the curve.
+fn mul_point(x: u256, y: u256, s: u256) -> (u256, u256) {
+    match ec_mul(px: x, py: y, s) {
+        Result::Ok(point) => point,
+        Result::Err(_) => revert_error(ShpleminiFailed {}),
+    }
+}
+
+/// `(ax, ay) + (bx, by)`, reverting like `mul_point`.
+fn add_points(ax: u256, ay: u256, bx: u256, by: u256) -> (u256, u256) {
+    match ec_add(ax, ay, bx, by) {
+        Result::Ok(point) => point,
+        Result::Err(_) => revert_error(ShpleminiFailed {}),
+    }
+}
+
+/// The multi-scalar multiplication over every slot: the sum of `scalars[slot]` times the
+/// commitment of the slot (`batchMul`). `(0, 0)` is the point at infinity, which both
+/// precompiles accept: it is where the sum starts, and the commitment of a selector the
+/// circuit does not use.
+///
+/// The reference goes on after a failed precompile call and reverts with `ShpleminiFailed`
+/// once the loop ends, unless it runs out of gas first: a failed precompile call takes all
+/// the gas it was given. Here the first failure reverts.
+pub fn msm(vk: VerificationKey, _ proof: Bytes, scalars: [u256; MAX_SLOTS]) -> (u256, u256) {
+    // The reference does not write its accumulator before the first addition: it relies
+    // on unused memory being zero.
+    var x: u256 = 0
+    var y: u256 = 0
+    for slot in 0 .. slots(vk.log_n) {
+        let (cx, cy) = commitment(vk, proof, slot)
+        let (px, py) = mul_point(x: cx, y: cy, s: scalars[slot])
+        let (sx, sy) = add_points(ax: x, ay: y, bx: px, by: py)
+        x = sx
+        y = sy
+    }
+    (x, y)
+}
+
+/// `-(x, y)`: `(x, Q - y)`, in the base field. A point with `y = 0` is returned as it is,
+/// as in `negateInplace`, where `Q - 0` would not be a coordinate. `y` must be below `Q`.
+/// The reference negates the point it read from the proof in place; here the caller keeps
+/// the point it passed.
+pub fn negate(x: u256, y: u256) -> (u256, u256) {
+    if y == 0 { (x, y) } else { (x, Q - y) }
+}
+
+/// Whether the eight pairing-point limbs at the start of the proof are all zero: the proof
+/// carries no pairing points (`arePairingPointsDefault`).
+fn limbs_are_zero(_ proof: Bytes) -> bool {
+    var acc: u256 = 0
+    for i in 0 .. PAIRING_POINTS_SIZE {
+        acc = acc | word(proof, i)
+    }
+    acc == 0
+}
+
+/// The two pairing points the proof carries (`convertPairingPointsToG1`). A coordinate is two
+/// limbs, `low | (high << 136)`, and the limbs come in the order `P0.x, P0.y, P1.x, P1.y`.
+/// Reverts with `ValueGeGroupOrder` unless every coordinate is below `Q`. The limbs must be
+/// in range, 136 bits for a low limb and 120 for a high one (`proof::validate`).
+fn carried_points(_ proof: Bytes) -> PairingPoints {
+    let p0_x = word(proof, 0) | (word(proof, 1) << 136)
+    let p0_y = word(proof, 2) | (word(proof, 3) << 136)
+    let p1_x = word(proof, 4) | (word(proof, 5) << 136)
+    let p1_y = word(proof, 6) | (word(proof, 7) << 136)
+    if p0_x >= Q || p0_y >= Q || p1_x >= Q || p1_y >= Q {
+        revert_error(ValueGeGroupOrder {})
+    }
+    PairingPoints { p0_x, p0_y, p1_x, p1_y }
+}
+
+/// The challenge that the verifier's own pairing points are scaled by before the carried
+/// ones are added (`generateRecursionSeparator`): the hash of the carried points followed
+/// by `computed`, reduced.
+fn recursion_separator(carried: PairingPoints, computed: PairingPoints) -> u256 {
+    let words = [
+        carried.p0_x,
+        carried.p0_y,
+        carried.p1_x,
+        carried.p1_y,
+        computed.p0_x,
+        computed.p0_y,
+        computed.p1_x,
+        computed.p1_y,
+    ]
+    keccak_words(words) % P
+}
+
+/// `s * (x, y) + (other_x, other_y)` (`mulWithSeperator`).
+fn mul_add(x: u256, y: u256, s: u256, other_x: u256, other_y: u256) -> (u256, u256) {
+    let (px, py) = mul_point(x, y, s)
+    add_points(ax: px, ay: py, bx: other_x, by: other_y)
+}
+
+/// Aggregates the pairing points the proof carries into the ones the verifier computed:
+/// `separator * computed + carried` for each of the two. Reverts with `ValueGeGroupOrder`
+/// if a carried coordinate is not below `Q`, then with `PointAtInfinity` if a carried point
+/// is `(0, 0)`, and with `ShpleminiFailed` if a carried point is not on the curve; the
+/// reference reverts without data in that last case.
+fn aggregate(_ proof: Bytes, computed: PairingPoints) -> PairingPoints {
+    let carried = carried_points(proof)
+    let separator = recursion_separator(carried, computed)
+    if (carried.p0_x | carried.p0_y) == 0 || (carried.p1_x | carried.p1_y) == 0 {
+        revert_error(PointAtInfinity {})
+    }
+    let (p0_x, p0_y) = mul_add(
+        x: computed.p0_x,
+        y: computed.p0_y,
+        s: separator,
+        other_x: carried.p0_x,
+        other_y: carried.p0_y,
+    )
+    let (p1_x, p1_y) = mul_add(
+        x: computed.p1_x,
+        y: computed.p1_y,
+        s: separator,
+        other_x: carried.p1_x,
+        other_y: carried.p1_y,
+    )
+    PairingPoints { p0_x, p0_y, p1_x, p1_y }
+}
+
+/// Runs every step before the pairing and returns its two G1 points. Reverts with
+/// `InvertOfZero`, `GeminiChallengeInSubgroup`, `ConsistencyCheckFailed` or
+/// `ShpleminiFailed` where the reference does, and as `aggregate` does. `t` holds the
+/// challenges of `proof`, which must have passed `proof::validate`.
+pub fn pairing_points(vk: VerificationKey, _ proof: Bytes, t: Transcript) -> PairingPoints {
+    let log_n = vk.log_n
+    // Every scalar is stored before the consistency check, and no curve operation takes
+    // place before it: a proof that fails both is rejected with `ConsistencyCheckFailed`.
+    var stored: [u256; MAX_SLOTS] = [0; MAX_SLOTS]
+    scalars(proof, t, log_n, out: mut stored)
+    check(proof, t, log_n)
+
+    let (p0_x, p0_y) = msm(vk, proof, scalars: stored)
+    let kzg_quotient = shplonk_q(log_n) + 2
+    let (p1_x, p1_y) = negate(
+        x: word(proof, kzg_quotient),
+        y: word(proof, kzg_quotient + 1),
+    )
+
+    let computed = PairingPoints { p0_x, p0_y, p1_x, p1_y }
+    // All limbs zero: the proof carries no pairing points, and there is nothing to
+    // aggregate. Any other proof goes through the aggregation; skipping it would accept
+    // proofs the reference rejects.
+    if limbs_are_zero(proof) {
+        computed
+    } else {
+        aggregate(proof, computed)
+    }
+}
+
+/// Whether `e(P0, G2) * e(P1, x * G2) == 1`. False as well if the precompile call fails,
+/// as in the reference.
+pub fn pairing(points: PairingPoints) -> bool {
+    var input = Packed::with_capacity(bytes: 12 * 32)
+    input.u256(points.p0_x)
+    input.u256(points.p0_y)
+    for limb in G2_GENERATOR {
+        input.u256(limb)
+    }
+    input.u256(points.p1_x)
+    input.u256(points.p1_y)
+    for limb in VK_G2 {
+        input.u256(limb)
+    }
+    match ec_pairing(input.span()) {
+        Result::Ok(holds) => holds,
+        Result::Err(_) => false,
+    }
+}
+
+/// The whole opening verification, with the verdict of the reference's `verifyShplemini`:
+/// true if the pairing holds, false if it does not, and a revert for everything
+/// `pairing_points` rejects. The reference's `verify` turns false into `ShpleminiFailed`.
+pub fn verify(vk: VerificationKey, _ proof: Bytes, t: Transcript) -> bool {
+    pairing(points: pairing_points(vk, proof, t))
+}
+
+// Tests, against the values the reference verifier computed for the pinned proof
+// (`opening_vectors.fe`) and against its reverts for proofs with one bit flipped
+// (`expected.fe`). A tampered proof is verified with its own challenges, as the verifier
+// does, unless the test says otherwise.
+use std::abi::bytes_from_words
+use super::expected::{
+    BIT_FLIPS,
+    BIT_FLIP_WITHOUT_REVERT_DATA,
+    CONSISTENCY_CHECK_FAILED,
+    SHPLEMINI_FAILED,
+}
+use super::opening_vectors::{
+    OTHER_CARRIED,
+    OTHER_LIMBS,
+    OTHER_PAIR,
+    OTHER_SEPARATOR,
+    OWN_CARRIED,
+    OWN_LIMBS,
+    OWN_PAIR,
+    OWN_SEPARATOR,
+    P0_X,
+    P0_Y,
+    P1_X,
+    P1_Y,
+    SCALARS,
+}
+use super::transcript::generate
+use super::vectors::{LOG_N, PROOF, VK, proof, proof_with, public_inputs}
+
+/// The scalars the reference computed for the pinned proof.
+fn reference_scalars() -> [u256; MAX_SLOTS] {
+    var out: [u256; MAX_SLOTS] = [0; MAX_SLOTS]
+    for slot in 0 .. SCALARS.len() {
+        out[slot] = SCALARS[slot]
+    }
+    out
+}
+
+#[test]
+fn test_msm_of_the_reference_scalars_is_the_reference_p0() {
+    let (x, y) = msm(vk: VK, proof(), scalars: reference_scalars())
+    assert!(x == P0_X)
+    assert!(y == P0_Y)
+}
+
+// All scalars zero: every product is the point at infinity, and so is the sum.
+#[test]
+fn test_msm_of_zero_scalars_is_the_point_at_infinity() {
+    let (x, y) = msm(vk: VK, proof(), scalars: [0; MAX_SLOTS])
+    assert!(x == 0)
+    assert!(y == 0)
+}
+
+// Only the slot of `(1, 2)` counts: the sum starts at the point at infinity.
+#[test]
+fn test_msm_of_one_generator_is_the_generator() {
+    var scalars: [u256; MAX_SLOTS] = [0; MAX_SLOTS]
+    scalars[40 + LOG_N] = 1
+    let (x, y) = msm(vk: VK, proof(), scalars)
+    assert!(x == 1)
+    assert!(y == 2)
+}
+
+// selector of ShpleminiFailed(). x of shplonkQ with its lowest bit flipped is not on the
+// curve; the reference runs out of gas there (`expected::BIT_FLIP_WITHOUT_REVERT_DATA`).
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_msm_rejects_a_commitment_off_the_curve() {
+    let word = shplonk_q(LOG_N)
+    msm(
+        vk: VK,
+        proof_with(word, value: PROOF[word] ^ 1),
+        scalars: reference_scalars(),
+    )
+}
+
+#[test]
+fn test_negated_kzg_quotient_is_the_reference_p1() {
+    let kzg = shplonk_q(LOG_N) + 2
+    let (x, y) = negate(x: PROOF[kzg], y: PROOF[kzg + 1])
+    assert!(x == P1_X)
+    assert!(y == P1_Y)
+}
+
+#[test]
+fn test_negate_is_in_the_base_field() {
+    let (x, y) = negate(x: 1, y: 2)
+    assert!(x == 1)
+    assert!(y == Q - 2)
+}
+
+#[test]
+fn test_negate_leaves_a_zero_y_alone() {
+    let (x, y) = negate(x: 0, y: 0)
+    assert!(x == 0)
+    assert!(y == 0)
+}
+
+fn pinned_transcript() -> Transcript {
+    generate(vk: VK, proof(), public_inputs())
+}
+
+/// The pinned proof with the lowest bit of word `word` flipped.
+fn flipped(word: usize) -> Bytes {
+    proof_with(word, value: PROOF[word] ^ 1)
+}
+
+/// The opening verification of the pinned proof with the lowest bit of word `word` flipped.
+fn verify_flipped(word: usize) -> bool {
+    let tampered = flipped(word)
+    verify(
+        vk: VK,
+        tampered,
+        t: generate(vk: VK, tampered, public_inputs()),
+    )
+}
+
+/// Asserts that `expected.fe` records `reference` as the revert of the reference verifier
+/// for the bit flip of `word`.
+fn assert_recorded(case: usize, word: usize, reference: u32) {
+    assert!(BIT_FLIPS[case].word == word)
+    assert!(BIT_FLIPS[case].selector == reference)
+}
+
+fn reference_points() -> PairingPoints {
+    PairingPoints { p0_x: P0_X, p0_y: P0_Y, p1_x: P1_X, p1_y: P1_Y }
+}
+
+#[test]
+fn test_pairing_points_of_the_pinned_proof_match_reference() {
+    let points = pairing_points(vk: VK, proof(), t: pinned_transcript())
+    assert!(points.p0_x == P0_X)
+    assert!(points.p0_y == P0_Y)
+    assert!(points.p1_x == P1_X)
+    assert!(points.p1_y == P1_Y)
+}
+
+#[test]
+fn test_pairing_holds_for_the_reference_points() {
+    assert!(pairing(points: reference_points()))
+}
+
+// The KZG quotient as the proof carries it, not negated: two valid points, no identity.
+#[test]
+fn test_pairing_does_not_hold_without_the_negation() {
+    var points = reference_points()
+    points.p1_y = Q - P1_Y
+    assert!(!pairing(points))
+}
+
+// A point off the curve makes the precompile call fail: the answer is false, not a revert.
+#[test]
+fn test_pairing_is_false_for_a_point_off_the_curve() {
+    var points = reference_points()
+    points.p0_y = P0_Y ^ 1
+    assert!(!pairing(points))
+}
+
+#[test]
+fn test_opening_accepts_the_pinned_proof() {
+    assert!(verify(vk: VK, proof(), t: pinned_transcript()))
+}
+
+// Word 129, the first Gemini evaluation: every step runs and the pairing does not hold.
+// `verifyShplemini` of the reference returned false as well.
+#[test]
+fn test_opening_is_false_for_a_flipped_gemini_evaluation() {
+    assert!(!verify_flipped(word: 129))
+}
+
+// selector of ShpleminiFailed(): what the reference's `verify` makes of that false.
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_opening_rejects_a_flipped_gemini_evaluation() {
+    assert_recorded(case: 7, word: 129, reference: SHPLEMINI_FAILED)
+    if !verify_flipped(word: 129) {
+        revert_error(ShpleminiFailed {})
+    }
+}
+
+// Word 140, x of the KZG quotient: the point is off the curve, and the last multiplication
+// of the multi-scalar multiplication reverts. The KZG quotient is not hashed, so the
+// challenges and the scalars are the pinned proof's.
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_msm_rejects_a_flipped_kzg_quotient() {
+    msm(vk: VK, flipped(word: 140), scalars: reference_scalars())
+}
+
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_opening_rejects_a_flipped_kzg_quotient() {
+    assert_recorded(case: 10, word: 140, reference: SHPLEMINI_FAILED)
+    verify_flipped(word: 140)
+}
+
+// Word 138, x of shplonkQ: off the curve, the first multiplication reverts. The reference
+// reverts without data there; this port reverts with ShpleminiFailed().
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_opening_rejects_a_flipped_shplonk_q() {
+    assert!(BIT_FLIP_WITHOUT_REVERT_DATA == 138)
+    verify_flipped(word: 138)
+}
+
+// selector of ConsistencyCheckFailed()
+#[test(should_revert, selector = 0xa2a2ac83)]
+fn test_opening_rejects_a_flipped_masking_evaluation() {
+    assert_recorded(case: 3, word: 74, reference: CONSISTENCY_CHECK_FAILED)
+    verify_flipped(word: 74)
+}
+
+// The order of the steps. Word 121 is x of the first fold commitment: the flipped point is
+// off the curve, so the multi-scalar multiplication alone reverts with ShpleminiFailed()
+// (next test), and the Gemini challenge changes, so the consistency check fails. The
+// reference reports the consistency check, which it runs first.
+#[test(should_revert, selector = 0xa2a2ac83)]
+fn test_opening_rejects_a_flipped_fold_commitment_in_the_consistency_check() {
+    assert_recorded(case: 6, word: 121, reference: CONSISTENCY_CHECK_FAILED)
+    verify_flipped(word: 121)
+}
+
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_msm_alone_rejects_the_flipped_fold_commitment() {
+    let tampered = flipped(word: 121)
+    var stored: [u256; MAX_SLOTS] = [0; MAX_SLOTS]
+    scalars(
+        tampered,
+        t: generate(vk: VK, tampered, public_inputs()),
+        log_n: LOG_N,
+        out: mut stored,
+    )
+    msm(vk: VK, tampered, scalars: stored)
+}
+
+#[test(should_revert, selector = 0xa2a2ac83)]
+fn test_opening_rejects_a_flipped_first_libra_evaluation() {
+    assert_recorded(case: 8, word: 134, reference: CONSISTENCY_CHECK_FAILED)
+    verify_flipped(word: 134)
+}
+
+#[test(should_revert, selector = 0xa2a2ac83)]
+fn test_opening_rejects_a_flipped_last_libra_evaluation() {
+    assert_recorded(case: 9, word: 137, reference: CONSISTENCY_CHECK_FAILED)
+    verify_flipped(word: 137)
+}
+
+#[test]
+fn test_limbs_are_zero_only_if_all_eight_are() {
+    assert!(limbs_are_zero(proof()))
+    for limb in 0 .. PAIRING_POINTS_SIZE {
+        assert!(!limbs_are_zero(proof_with(word: limb, value: 1)))
+    }
+}
+
+// TESTS OF THE AGGREGATION. No proof carries pairing points, so each test puts limbs in place
+// of the zeros of the pinned proof and keeps the challenges of the pinned proof: every step
+// before the aggregation then passes and gives the pinned proof's points. With its own
+// challenges such a proof fails the consistency check, and in the whole verifier sumcheck,
+// before it gets here. The reference was run the same way (`opening_vectors.fe`).
+
+/// Splits each coordinate into its low 136 bits and the bits above them.
+fn limbs_of(coordinates: [u256; 4]) -> [u256; 8] {
+    var limbs: [u256; 8] = [0; 8]
+    for i in 0 .. 4 {
+        limbs[2 * i] = coordinates[i] & ((1 << 136) - 1)
+        limbs[2 * i + 1] = coordinates[i] >> 136
+    }
+    limbs
+}
+
+/// The pinned proof with `limbs` as its pairing-point limbs.
+fn proof_with_limbs(limbs: [u256; 8]) -> Bytes {
+    var words = PROOF
+    for i in 0 .. PAIRING_POINTS_SIZE {
+        words[i] = limbs[i]
+    }
+    bytes_from_words(words)
+}
+
+/// The opening verification of the pinned proof carrying the points `coordinates`.
+fn verify_carrying(coordinates: [u256; 4]) -> bool {
+    verify(
+        vk: VK,
+        proof_with_limbs(limbs: limbs_of(coordinates)),
+        t: pinned_transcript(),
+    )
+}
+
+/// `carried_points` of the pinned proof carrying the points `coordinates`.
+fn carried(coordinates: [u256; 4]) -> PairingPoints {
+    carried_points(proof_with_limbs(limbs: limbs_of(coordinates)))
+}
+
+fn assert_points(points: PairingPoints, reference: [u256; 4]) {
+    assert!(points.p0_x == reference[0])
+    assert!(points.p0_y == reference[1])
+    assert!(points.p1_x == reference[2])
+    assert!(points.p1_y == reference[3])
+}
+
+#[test]
+fn test_limbs_of_splits_as_the_reference_capture_did() {
+    let other = limbs_of(coordinates: OTHER_CARRIED)
+    let same = limbs_of(coordinates: OWN_CARRIED)
+    for i in 0 .. 8 {
+        assert!(other[i] == OTHER_LIMBS[i])
+        assert!(same[i] == OWN_LIMBS[i])
+    }
+}
+
+#[test]
+fn test_carried_points_match_reference() {
+    assert_points(
+        points: carried_points(proof_with_limbs(limbs: OTHER_LIMBS)),
+        reference: OTHER_CARRIED,
+    )
+    assert_points(
+        points: carried_points(proof_with_limbs(limbs: OWN_LIMBS)),
+        reference: OWN_CARRIED,
+    )
+}
+
+#[test]
+fn test_recursion_separator_matches_reference() {
+    let other = carried_points(proof_with_limbs(limbs: OTHER_LIMBS))
+    assert!(
+        recursion_separator(carried: other, computed: reference_points()) == OTHER_SEPARATOR,
+    )
+    assert!(
+        recursion_separator(carried: reference_points(), computed: reference_points())
+            == OWN_SEPARATOR,
+    )
+}
+
+#[test]
+fn test_mul_add_matches_reference() {
+    let (x0, y0) = mul_add(
+        x: P0_X,
+        y: P0_Y,
+        s: OTHER_SEPARATOR,
+        other_x: OTHER_CARRIED[0],
+        other_y: OTHER_CARRIED[1],
+    )
+    assert!(x0 == OTHER_PAIR[0])
+    assert!(y0 == OTHER_PAIR[1])
+    let (x1, y1) = mul_add(
+        x: P1_X,
+        y: P1_Y,
+        s: OTHER_SEPARATOR,
+        other_x: OTHER_CARRIED[2],
+        other_y: OTHER_CARRIED[3],
+    )
+    assert!(x1 == OTHER_PAIR[2])
+    assert!(y1 == OTHER_PAIR[3])
+}
+
+// Two points that have nothing to do with the proof: the aggregated points are the
+// reference's, and the pairing does not hold for them.
+#[test]
+fn test_aggregation_of_other_points_matches_reference() {
+    let carrying = proof_with_limbs(limbs: OTHER_LIMBS)
+    assert_points(
+        points: pairing_points(vk: VK, carrying, t: pinned_transcript()),
+        reference: OTHER_PAIR,
+    )
+    assert!(!verify(vk: VK, carrying, t: pinned_transcript()))
+}
+
+// The proof's own pairing points, carried as limbs: a pair for which the pairing holds
+// keeps holding when it is aggregated with itself, and the reference accepted.
+#[test]
+fn test_aggregation_of_the_own_points_matches_reference() {
+    let carrying = proof_with_limbs(limbs: OWN_LIMBS)
+    assert_points(
+        points: pairing_points(vk: VK, carrying, t: pinned_transcript()),
+        reference: OWN_PAIR,
+    )
+    assert!(verify(vk: VK, carrying, t: pinned_transcript()))
+}
+
+// selector of PointAtInfinity()
+#[test(should_revert, selector = 0x4ddaa5e5)]
+fn test_aggregation_rejects_a_second_point_at_infinity() {
+    verify_carrying(coordinates: [OTHER_CARRIED[0], OTHER_CARRIED[1], 0, 0])
+}
+
+#[test(should_revert, selector = 0x4ddaa5e5)]
+fn test_aggregation_rejects_a_first_point_at_infinity() {
+    verify_carrying(coordinates: [0, 0, OTHER_CARRIED[2], OTHER_CARRIED[3]])
+}
+
+// One limb set: the first point is (1, 0) and the second the point at infinity. A proof
+// with any limb set is never taken for one that carries no pairing points.
+#[test(should_revert, selector = 0x4ddaa5e5)]
+fn test_aggregation_rejects_a_single_non_zero_limb() {
+    verify(
+        vk: VK,
+        proof_with(word: 0, value: 1),
+        t: pinned_transcript(),
+    )
+}
+
+// selector of ValueGeGroupOrder(), once per coordinate
+#[test(should_revert, selector = 0x607be13e)]
+fn test_carried_points_reject_x_of_the_first_point_at_q() {
+    carried(
+        coordinates: [Q, OTHER_CARRIED[1], OTHER_CARRIED[2], OTHER_CARRIED[3]],
+    )
+}
+
+#[test(should_revert, selector = 0x607be13e)]
+fn test_carried_points_reject_y_of_the_first_point_at_q() {
+    carried(
+        coordinates: [OTHER_CARRIED[0], Q, OTHER_CARRIED[2], OTHER_CARRIED[3]],
+    )
+}
+
+#[test(should_revert, selector = 0x607be13e)]
+fn test_carried_points_reject_x_of_the_second_point_at_q() {
+    carried(
+        coordinates: [OTHER_CARRIED[0], OTHER_CARRIED[1], Q, OTHER_CARRIED[3]],
+    )
+}
+
+#[test(should_revert, selector = 0x607be13e)]
+fn test_carried_points_reject_y_of_the_second_point_at_q() {
+    carried(
+        coordinates: [OTHER_CARRIED[0], OTHER_CARRIED[1], OTHER_CARRIED[2], Q],
+    )
+}
+
+// The largest limbs that pass `proof::validate` give the coordinate 2^256 - 1.
+#[test(should_revert, selector = 0x607be13e)]
+fn test_aggregation_rejects_the_largest_limbs() {
+    var limbs = OTHER_LIMBS
+    limbs[0] = (1 << 136) - 1
+    limbs[1] = (1 << 120) - 1
+    verify(vk: VK, proof_with_limbs(limbs), t: pinned_transcript())
+}
+
+// The range of the coordinates is checked before the points at infinity.
+#[test(should_revert, selector = 0x607be13e)]
+fn test_aggregation_checks_the_range_before_the_point_at_infinity() {
+    verify_carrying(coordinates: [Q, OTHER_CARRIED[1], 0, 0])
+}
+
+// selector of ShpleminiFailed(). A carried point that is not on the curve: the addition
+// fails. The reference reverts without data there.
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_aggregation_rejects_a_first_point_off_the_curve() {
+    verify_carrying(coordinates: [1, 3, OTHER_CARRIED[2], OTHER_CARRIED[3]])
+}
+
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_aggregation_rejects_a_second_point_off_the_curve() {
+    verify_carrying(coordinates: [OTHER_CARRIED[0], OTHER_CARRIED[1], 1, 3])
+}
+
+// The largest x in range, with a y that does not belong to it.
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_aggregation_rejects_a_coordinate_in_range_off_the_curve() {
+    verify_carrying(
+        coordinates: [Q - 1, OTHER_CARRIED[1], OTHER_CARRIED[2], OTHER_CARRIED[3]],
+    )
+}
