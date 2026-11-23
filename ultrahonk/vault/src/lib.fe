@@ -44,8 +44,9 @@ uses (call: Call)
 }
 
 pub contract Vault {
-    mut y: u256,
-    mut verifier: Address,
+    // Immutable: set once in `init` and kept in the contract's code, not in storage.
+    y: u256,
+    verifier: Address,
     mut claimed: bool,
     mut winner: Address,
 

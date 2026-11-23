@@ -12,7 +12,8 @@ payout:** the contract holds and moves no funds, it only records that a claim wa
 
 ## The rule
 
-The vault is deployed with `y` and the address of the verifier. `claim(bytes proof)` builds the
+The vault is deployed with `y` and the address of the verifier, both immutable fields (kept in
+the contract's code, not in storage). `claim(bytes proof)` builds the
 public inputs itself, `[y, caller]`, and asks the verifier with a static call.
 
 | Situation | `claim` | Recorded |

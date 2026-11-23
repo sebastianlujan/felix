@@ -1,6 +1,6 @@
 # UltraHonk verification in Fe: gaps before shipping and before real use
 
-> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 278 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
+> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 280 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
 
 > **How to read this document.** It does not repeat the limits already written down: [Limits](../ultrahonk/README.md#limits) in the verifier README, [Not done](ultrahonk.md#not-done) and [Out of scope](ultrahonk.md#out-of-scope) in the plan, [Not implemented](../ultrahonk/vault/README.md#not-implemented) in the vault README. It adds what those sections do not say, and orders the work.
 
@@ -12,7 +12,7 @@ One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is 
 - [ ] #2 Track the root .gitignore with explicit rules (M4)
 - [ ] #3 One command that builds and tests everything (M5)
 - [x] #4 fr::inv must reject a wrong answer from the modexp precompile (H1)
-- [ ] #5 Immutable relations address and vault parameters, with a getter (H2)
+- [x] #5 Immutable relations address and vault parameters, with a getter (H2)
 - [ ] #6 Consistency check with fewer inversions, measured again (H3)
 - [ ] #7 Garaga's bb 6.0.0 fixtures at other circuit sizes (E1)
 - [ ] #8 Run the built contracts on anvil and state the chain requirements (H4, M8)
@@ -95,7 +95,7 @@ The rule: the test is written before the fix and run red where the gap is real. 
 | H3 | `consistency::evaluate_sparse` | Equal to `evaluate` on synthetic proofs for `LOG_N` 1, 5 and 25: both must agree whatever the proof. A committed upper bound on the gas of `verify` | Unknown outside `LOG_N = 5` |
 | M6 | `opening_vectors` | Assert `NUMERATOR`, `DENOMINATOR_0` and `DENOMINATOR_255` | Green expected: recomputed by hand |
 | M6 | `Vault::claim` | A verifier that answers the word 2, and one that answers 64 bytes: the claim reverts without data | Unknown: only the address without code is tested |
-| H2 | `HonkVerifier` | The getter returns the constructor argument | New |
+| H2 | `HonkVerifier` | The getter returns the constructor argument | Was red: no `relations()` to answer. Green since #5 |
 | E1 | `transcript`, `sumcheck`, `relations`, `shplemini`, `consistency`, `opening` | Garaga's sets: pinned challenges, acceptance, bit flips, at `LOG_N` 12, 17 and 20 | Unknown: this is the test that can find a real error |
 | Soundness | Barycentric evaluation in `sumcheck` | A known polynomial of degree 8 at 10, against its direct evaluation. A challenge inside the domain 0..8: record what happens and compare with the reference | Unknown: no test has a challenge in 0..8 |
 | Soundness | `transcript` | A second public input at `P` reverts with `ValueGeFieldOrder`; `P - 1` passes the range check | Unknown |

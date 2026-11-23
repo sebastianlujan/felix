@@ -2,7 +2,7 @@
 
 This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 179 tests in `lib`, 2 in `relations`, 16 in `verifier`, 11 in `vault`, 70 in `toy`.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 179 tests in `lib`, 2 in `relations`, 18 in `verifier`, 11 in `vault`, 70 in `toy`.
 >
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
@@ -21,7 +21,7 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
    cd ultrahonk
    (cd lib && fe test)        # 179 tests
    (cd relations && fe test)  # 2
-   (cd verifier && fe test)   # 16
+   (cd verifier && fe test)   # 18
    (cd vault && fe test)      # 11
    (cd ../honk-toy && fe test) # 70
    ```
@@ -292,7 +292,7 @@ All modules are in `ultrahonk/lib/src/`.
 
 Plain parameters view the caller's value in place, with no copy. Outputs that are arrays go through `mut` parameters.
 
-`HonkVerifier` (`verifier/src/lib.fe`) runs `validate`, the public-input count check, `generate`, `public_input_delta`, `verify_with_relations_at` and `opening::verify`, in that order. `HonkRelations` (`relations/src/lib.fe`) answers `RelationsMsg::Accumulate` with `accumulate`. The verifier takes the address of the relations contract as its constructor argument.
+`HonkVerifier` (`verifier/src/lib.fe`) runs `validate`, the public-input count check, `generate`, `public_input_delta`, `verify_with_relations_at` and `opening::verify`, in that order. `HonkRelations` (`relations/src/lib.fe`) answers `RelationsMsg::Accumulate` with `accumulate`. The verifier takes the address of the relations contract as its constructor argument, keeps it in an immutable field and returns it from `relations()`, a message of its own (`VerifierInfoMsg`) outside the ABI of the Solidity verifier.
 
 ### Failure behaviour
 
@@ -343,7 +343,7 @@ From the Fe repository at tag `v26.6.0`:
 
 ## Design: vault (integration contract)
 
-The vault follows the teaching page's sketch. Its storage is `{ y, verifier, claimed, winner }`. It is deployed with `y` and the address of the verifier, and answers `claim(bytes proof) -> bool`, `claimed()` and `winner()`. A claimant proves knowledge of a secret `x` with this circuit:
+The vault follows the teaching page's sketch. Its state is `{ y, verifier, claimed, winner }`: `y` and `verifier` are immutable fields, kept in the contract's code, and `claimed` and `winner` are storage. It is deployed with `y` and the address of the verifier, and answers `claim(bytes proof) -> bool`, `claimed()` and `winner()`. A claimant proves knowledge of a secret `x` with this circuit:
 
 ```noir
 fn main(x: Field, y: pub Field, recipient: pub Field) {

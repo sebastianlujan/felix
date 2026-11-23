@@ -5,3 +5,12 @@ pub msg VerifierMsg {
     #[selector = sol("verify(bytes,bytes32[])")]
     Verify { proof: Bytes, public_inputs: Vec<Bytes32> } -> bool,
 }
+
+// Not part of the Solidity verifier's ABI, and kept out of `VerifierMsg` for that reason:
+// the address of the relations contract a `HonkVerifier` was deployed with, so that a
+// deployed verifier can be checked against the contract it calls.
+// Selector 0xb3a480f2 (`cast sig "relations()"`, cast 1.5.1).
+pub msg VerifierInfoMsg {
+    #[selector = sol("relations()")]
+    Relations -> Address,
+}
