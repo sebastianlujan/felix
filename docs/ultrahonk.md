@@ -2,7 +2,7 @@
 
 This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 192 tests in `lib`, 2 in `relations`, 19 in `verifier`, 13 in `vault`, 70 in `toy`.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 195 tests in `lib`, 2 in `relations`, 19 in `verifier`, 13 in `vault`, 70 in `toy`.
 >
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
@@ -19,7 +19,7 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
 
    ```sh
    cd ultrahonk
-   (cd lib && fe test)        # 192 tests
+   (cd lib && fe test)        # 195 tests
    (cd relations && fe test)  # 2
    (cd verifier && fe test)   # 19
    (cd vault && fe test)      # 13
