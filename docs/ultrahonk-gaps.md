@@ -1,6 +1,6 @@
 # UltraHonk verification in Fe: gaps before shipping and before real use
 
-> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 280 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
+> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 284 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
 
 > **How to read this document.** It does not repeat the limits already written down: [Limits](../ultrahonk/README.md#limits) in the verifier README, [Not done](ultrahonk.md#not-done) and [Out of scope](ultrahonk.md#out-of-scope) in the plan, [Not implemented](../ultrahonk/vault/README.md#not-implemented) in the vault README. It adds what those sections do not say, and orders the work.
 
@@ -13,7 +13,7 @@ One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is 
 - [ ] #3 One command that builds and tests everything (M5)
 - [x] #4 fr::inv must reject a wrong answer from the modexp precompile (H1)
 - [x] #5 Immutable relations address and vault parameters, with a getter (H2)
-- [ ] #6 Consistency check with fewer inversions, measured again (H3)
+- [x] #6 Consistency check with fewer inversions, measured again (H3)
 - [ ] #7 Garaga's bb 6.0.0 fixtures at other circuit sizes (E1)
 - [ ] #8 Run the built contracts on anvil and state the chain requirements (H4, M8)
 - [ ] #9 Correct the documents where the data does not support them (M6)
@@ -67,7 +67,7 @@ The rules as read on the contest page on 2026-11-23. Read them again before quot
 | M5 | No single command builds and tests everything | V: `scripts/check.sh` is listed under Not done | `ultrahonk/scripts/check.sh`: `fe test` and `fe fmt --check` in the five ingots, `fe build --contract` for the three contracts, each runtime against 24,576 bytes, `proof_to_fe.sh --check`, `gen_vectors.py --check` | under 2 h |
 | M6 | The documents state things the data does not support | V: [Documentation corrections](#documentation-corrections) | One pass over them. Where a test is cheaper than rewording, add the test | under 2 h |
 | M7 | The vault protects nothing. The circuit proves `x * x == y` for a public `y`, and square roots modulo a prime are computed efficiently, so anyone can prove for their own address. The plan gives "the vault hides a secret" as the reason for the ZK flavor (`docs/ultrahonk.md:76`, `:83`, `:363`) | V: `ultrahonk/circuit/src/main.nr` | Say it plainly in the plan, the vault README and ADR-0010: the vault shows how a Fe contract consumes a proof. The ZK flavor is ported because private applications need it, not because this circuit does | under 30 min |
-| M8 | The chain requirements are not stated | V: the Fe backend targets Osaka; the `-O s` runtime uses `MCOPY` (Cancun); precompiles 0x05 to 0x08 are called. The test harness lifts the code-size, init-code and gas limits | Three lines in `ultrahonk/README.md`: minimum fork, precompiles, and that the sizes fit the real limits (runtime 16,446 bytes at `-O 1` against 24,576) | under 30 min |
+| M8 | The chain requirements are not stated | V: the Fe backend targets Osaka; the `-O s` runtime uses `MCOPY` (Cancun); precompiles 0x05 to 0x08 are called. The test harness lifts the code-size, init-code and gas limits | Three lines in `ultrahonk/README.md`: minimum fork, precompiles, and that the sizes fit the real limits (runtime 16,638 bytes at `-O 1` against 24,576) | under 30 min |
 | M9 | The root README does not mention the entry | V | Entry page: pitch, what the repository contains, quick path (`check.sh`), architecture in a paragraph, the Fe-specific highlight, limits, and the declarations (pre-existing work, reused code, AI assistance, the teaching page) | under 2 h |
 | M10 | Nothing is released | V | `develop` into `main`, a tag, the repository public, `check.sh` in a fresh clone, the full SHA recorded for the form | under 2 h |
 
@@ -79,7 +79,7 @@ Code first, then one measurement of sizes and gas, then the documentation of ban
 |---|---|---|---|---|
 | H1 | `fr::inv` trusts what the `modexp` precompile returns. On a chain with no code at 0x05 an inversion returns 0. Read through the code, the all-zero proof is then accepted, provided the pairing precompile exists. The reference has the same hole | I, not run: `ultrahonk/lib/src/fr.fe:32-40`; Fe 26.6.0 `ingots/std/src/evm/crypto.fe:103-124` checks only the success flag | Revert with `ModExpFailed` unless `mul(a, value) == 1`. About 30 gas per inversion (estimated). The port becomes stricter than the reference: record it as a difference | under 30 min; none |
 | H2 | The relations address, and the vault's `y` and verifier address, are mutable storage. There is no getter, so a deployed verifier cannot be checked against the relations contract it calls | V: `ultrahonk/verifier/src/lib.fe:43`, `ultrahonk/vault/src/lib.fe:47-48` | Drop `mut` (fields are immutable without it since Fe 26.2.0). Put the getter in a message of its own, so that `VerifierMsg` stays the ABI of the Solidity verifier | under 30 min; sizes and gas move |
-| H3 | About 321 `modexp` calls per `verify`, 257 of them in the consistency check. A tested variant needs 48 | V: `ultrahonk/lib/src/consistency.fe:74`, `:117-132`, equivalence tests at `:282-314` | `check` calls `evaluate_sparse`. It is safe: the subgroup check runs first (`:49-52`), so no skipped inversion could have reverted. Estimated saving: 0.85M gas | under 30 min of code, under 2 h of documentation |
+| H3 | About 321 `modexp` calls per `verify`, 257 of them in the consistency check. A tested variant needs 48 | V: `ultrahonk/lib/src/consistency.fe:74`, `:117-132`, equivalence tests at `:282-314` | `check` calls `evaluate_sparse`. It is safe: the subgroup check runs first (`:49-52`), so no skipped inversion could have reverted. Estimated saving: 0.85M gas. Done in #6: 112 `modexp` calls now, counted in a call trace, 48 of them in the consistency check. Measured saving: 953,808 gas at `-O 1`, from 2,106,146 to 1,152,338 | under 30 min of code, under 2 h of documentation |
 | E1 | One circuit, one size and no recursive proof: the largest hole in the evidence. Garaga commits four sets of proof, key and public inputs made with `bb` 6.0.0 at the `v6.0.0` commit, flavor `ultra_keccak_zk`, target `evm`: `LOG_N` 12 (two circuits, 1 public input), 17 (3 public inputs) and 20 (a recursive circuit). It also pins the expected challenges of the first | V, by fetching: [Independent vectors](#independent-vectors-from-public-repositories) | Confirm each set with the local `bb verify`. Then a library test that runs every step with the key passed as an argument: the challenges of `hello` equal Garaga's, each proof is accepted, each low-bit flip is rejected. Order: `hello`, `mutator_set`, `recursive`. A set that fails is a finding and is disclosed | half a day; touches no captured value; test counts change |
 | H4 | The contracts have never run outside the test harness, and no test runs the built `out/*.bin`. The tests compile at `-O 1` | V | `ultrahonk/scripts/demo_anvil.sh`, in shell with `anvil --hardfork osaka` and `cast`: build, deploy the three contracts, call `verify` with the pinned proof and with a tampered one, and claim as `0xc0ffe` with the first pinned proof. It gives the gas of a real transaction | under 2 h; none |
 | H5 | Nothing shows that the two-proof `scripts/vectors.sh` ran from start to end: `vectors/vk` is older than the script that deletes it first | V: file dates | Run it in a throwaway clone, or say in the documents that the second proof was made with the same commands run by hand | under 30 min |
@@ -92,7 +92,7 @@ The rule: the test is written before the fix and run red where the gap is real. 
 | Gap | Function | Test | Expected today |
 |---|---|---|---|
 | H1 | `fr::inv` | `inv(P)` reverts with `ModExpFailed`; `mul(a, inv(a)) == 1` for 1, 2, `P - 1` and external operands | Was red: `inv(P)` returned 0. Green since #4 |
-| H3 | `consistency::evaluate_sparse` | Equal to `evaluate` on synthetic proofs for `LOG_N` 1, 5 and 25: both must agree whatever the proof. A committed upper bound on the gas of `verify` | Unknown outside `LOG_N = 5` |
+| H3 | `consistency::evaluate_sparse` | Equal to `evaluate` on synthetic proofs for `LOG_N` 1, 5 and 25: both must agree whatever the proof. A committed upper bound on the gas of `verify` | Green at `LOG_N` 1, 5 and 25 (#6). The bound is 1,270,000 gas; it was red with every denominator inverted |
 | M6 | `opening_vectors` | Assert `NUMERATOR`, `DENOMINATOR_0` and `DENOMINATOR_255` | Green expected: recomputed by hand |
 | M6 | `Vault::claim` | A verifier that answers the word 2, and one that answers 64 bytes: the claim reverts without data | Unknown: only the address without code is tested |
 | H2 | `HonkVerifier` | The getter returns the constructor argument | Was red: no `relations()` to answer. Green since #5 |
@@ -134,7 +134,7 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 |---|---|---|
 | Never deployed outside the test harness | What would be deployed has run on no other EVM | H4 |
 | One verifier per circuit, with no generator | Verifying another circuit means editing the key constants by hand; the test suite then fails, because its captured values belong to the pinned proof | H6, then a generator |
-| A real `verify` transaction costs about 2.2M gas (estimated): 21,000 intrinsic, about 65,000 of calldata and about 4,500 of cold access, on top of the measured 2,108,994. The figures are priced at Osaka | The READMEs give the cost of the call, not of the transaction | H4 measures it; H3 lowers it |
+| A real `verify` transaction costs about 1.24M gas (estimated): 21,000 intrinsic, about 65,000 of calldata and about 2,500 of cold access (the relations account; the verifier reads no storage since #5), on top of the measured 1,152,338. The figures are priced at Osaka. Before #6 the estimate was about 2.2M | The READMEs give the cost of the call, not of the transaction | H4 measures it; H3 lowered it (#6) |
 | Under low gas a valid proof reverts with the error of an invalid one | It fails closed, but the error misleads | Document it |
 | The key appears twice in the `-O s` runtime, about 1.8 KB | Size only | Later |
 
@@ -187,7 +187,7 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 | `ultrahonk/docs/zk-verifier-reference.md:3` | Line numbers (`L…`) point into the reference | The document has none |
 | `docs/ultrahonk.md:323` | The reference reverts without data on a carried point off the curve "according to the comment" | It was captured from the reference (`ultrahonk/lib/src/opening_vectors.fe:364-365`) |
 | `ultrahonk/verifier/src/lib.fe:188-189` | The recorded flips pin the reference's selector for 12 words | For 11. The twelfth, word 138, had no revert data |
-| `ultrahonk/docs/zk-verifier-reference.md:157` | Index 255 of the Lagrange array is non-zero | Only indices 0 to 9L are. Index 255 enters through a denominator |
+| `ultrahonk/docs/zk-verifier-reference.md:157` | Index 255 of the Lagrange array is non-zero | Only indices 0 to 9L are. Index 255 enters through a denominator. Corrected in #6 |
 | `docs/ultrahonk.md:269`, `docs/adr/0001-port-bb-6-zk-verifier.md:46` | 41 entities as "37 unshifted, 5 shifted"; "42 evaluated entities" | 41 = 36 unshifted + 5 shifted. The 42 evaluations add the masking polynomial |
 | `ultrahonk/README.md:105` | 7 overwritten proof words, range checks | 7 cases on 6 words. One passes its range check and fails in sumcheck |
 | `ultrahonk/vault/README.md:24` | An answer that is not one ABI `bool` reverts | Only the address without code is tested. Add the test |

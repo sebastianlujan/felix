@@ -2,7 +2,7 @@
 
 This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 179 tests in `lib`, 2 in `relations`, 18 in `verifier`, 11 in `vault`, 70 in `toy`.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 182 tests in `lib`, 2 in `relations`, 19 in `verifier`, 11 in `vault`, 70 in `toy`.
 >
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
@@ -19,9 +19,9 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
 
    ```sh
    cd ultrahonk
-   (cd lib && fe test)        # 179 tests
+   (cd lib && fe test)        # 182 tests
    (cd relations && fe test)  # 2
-   (cd verifier && fe test)   # 18
+   (cd verifier && fe test)   # 19
    (cd vault && fe test)      # 11
    (cd ../honk-toy && fe test) # 70
    ```
@@ -436,20 +436,20 @@ With `fe` 26.6.0. The figures are the ones in [`ultrahonk/README.md`](../ultraho
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| Runtime size of `HonkVerifier`, bytes | 16,446 | 16,274 | 16,174 |
+| Runtime size of `HonkVerifier`, bytes | 16,638 | 16,476 | 16,346 |
 | Runtime size of `HonkRelations`, bytes | 8,527 | 6,336 | 6,343 |
-| Runtime size of `Vault`, bytes | 655 | 647 | 651 |
-| Gas of `verify` on the pinned proof, accepted | 2,108,994 | 2,106,426 | 2,124,076 |
-| Gas of a vault claim in front of `HonkVerifier` | 2,120,252 | 2,117,762 | 2,133,741 |
+| Runtime size of `Vault`, bytes | 671 | 671 | 675 |
+| Gas of `verify` on the pinned proof, accepted | 1,152,338 | 1,150,828 | 1,166,583 |
+| Gas of a vault claim in front of `HonkVerifier` | 1,178,038 | 1,176,525 | 1,192,399 |
 
 | Reference (Solidity verifier, solc 0.8.34) | |
 |---|---|
 | Runtime size | `HonkVerifier` 16,946 bytes, plus the linked libraries `RelationsLib` 8,211 and `ZKTranscriptLib` 6,008 |
 | Gas of a valid `verify` | 2,654,961 (forge gas report) |
 
-The limit for one contract is 24,576 bytes (EIP-170). `fe test` cannot catch it: its revm allows 1 MiB. A size is read from the build: `fe build --contract <Name> -O <level>` writes `out/<Name>.runtime.bin` as hex text, and the size is half its length. The nine sizes in the table were measured again this way on 2026-11-23. The gas figures were not measured again: the tests that measured them are not committed.
+The limit for one contract is 24,576 bytes (EIP-170). `fe test` cannot catch it: its revm allows 1 MiB. A size is read from the build: `fe build --contract <Name> -O <level>` writes `out/<Name>.runtime.bin` as hex text, and the size is half its length. The sizes and the gas figures were measured again on 2026-11-23, after three changes: `fr::inv` checks the answer of the precompile, the relations address and the vault's parameters are immutable, and the consistency check inverts only the denominators it uses. Before them the table held 16,446, 16,274 and 16,174 bytes for `HonkVerifier`, 655, 647 and 651 for `Vault`, 2,108,994, 2,106,426 and 2,124,076 gas for `verify`, and 2,120,252, 2,117,762 and 2,133,741 for the claim. The tests that measure the gas are not committed, except a bound: a verifier test asserts that `verify` on the valid proof stays below 1,270,000 gas. The verifier README says what the same temporary tests give on the earlier code.
 
-The relations are a contract of their own, as the reference keeps them in a linked library ([ADR-0012](adr/0012-code-size-strategy.md)). The two Fe runtimes add up to 24,973 bytes at `-O 1`, 22,610 at `-O 2` and 22,517 at `-O s`. The repository records no size for a single Fe contract holding everything, so these sums only indicate what it would weigh.
+The relations are a contract of their own, as the reference keeps them in a linked library ([ADR-0012](adr/0012-code-size-strategy.md)). The two Fe runtimes add up to 25,165 bytes at `-O 1`, 22,812 at `-O 2` and 22,689 at `-O s`. The repository records no size for a single Fe contract holding everything, so these sums only indicate what it would weigh.
 
 ## Porting hazards (real verifier)
 
@@ -550,7 +550,7 @@ Code size is within EIP-170 for each contract by measurement, not by a test.
 - The non-ZK flavor of the real verifier (`-t evm-no-zk`): not built.
 - Solidity in the repository, Foundry tests, and fuzzed differential testing against the reference verifier.
 - Vault payout logic.
-- Gas optimisation.
+- Gas optimisation, with one exception made on 2026-11-23: `consistency::check` inverts only the denominators it uses (`evaluate_sparse`), where the reference inverts all 256. It is one line, tested to give the values of the reference's evaluation at `LOG_N` 1, 5 and 25, and it took `verify` from 2,106,146 to 1,152,338 gas at `-O 1`. No general optimisation pass was made.
 - A VK generator CLI.
 - Multiple circuits.
 - Any change to the teaching page.

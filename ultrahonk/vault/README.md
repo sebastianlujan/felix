@@ -35,9 +35,10 @@ Three decisions:
 - **A static call.** `verify` is a view function, and the vault writes its storage after the
   answer. In a static call the verifier cannot change any state, nor call back into a vault
   that could.
-- **The typed message, not hand-written calldata.** `VerifierMsg::Verify` from the library gave
-  655 bytes of runtime and 25,496 gas for a claim; the same calldata written with `Packed` gave
-  931 bytes and 27,310 gas (`-O 1`). The verifier does the opposite for its call to
+- **The typed message, not hand-written calldata.** When the choice was made,
+  `VerifierMsg::Verify` from the library gave 655 bytes of runtime and 25,496 gas for a claim;
+  the same calldata written with `Packed` gave 931 bytes and 27,310 gas (`-O 1`, before `y` and
+  the verifier address became immutable). The verifier does the opposite for its call to
   `HonkRelations`, where the typed message was the larger one.
 
 ## Not implemented
@@ -108,13 +109,13 @@ With `fe` 26.6.0. `fe build --contract Vault` writes the bytecode to `out/`; wit
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| Runtime size of `Vault`, bytes | 655 | 647 | 651 |
-| Gas of a claim that succeeds, 5-byte proof, `CheckingVerifier` | 25,496 | 25,483 | 25,602 |
-| Gas of a claim that succeeds, 4,544-byte proof, a verifier that accepts everything | 29,638 | 29,615 | 29,734 |
-| Gas of a claim the verifier answers `false` to | 3,178 | 3,171 | 3,290 |
-| Gas of a claim on a vault already claimed | 910 | 901 | 901 |
-| Gas of a claim that succeeds, second pinned proof, `HonkVerifier` and `HonkRelations` | 2,120,252 | 2,117,762 | 2,133,741 |
-| Gas of a second claim with that proof, on the vault it claimed | 2,798 | 2,798 | 2,798 |
+| Runtime size of `Vault`, bytes | 671 | 671 | 675 |
+| Gas of a claim that succeeds, 5-byte proof, `CheckingVerifier` | 25,070 | 25,061 | 25,180 |
+| Gas of a claim that succeeds, 4,544-byte proof, a verifier that accepts everything | 29,381 | 29,375 | 29,494 |
+| Gas of a claim the verifier answers `false` to (the right proof, from another caller) | 4,944 | 4,935 | 5,054 |
+| Gas of a claim on a vault already claimed | 917 | 908 | 908 |
+| Gas of a claim that succeeds, second pinned proof, `HonkVerifier` and `HonkRelations` | 1,178,038 | 1,176,525 | 1,192,399 |
+| Gas of a second claim with that proof, on the vault it claimed | 2,806 | 2,806 | 2,806 |
 
 The gas is the difference of `evm.gas()` around the call to `claim` in a Fe test, with the proof
 built before, so it includes encoding the calldata in the caller. Those tests, and the verifier
@@ -123,4 +124,17 @@ temporary copy of the real-verifier claim test that measured both calls and reve
 figures. The test deploys the contracts in the transaction that calls them, so the accounts are
 warm; a call in a transaction of its own pays the cold surcharges on top, and the transaction's
 own cost. Only the `HonkVerifier` row includes a real verification; `HonkVerifier` alone spends
-2,108,994 gas (`-O 1`) accepting the pinned proof (`../README.md`).
+1,152,338 gas (`-O 1`) accepting the pinned proof (`../README.md`).
+
+The table was measured again on 2026-11-23, after `y` and the verifier address became immutable
+and the verifier's consistency check stopped inverting the denominators it does not use
+(`../README.md`). In every row the caller is the test contract. On the code before those
+changes, the build and the same temporary tests give what this table held for five rows: 655,
+647 and 651 bytes; 29,638, 29,615 and 29,734; 910, 901 and 901; 2,120,252, 2,117,762 and
+2,133,741; 2,798. For the other two they give 25,329, 25,303 and 25,422 (the table held 25,496,
+25,483 and 25,602) and 3,008, 2,988 and 3,107 (the table held 3,178, 3,171 and 3,290).
+
+A claim the verifier answers `false` to costs more in this test than before. `claimed` used to
+share a storage slot with the verifier address, which the deployment wrote in the same
+transaction, so the claim read a warm slot. It now shares a slot with `winner` only, and the
+claim's read is the first access. In a transaction of its own the slot is cold either way.

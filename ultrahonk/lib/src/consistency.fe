@@ -113,23 +113,27 @@ fn evaluate_terms(_ proof: Bytes, t: Transcript, log_n: usize, every: bool) -> C
 
 /// The values of the check, with one inversion per subgroup element as in the reference:
 /// 256 of them. Reverts with `GeminiChallengeInSubgroup` if `r` is in the subgroup; the
-/// denominators are zero exactly there, so no inversion can fail after that.
+/// denominators are zero exactly there, so no inversion can fail after that. The verifier
+/// does not use it: the tests compare `evaluate_sparse` with it.
 pub fn evaluate(_ proof: Bytes, t: Transcript, log_n: usize) -> Consistency {
     evaluate_terms(proof, t, log_n, every: true)
 }
 
 /// The same values and the same revert with `9 * log_n + 2` inversions. The reference
 /// multiplies the other denominators by zero, and none of them can be the inverse of zero
-/// (see `evaluate`), so leaving them out changes nothing but the gas. `check` does not use
-/// it.
+/// (see `evaluate`), so leaving them out changes nothing but the gas. `check` uses it.
 pub fn evaluate_sparse(_ proof: Bytes, t: Transcript, log_n: usize) -> Consistency {
     evaluate_terms(proof, t, log_n, every: false)
 }
 
 /// Reverts with `ConsistencyCheckFailed` unless the Libra evaluations are consistent, and
 /// with `GeminiChallengeInSubgroup` if the check cannot be made.
+///
+/// It inverts only the denominators that are used (`evaluate_sparse`), where the reference
+/// inverts all 256. The subgroup check runs before any inversion, so none of the
+/// inversions left out could have reverted.
 pub fn check(_ proof: Bytes, t: Transcript, log_n: usize) {
-    if evaluate(proof, t, log_n).diff != 0 {
+    if evaluate_sparse(proof, t, log_n).diff != 0 {
         revert_error(ConsistencyCheckFailed {})
     }
 }
@@ -137,7 +141,8 @@ pub fn check(_ proof: Bytes, t: Transcript, log_n: usize) {
 // Tests, against the values the reference verifier computed for the pinned proof and for
 // proofs with one bit flipped (`opening_vectors.fe`), and against the reverts recorded in
 // `expected.fe`.
-use std::evm::crypto::modexp
+use std::evm::crypto::{keccak_words, modexp}
+use std::evm::packed::Packed
 use super::expected::{BIT_FLIPS, CONSISTENCY_CHECK_FAILED}
 use super::fr::P
 use super::opening_vectors::{
@@ -150,7 +155,9 @@ use super::opening_vectors::{
     VANISHING,
 }
 use super::shplemini::SUBGROUP_GENERATOR
+use super::proof::word_count
 use super::transcript::generate
+use super::types::MAX_LOG_N
 use super::vectors::{LOG_N, PROOF, VK, proof, proof_with, public_inputs}
 
 fn pinned() -> Consistency {
@@ -280,16 +287,23 @@ fn test_consistency_check_rejects_a_gemini_challenge_in_the_subgroup() {
 }
 
 // The variant with fewer inversions gives every value of the one that follows the reference.
-fn assert_sparse_matches(_ proof: Bytes) -> u256 {
-    let t = generate(vk: VK, proof, public_inputs())
-    let full = evaluate(proof, t, log_n: LOG_N)
-    let sparse = evaluate_sparse(proof, t, log_n: LOG_N)
+fn assert_sparse_matches_at(_ proof: Bytes, t: Transcript, log_n: usize) -> u256 {
+    let full = evaluate(proof, t, log_n)
+    let sparse = evaluate_sparse(proof, t, log_n)
     assert!(sparse.vanishing == full.vanishing)
     assert!(sparse.challenge_eval == full.challenge_eval)
     assert!(sparse.lagrange_first == full.lagrange_first)
     assert!(sparse.lagrange_last == full.lagrange_last)
     assert!(sparse.diff == full.diff)
     sparse.diff
+}
+
+fn assert_sparse_matches(_ proof: Bytes) -> u256 {
+    assert_sparse_matches_at(
+        proof,
+        t: generate(vk: VK, proof, public_inputs()),
+        log_n: LOG_N,
+    )
 }
 
 #[test]
@@ -311,4 +325,71 @@ fn test_sparse_evaluation_rejects_a_gemini_challenge_in_the_subgroup() {
     var t = generate(vk: VK, pinned, public_inputs())
     t.gemini_r = SUBGROUP_GENERATOR
     evaluate_sparse(pinned, t, log_n: LOG_N)
+}
+
+// Synthetic proofs, for sizes no pinned proof has. Both variants must agree whatever the
+// proof and the challenges say, so nothing here is a proof a prover could send: every word
+// and every challenge is `keccak256(seed, index) % P`.
+
+fn synthetic_word(seed: u256, index: usize) -> u256 {
+    keccak_words([seed, index as u256]) % P
+}
+
+/// A proof of the length for `log_n`, every word a scalar below `P`.
+fn synthetic_proof(log_n: usize, seed: u256) -> Bytes {
+    let words = word_count(log_n)
+    var packed = Packed::with_capacity(bytes: words * 32)
+    for index in 0 .. words {
+        packed.u256(synthetic_word(seed, index))
+    }
+    Bytes::from_payload(source: packed.span())
+}
+
+/// The challenges the check reads: `log_n` sumcheck challenges and the Gemini challenge.
+/// The indices continue after the largest proof (382 words), so no value is used twice.
+fn synthetic_transcript(log_n: usize, seed: u256) -> Transcript {
+    var u: [u256; MAX_LOG_N] = [0; MAX_LOG_N]
+    for round in 0 .. log_n {
+        u[round] = synthetic_word(seed, index: 1000 + round)
+    }
+    Transcript {
+        eta: 0,
+        rom_logup_gamma: 0,
+        beta: 0,
+        gamma: 0,
+        alpha: 0,
+        gate_challenge: 0,
+        libra_challenge: 0,
+        u,
+        rho: 0,
+        gemini_r: synthetic_word(seed, index: 2000),
+        shplonk_nu: 0,
+        shplonk_z: 0,
+    }
+}
+
+fn assert_sparse_matches_on_synthetic_proofs(log_n: usize) {
+    for seed in [1, 2, 3] {
+        let synthetic = synthetic_proof(log_n, seed)
+        assert!(synthetic.len() == word_count(log_n) * 32)
+        let diff = assert_sparse_matches_at(synthetic, t: synthetic_transcript(log_n, seed), log_n)
+        // Random words are not consistent: the two variants agree on a value that is not zero.
+        assert!(diff != 0)
+    }
+}
+
+#[test]
+fn test_sparse_evaluation_matches_on_synthetic_proofs_at_log_n_1() {
+    assert_sparse_matches_on_synthetic_proofs(log_n: 1)
+}
+
+#[test]
+fn test_sparse_evaluation_matches_on_synthetic_proofs_at_log_n_5() {
+    assert_sparse_matches_on_synthetic_proofs(log_n: 5)
+}
+
+#[test]
+fn test_sparse_evaluation_matches_on_synthetic_proofs_at_the_largest_log_n() {
+    assert!(MAX_LOG_N == 25)
+    assert_sparse_matches_on_synthetic_proofs(log_n: MAX_LOG_N)
 }
