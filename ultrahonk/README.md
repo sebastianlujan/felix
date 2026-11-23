@@ -155,6 +155,9 @@ surcharges on top, and the transaction's own cost.
 - This port has not been audited.
 - The vault has no payout, and the toy is a teaching model that protects nothing.
 
+What is missing to rely on this code outside its tests, with the smallest fix for each limit, is
+in [`../docs/ultrahonk-gaps.md`](../docs/ultrahonk-gaps.md).
+
 ## Run the tests
 
 Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo`, Python or Foundry.

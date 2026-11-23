@@ -560,6 +560,8 @@ Code size is within EIP-170 for each contract by measurement, not by a test.
 - A script that checks each `.runtime.bin` against 24,576 bytes.
 - A re-cut of the stage estimates for the ZK verifier. The stages were carried out in the plan's order instead.
 
+What is missing to submit the entry and to rely on the code outside its tests is listed, in order, in [Gaps before shipping and before real use](ultrahonk-gaps.md).
+
 ### Questions the plan left open, and their answers
 
 | Question | Answer |
@@ -589,6 +591,7 @@ Upstream Solidity files are listed as the reference being ported or consulted. N
 
 ## Related documents
 
+- [Gaps before shipping and before real use](ultrahonk-gaps.md): the contest checklist, the ordered work, the test track and the known limits in real use.
 - [Architecture Decision Records](adr/README.md): one record per decision in the [Decisions](#decisions) table.
 - [`ultrahonk/README.md`](../ultrahonk/README.md): status, test coverage, measurements, how to regenerate the vectors.
 - [`ultrahonk/docs/zk-verifier-reference.md`](../ultrahonk/docs/zk-verifier-reference.md): the proof layout, the transcript, the formulas and the errors.
