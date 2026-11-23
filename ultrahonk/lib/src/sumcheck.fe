@@ -1,12 +1,16 @@
-// Sumcheck, first part: the public-input delta and the round checks. Port of
-// `computePublicInputDelta`, of the round loop of `verifySumcheck`, and of
-// `computeNextTargetSum`. The last step of sumcheck, which evaluates the relations and
-// compares them with the final target, is not here yet.
+// Sumcheck: port of `computePublicInputDelta`, `verifySumcheck` and `computeNextTargetSum`.
+//
+// `verifySumcheck` is split where it evaluates the relations, because a verifier contract
+// keeps them in a contract of their own: `rounds` runs the round checks, `relations_query`
+// is what the relations are asked, and `final_check` compares their answer with the target
+// the rounds left. `verify` joins the three with the relations evaluated in place.
 use std::abi::Bytes32
 use super::errors::SumcheckFailed
 use super::fr::{add, inv, mul, sub}
-use super::proof::{LIBRA_SUM, UNIVARIATES, UNIVARIATE_LENGTH, word}
+use super::proof::{LIBRA_SUM, UNIVARIATES, UNIVARIATE_LENGTH, evaluations, word}
+use super::relations::{RelationParameters, RelationsMsg, accumulate}
 use super::types::{PAIRING_POINTS_SIZE, Transcript}
+use super::wire::NUMBER_OF_ENTITIES
 
 const PERMUTATION_ARGUMENT_VALUE_SEPARATOR: u256 = 1 << 28
 
@@ -107,9 +111,91 @@ pub fn rounds(_ proof: Bytes, t: Transcript, log_n: usize) -> Rounds {
     Rounds { target, pow }
 }
 
+/// The message that asks for the batched relation value at the sumcheck point: the 41
+/// evaluations the relations read, the relation parameters, `alpha`, and the partial pow
+/// the rounds returned.
+pub fn relations_query(
+    _ proof: Bytes,
+    t: Transcript,
+    delta: u256,
+    pow: u256,
+    log_n: usize,
+) -> RelationsMsg::Accumulate {
+    // ZK: evaluation 0 belongs to the Gemini masking polynomial, which no relation reads.
+    let first = evaluations(log_n) + 1
+    var entities: [u256; NUMBER_OF_ENTITIES] = [0; NUMBER_OF_ENTITIES]
+    for entity in 0 .. NUMBER_OF_ENTITIES {
+        entities[entity] = word(proof, first + entity)
+    }
+    RelationsMsg::Accumulate {
+        evaluations: entities,
+        params: RelationParameters {
+            eta: t.eta,
+            rom_logup_gamma: t.rom_logup_gamma,
+            beta: t.beta,
+            gamma: t.gamma,
+            public_inputs_delta: delta,
+        },
+        alpha: t.alpha,
+        pow,
+    }
+}
+
+/// The last step of sumcheck: whether `relations`, the batched relation value at the
+/// sumcheck point, agrees with the target the rounds left.
+pub fn final_check(
+    _ proof: Bytes,
+    t: Transcript,
+    log_n: usize,
+    target: u256,
+    relations: u256,
+) -> bool {
+    // ZK: the relations are not enforced on the rows that hold the prover's masking values.
+    // `1 - evaluation` is the polynomial that disables those rows, at the sumcheck point.
+    var evaluation: u256 = 1
+    for round in 2 .. log_n {
+        evaluation = mul(evaluation, sub(1, t.u[round]))
+    }
+    // ZK: plus the claimed evaluation of the Libra masking polynomial.
+    let libra_evaluation = word(proof, evaluations(log_n) + 1 + NUMBER_OF_ENTITIES)
+    let grand = add(
+        mul(relations, sub(1, evaluation)),
+        mul(libra_evaluation, t.libra_challenge),
+    )
+    grand == target
+}
+
+/// `verifySumcheck` of the reference, with the relations evaluated in place. A round that
+/// does not hold reverts with `SumcheckFailed`; the result of the last comparison is
+/// returned, and the caller reverts with the same error when it is false.
+pub fn verify(_ proof: Bytes, t: Transcript, delta: u256, log_n: usize) -> bool {
+    let reduced = rounds(proof, t, log_n)
+    let query = relations_query(proof, t, delta, pow: reduced.pow, log_n)
+    let relations = accumulate(
+        evaluations: query.evaluations,
+        params: query.params,
+        alpha: query.alpha,
+        pow: query.pow,
+    )
+    final_check(proof, t, log_n, target: reduced.target, relations)
+}
+
 // Tests, against the values the reference verifier computed for the pinned proof.
-use super::expected::{BIT_FLIPS, SUMCHECK_FAILED}
+use std::abi::dyn_array_from
+use super::expected::{BIT_FLIPS, CONSISTENCY_CHECK_FAILED, PUBLIC_INPUT_CHANGES, SUMCHECK_FAILED}
 use super::fr::P
+use super::relations_vectors::{
+    PROOF_ALPHA,
+    PROOF_BATCHED,
+    PROOF_BATCHED_TAMPERED,
+    PROOF_BETA,
+    PROOF_ETA,
+    PROOF_EVALS,
+    PROOF_GAMMA,
+    PROOF_POW,
+    PROOF_PUBLIC_INPUTS_DELTA,
+    PROOF_ROM_LOGUP_GAMMA,
+}
 use super::transcript::generate
 use super::vectors::{
     BETA,
@@ -118,6 +204,7 @@ use super::vectors::{
     LOG_N,
     PARTIAL_POW,
     PROOF,
+    PUBLIC_INPUTS,
     PUBLIC_INPUT_DELTA,
     ROUND_TARGETS,
     U,
@@ -218,4 +305,166 @@ fn test_rounds_reject_a_round_that_does_not_add_up() {
         t,
         log_n: LOG_N,
     )
+}
+
+// The last step. `relations_vectors` holds what the reference handed to its relations for
+// the pinned proof, and what they returned.
+
+fn pinned_query() -> RelationsMsg::Accumulate {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    relations_query(
+        pinned,
+        t,
+        delta: PUBLIC_INPUT_DELTA,
+        pow: PARTIAL_POW,
+        log_n: LOG_N,
+    )
+}
+
+#[test]
+fn test_relations_query_is_what_the_reference_hands_to_its_relations() {
+    let query = pinned_query()
+    assert!(query.evaluations == PROOF_EVALS)
+    assert!(query.params.eta == PROOF_ETA)
+    assert!(query.params.rom_logup_gamma == PROOF_ROM_LOGUP_GAMMA)
+    assert!(query.params.beta == PROOF_BETA)
+    assert!(query.params.gamma == PROOF_GAMMA)
+    assert!(
+        query.params.public_inputs_delta == PROOF_PUBLIC_INPUTS_DELTA,
+    )
+    assert!(query.alpha == PROOF_ALPHA)
+    assert!(query.pow == PROOF_POW)
+}
+
+#[test]
+fn test_relations_query_skips_the_masking_evaluation() {
+    let query = pinned_query()
+    assert!(query.evaluations[0] == PROOF[75])
+    assert!(query.evaluations[40] == PROOF[115])
+}
+
+#[test]
+fn test_relation_value_of_the_pinned_proof_matches_reference() {
+    let query = pinned_query()
+    assert!(
+        accumulate(
+                evaluations: query.evaluations,
+                params: query.params,
+                alpha: query.alpha,
+                pow: query.pow,
+            )
+            == PROOF_BATCHED,
+    )
+}
+
+#[test]
+fn test_final_check_accepts_only_the_reference_relation_value() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    let target = ROUND_TARGETS[LOG_N]
+    assert!(
+        final_check(pinned, t, log_n: LOG_N, target, relations: PROOF_BATCHED),
+    )
+    assert!(
+        !final_check(
+            pinned,
+            t,
+            log_n: LOG_N,
+            target,
+            relations: PROOF_BATCHED_TAMPERED,
+        ),
+    )
+    assert!(
+        !final_check(pinned, t, log_n: LOG_N, target, relations: 0),
+    )
+}
+
+/// The whole sumcheck on `candidate` with the given public inputs.
+fn sumcheck_of(candidate: Bytes, y: u256, recipient: u256) -> bool {
+    let inputs = dyn_array_from([Bytes32 { val: y }, Bytes32 { val: recipient }])
+    let t = generate(vk: VK, candidate, inputs)
+    let delta = public_input_delta(candidate, inputs, beta: t.beta, gamma: t.gamma)
+    verify(candidate, t, delta, log_n: LOG_N)
+}
+
+fn sumcheck_with_bit_flip(case: usize) -> bool {
+    let flip = BIT_FLIPS[case]
+    sumcheck_of(
+        candidate: proof_with(word: flip.word, value: PROOF[flip.word] ^ 1),
+        y: PUBLIC_INPUTS[0],
+        recipient: PUBLIC_INPUTS[1],
+    )
+}
+
+#[test]
+fn test_verify_accepts_the_pinned_proof() {
+    assert!(
+        sumcheck_of(
+            candidate: proof(),
+            y: PUBLIC_INPUTS[0],
+            recipient: PUBLIC_INPUTS[1],
+        ),
+    )
+}
+
+// The two flips below leave every round check intact (the evaluations enter the transcript
+// after the last round challenge), so only the last comparison can reject them. The
+// reference rejected both with `SumcheckFailed`.
+#[test]
+fn test_verify_rejects_a_flipped_relation_evaluation() {
+    assert!(BIT_FLIPS[4].word == 75)
+    assert!(BIT_FLIPS[4].selector == SUMCHECK_FAILED)
+    assert!(!sumcheck_with_bit_flip(case: 4))
+}
+
+#[test]
+fn test_verify_rejects_a_flipped_libra_evaluation() {
+    assert!(BIT_FLIPS[5].word == 116)
+    assert!(BIT_FLIPS[5].selector == SUMCHECK_FAILED)
+    assert!(!sumcheck_with_bit_flip(case: 5))
+}
+
+// Sumcheck does not read evaluation 0, the one of the masking polynomial: the reference
+// rejected this flip later, in the consistency check.
+#[test]
+fn test_verify_does_not_read_the_masking_evaluation() {
+    assert!(BIT_FLIPS[3].word == 74)
+    assert!(BIT_FLIPS[3].selector == CONSISTENCY_CHECK_FAILED)
+    assert!(sumcheck_with_bit_flip(case: 3))
+}
+
+// A changed public input changes the first challenge, so the first round already fails.
+fn sumcheck_with_changed_public_input(case: usize) -> bool {
+    let change = PUBLIC_INPUT_CHANGES[case]
+    assert!(change.selector == SUMCHECK_FAILED)
+    var inputs = PUBLIC_INPUTS
+    inputs[change.index] = change.value
+    sumcheck_of(candidate: proof(), y: inputs[0], recipient: inputs[1])
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_verify_rejects_a_changed_first_public_input() {
+    sumcheck_with_changed_public_input(case: 0)
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_verify_rejects_a_changed_second_public_input() {
+    sumcheck_with_changed_public_input(case: 1)
+}
+
+// With the challenges kept, a public input reaches sumcheck only through the delta, which
+// only the last comparison reads.
+#[test]
+fn test_final_check_binds_the_public_input_delta() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    assert!(verify(pinned, t, delta: PUBLIC_INPUT_DELTA, log_n: LOG_N))
+    let change = PUBLIC_INPUT_CHANGES[0]
+    let changed = dyn_array_from(
+        [Bytes32 { val: change.value }, Bytes32 { val: PUBLIC_INPUTS[1] }],
+    )
+    let delta = public_input_delta(pinned, changed, beta: t.beta, gamma: t.gamma)
+    assert!(delta != PUBLIC_INPUT_DELTA)
+    assert!(!verify(pinned, t, delta, log_n: LOG_N))
 }
