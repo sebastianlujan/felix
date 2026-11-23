@@ -6,9 +6,12 @@ A port of Barretenberg's zero-knowledge UltraHonk verifier (BN254, Keccak transc
 **The Fe verifier accepts the pinned valid proof.** It has the ABI of the Solidity verifier and
 runs its steps (proof validation, the Fiat-Shamir transcript, the public-input delta, sumcheck with
 the relations, then the opening: Shplemini scalars, Libra consistency check, multi-scalar
-multiplication, pairing-point aggregation and pairing) in the same order and with the same errors.
-It returns `true` only if the pairing holds. The tests cover the pinned proof, the recorded bit
-flips and the all-zero proof; they do not show that every proof the reference rejects is rejected.
+multiplication, pairing-point aggregation and pairing) in the same order and with the same errors,
+with one recorded exception: where the reference runs out of gas on a point off the curve and
+reverts without data (proof word 138), this contract reverts with `ShpleminiFailed()`. It returns
+`true` only if the pairing holds. The tests cover the pinned proof, the recorded bit flips, the
+all-zero proof, and a low-bit flip in each of the 142 proof words, none of which is accepted; they
+do not show that every proof the reference rejects is rejected.
 
 It is two contracts, as the reference is a contract and two linked libraries: `HonkVerifier`
 asks `HonkRelations` for the value of the relations with a static call.
@@ -32,8 +35,8 @@ for the valid proof in `lib/src/vectors.fe`.
 | 2 | Proof validation (length, range of every word) and Fiat-Shamir transcript | Done |
 | 3-5 | Sumcheck: public-input delta and the round checks | Done |
 | 3-5 | Sumcheck: the ten relations (`HonkRelations`) and the final check against them | Done |
-| 6 | Shplemini, the Libra consistency check and the pairing check | Pending |
-| 7 | Verifier contract accepting proofs | Pending: it runs the steps marked done, then reverts |
+| 6 | Shplemini, the Libra consistency check and the pairing check | Done |
+| 7 | Verifier contract accepting proofs | Done: accepts both pinned proofs and rejects every recorded invalid call |
 
 ### What the contract checks today
 
@@ -59,7 +62,8 @@ verifier.
 storage, so `HonkRelations` is deployed first. The calldata it sends is the encoding of
 `RelationsMsg::Accumulate` (`lib/src/relations.fe`), written from the proof bytes instead of through
 the typed message: sending the typed message made the runtime 2,103 bytes larger and the call
-13,708 gas dearer (9,712 bytes and 326,250 gas against 7,609 and 312,542, at `-O 1`), and a
+13,708 gas dearer (9,712 bytes and 326,250 gas against 7,609 and 312,542, at `-O 1`, measured
+before the opening was ported), and a
 library test asserts that both encodings are the same bytes. If the relations contract reverts,
 the verifier reverts with the same data; if the address holds no code, the verifier reverts with
 no data.
@@ -78,6 +82,7 @@ Of the reverts recorded from the reference, the contract tests assert the ones t
 | Every proof word at its largest allowed value, with and without the limbs | Yes: `SumcheckFailed` |
 | Bit flips in words 74, 121, 129, 134, 137, 138, 140 | Yes: the selector the reference gave (`ConsistencyCheckFailed` or `ShpleminiFailed`); word 138 reverts with `ShpleminiFailed()`, the reference reverts without data |
 | The all-zero proof (reference: `ShpleminiFailed`) | Yes: `ShpleminiFailed` |
+| The low bit of each of the 142 proof words flipped, one at a time (not recorded from the reference) | Yes: none is accepted |
 | What the reference's sumcheck alone does with the bit flips, the changed public inputs, the all-zero proof and the largest values | Yes, in the library tests of `lib/src/sumcheck.fe` |
 
 Measured at this stage, with `fe` 26.6.0:
@@ -88,15 +93,18 @@ Measured at this stage, with `fe` 26.6.0:
 | Runtime size of `HonkRelations`, bytes (`fe build`) | 8,527 | 6,336 | 6,343 |
 | Gas of `verify` on the valid proof, accepted | 2,108,994 | 2,106,426 | 2,124,076 |
 
-2,976 bytes of the `HonkVerifier` runtime are constants (the verification key, the zeroed challenge
-array, the barycentric denominators); `HonkRelations` has none. The limit for one contract is
-24,576 bytes.
+Before the opening was ported, 2,976 bytes of the then 7,609-byte `HonkVerifier` runtime were
+constants (the verification key, the zeroed challenge array, the barycentric denominators); that
+share was not measured again. `HonkRelations` has none. The limit for one contract is 24,576
+bytes. The reference's Solidity verifier is 16,946 bytes plus 14,219 of linked libraries
+(`The reference oracle` below).
 
 The gas is the difference of `evm.gas()` around the call in a Fe test, with the proof built
-before, so it includes encoding the calldata in the caller. Measured the same way: 283,050 for the
-previous stage (the same steps without the relations and the last comparison), 1,979 for a call
-that fails the proof-length check, 29,359 for a call to `HonkRelations` alone. Most of the total
-is the 46 modular inversions, one modexp call each at about 4,400 gas. The test deploys both
+before, so it includes encoding the calldata in the caller. Measured the same way, at `-O 1`:
+312,542 up to the end of sumcheck before the opening was ported (most of it the 46 modular
+inversions, one modexp call each at about 4,400 gas), so the opening costs about 1,796,000;
+283,050 for sumcheck without the relations and the last comparison; 1,979 for a call that fails
+the proof-length check; 29,359 for a call to `HonkRelations` alone. The test deploys both
 contracts in the transaction that calls them, so the two accounts and the storage slot are warm
 (a second identical call was not cheaper); a call in a transaction of its own pays the cold
 surcharges on top, and the transaction's own cost.
