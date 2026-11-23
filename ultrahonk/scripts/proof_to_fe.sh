@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Prints the generated part of lib/src/vectors.fe: the pinned proof, its public inputs and the
-# verification key, read from the raw bb output in vectors/. Needs only bash, xxd and shasum.
+# Prints Fe constants from the raw bb output in vectors/. Needs only bash, xxd and shasum.
 #
-#   scripts/proof_to_fe.sh                  print the generated part
+#   scripts/proof_to_fe.sh                  print the generated part of lib/src/vectors.fe: the
+#                                           pinned proof and its public inputs
+#   scripts/proof_to_fe.sh --vk             print lib/src/vk.fe, the verification key the
+#                                           verifier contract is built with, from vectors/vk and
+#                                           vectors/vk_hash alone
 #   scripts/proof_to_fe.sh --test-address   print lib/src/test_address_vectors.fe, the second
 #                                           proof, from vectors/test_address/
 #   scripts/proof_to_fe.sh --garaga NAME    print lib/src/garaga_NAME_proof.fe, a proof of another
@@ -11,17 +14,22 @@
 #                                           print the generated part of lib/src/garaga_NAME.fe, the
 #                                           verification key of that circuit
 #   scripts/proof_to_fe.sh --check          fail unless lib/src/vectors.fe starts with exactly the
-#                                           first, lib/src/test_address_vectors.fe is the second,
-#                                           every lib/src/garaga_*_proof.fe is the third and every
-#                                           other lib/src/garaga_*.fe starts with the fourth
+#                                           first, lib/src/vk.fe is the second,
+#                                           lib/src/test_address_vectors.fe the third, every
+#                                           lib/src/garaga_*_proof.fe the fourth and every other
+#                                           lib/src/garaga_*.fe starts with the fifth
 #
 # The values captured from the reference oracle follow the generated part in vectors.fe and are
 # maintained by hand; a new proof needs both.
+# Words are hex digits without spaces, so splitting them into arrays is intended (SC2207), and
+# backticks inside single quotes are literal Fe documentation text (SC2016).
+# shellcheck disable=SC2207,SC2016
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 TARGET=lib/src/vectors.fe
+KEY_TARGET=lib/src/vk.fe
 TEST_ADDRESS_TARGET=lib/src/test_address_vectors.fe
 GARAGA_COMMIT=86b6025567c5e2395947f9c6d40262c9ead2a54c # the commit vectors/garaga/ was copied from
 
@@ -43,37 +51,38 @@ small() {
     printf '%d' "0x${1:56}"
 }
 
-generate() {
-    local proof=($(words vectors/proof))
-    local inputs=($(words vectors/public_inputs))
+# The verification key of the vault circuit, from vectors/vk and vectors/vk_hash alone.
+generate_vk() {
     local vk=($(words vectors/vk))
     local vk_hash=($(words vectors/vk_hash))
     local log_n public_inputs
     log_n=$(small "${vk[0]}")
     public_inputs=$(small "${vk[1]}")
 
-    # bb writes the key as 3 header words and 28 points; a proof has 82 + 12 * LOG_N words.
+    # bb writes the key as 3 header words and 28 points.
     [ "${#vk[@]}" -eq 59 ] || { echo "vectors/vk: expected 59 words, got ${#vk[@]}" >&2; exit 1; }
     [ "${#vk_hash[@]}" -eq 1 ] || { echo "vectors/vk_hash: expected 1 word" >&2; exit 1; }
-    [ "${#proof[@]}" -eq $((82 + 12 * log_n)) ] || { echo "vectors/proof: wrong length" >&2; exit 1; }
-    [ "${#inputs[@]}" -eq $((public_inputs - 8)) ] || { echo "vectors/public_inputs: wrong length" >&2; exit 1; }
+    # sumcheck.fe has the row of the first public input as a constant, not as a field of the key.
+    [ "$(small "${vk[2]}")" -eq 5 ] || { echo "vectors/vk: the public-input offset is not 5" >&2; exit 1; }
 
     cat <<'EOF'
-// Test vector of the vault circuit: verification key, pinned proof, public inputs, and the
-// values the reference verifier computes for them.
+// Verification key of the vault circuit: the key `HonkVerifier` is built with.
 //
-// GENERATED PART. `scripts/proof_to_fe.sh` prints everything down to the line "END OF GENERATED
-// PART" from the raw `bb` 6.0.0 output in `vectors/`, and `scripts/proof_to_fe.sh --check` fails
-// if this file starts with anything else. Words are 32 bytes, big-endian.
+// GENERATED FILE. `scripts/proof_to_fe.sh --vk` prints it from `vectors/vk` and
+// `vectors/vk_hash`, and `scripts/proof_to_fe.sh --check` fails if this file is anything else.
+// Words are 32 bytes, big-endian.
 //
 EOF
-    shasum -a 256 vectors/proof vectors/public_inputs vectors/vk vectors/vk_hash |
+    shasum -a 256 vectors/vk vectors/vk_hash |
         while read -r line; do printf '//   %s\n' "$line"; done
     cat <<EOF
 //
-// \`vectors/vk\` is three header words (\`LOG_N\`, \`NUM_PUBLIC_INPUTS\`, the public-input offset)
-// followed by 28 points, two words each, already in the order the reference verifier places
-// them in its multi-scalar multiplication (slots 2-29 of \`docs/zk-verifier-reference.md\`).
+// \`vectors/vk\` is three header words (\`LOG_N\`, \`NUM_PUBLIC_INPUTS\`, the public-input offset,
+// which must be 5) followed by 28 points, two words each, already in the order the reference
+// verifier places them in its multi-scalar multiplication (slots 2-29 of
+// \`docs/zk-verifier-reference.md\`).
+use super::types::VerificationKey
+
 pub const LOG_N: usize = $log_n
 pub const N: usize = $((1 << log_n))
 
@@ -86,6 +95,43 @@ pub const VK_HASH: u256 = 0x${vk_hash[0]}
 /// as \`x, y\` pairs. \`(0, 0)\` is the commitment to a selector the circuit does not use.
 EOF
     array VK_POINTS "${vk[@]:3}"
+    cat <<'EOF'
+
+/// A constant, not a function returning the struct: passed by reference, it is embedded once in
+/// a contract that uses it, where the function form embedded the 56 point words three times
+/// (measured, `fe build --emit sizes`).
+pub const VK: VerificationKey = VerificationKey {
+    log_n: LOG_N,
+    num_public_inputs: NUM_PUBLIC_INPUTS,
+    vk_hash: VK_HASH,
+    points: VK_POINTS,
+}
+EOF
+}
+
+generate() {
+    local proof=($(words vectors/proof))
+    local inputs=($(words vectors/public_inputs))
+    local vk=($(words vectors/vk))
+    local log_n public_inputs
+    log_n=$(small "${vk[0]}")
+    public_inputs=$(small "${vk[1]}")
+
+    # A proof has 82 + 12 * LOG_N words.
+    [ "${#proof[@]}" -eq $((82 + 12 * log_n)) ] || { echo "vectors/proof: wrong length" >&2; exit 1; }
+    [ "${#inputs[@]}" -eq $((public_inputs - 8)) ] || { echo "vectors/public_inputs: wrong length" >&2; exit 1; }
+
+    cat <<'EOF'
+// Test vector of the vault circuit: pinned proof, public inputs, and the values the reference
+// verifier computes for them. The verification key is in `vk.fe`, re-exported below.
+//
+// GENERATED PART. `scripts/proof_to_fe.sh` prints everything down to the line "END OF GENERATED
+// PART" from the raw `bb` 6.0.0 output in `vectors/`, and `scripts/proof_to_fe.sh --check` fails
+// if this file starts with anything else. Words are 32 bytes, big-endian.
+//
+EOF
+    shasum -a 256 vectors/proof vectors/public_inputs |
+        while read -r line; do printf '//   %s\n' "$line"; done
     printf '\n/// The public inputs the caller supplies: `y` and `recipient`.\n'
     array PUBLIC_INPUTS "${inputs[@]}"
     printf '\n/// `vectors/proof`, the pinned proof (ZK proving is randomized; see README).\n'
@@ -214,6 +260,8 @@ case "${1:-}" in
 --check)
     diff <(generate) <(head -n "$(generate | wc -l)" "$TARGET")
     echo "OK: $TARGET starts with the output of scripts/proof_to_fe.sh"
+    diff <(generate_vk) "$KEY_TARGET"
+    echo "OK: $KEY_TARGET is the output of scripts/proof_to_fe.sh --vk"
     diff <(generate_test_address) "$TEST_ADDRESS_TARGET"
     echo "OK: $TEST_ADDRESS_TARGET is the output of scripts/proof_to_fe.sh --test-address"
     for target in lib/src/garaga_*.fe; do
@@ -229,6 +277,7 @@ case "${1:-}" in
         fi
     done
     ;;
+--vk) generate_vk ;;
 --test-address) generate_test_address ;;
 --garaga) generate_garaga "${2:?usage: proof_to_fe.sh --garaga NAME}" ;;
 --garaga-key) generate_garaga_key "${2:?usage: proof_to_fe.sh --garaga-key NAME}" ;;
