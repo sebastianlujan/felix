@@ -21,13 +21,14 @@ Sibling ingots under `ultrahonk/`, joined by relative path dependencies. No work
 | `ultrahonk_relations` | `ultrahonk/relations` | Contract `HonkRelations` | `lib` |
 | `ultrahonk_verifier` | `ultrahonk/verifier` | Contract `HonkVerifier` | `lib`; `relations` for its tests |
 | `ultrahonk_vault` | `ultrahonk/vault` | Contract `Vault` | `lib`; `relations` and `verifier` for its tests |
-| `honk_toy` | `ultrahonk/toy` | Library, Honk over F_17 | — |
+| `honk_toy` | `honk-toy` (first `ultrahonk/toy`) | Library, Honk over F_17 | — |
 
 `lib/src/abi.fe` holds the shared `msg`: the verifier receives it and the vault sends it.
 
 ## Outcome (2026-11-23)
 
 - Five ingots exist, each with its own `fe.toml`. `fe test` passes in each.
+- The toy ingot was moved from `ultrahonk/toy` to the top-level `honk-toy/` on 2026-11-23. It depends on no other ingot and none depends on it, so only its path changed.
 - There is no per-circuit `vk.fe` in the verifier ingot. The verification key is the constant `VK` in `lib/src/vectors.fe`.
 - `scripts/check.sh` was not written. `ultrahonk/README.md` lists one `fe test` command per ingot.
 

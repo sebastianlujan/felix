@@ -20,7 +20,7 @@ Requires `fe` 26.6.0. Python 3 (standard library only) is needed only to regener
 test vectors.
 
 ```sh
-cd ultrahonk/toy
+cd honk-toy
 fe test            # all tests, on the EVM backend
 fe check           # type-check only
 fe fmt --check     # formatting, including the generated vectors
@@ -36,7 +36,7 @@ rejected):
 
 ```toml
 [dependencies]
-honk_toy = { path = "../toy" }
+honk_toy = { path = "../honk-toy" }
 ```
 
 ```fe

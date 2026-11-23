@@ -11,7 +11,7 @@ Three deliverables, all built and tested:
 |---|---|---|
 | The verifier: contracts `HonkVerifier` and `HonkRelations` | `lib/`, `relations/`, `verifier/` | Accepts the pinned proof and rejects every recorded invalid call |
 | A vault that takes a proof through the verifier | `vault/` ([README](vault/README.md)) | A claim succeeds in front of the real verifier. No payout, by decision |
-| A hand-sized toy Honk verifier over F_17 | `toy/` ([README](toy/README.md)) | Its verdict equals its reference's in every scenario. A teaching model, not secure |
+| A hand-sized toy Honk verifier over F_17 | `../honk-toy/` ([README](../honk-toy/README.md)) | Its verdict equals its reference's in every scenario. A teaching model, not secure |
 
 **The Fe verifier accepts the pinned valid proof.** It has the ABI of the Solidity verifier and
 runs its steps (proof validation, the Fiat-Shamir transcript, the public-input delta, sumcheck with
@@ -31,7 +31,7 @@ and [`../docs/adr/`](../docs/adr/README.md).
 
 ## What the repository contains
 
-Fe, one Noir circuit, shell scripts and the toy's Python reference (`toy/reference/`).
+Fe, one Noir circuit, shell scripts and the toy's Python reference (`../honk-toy/reference/`).
 **No Solidity and no JavaScript is committed.**
 
 Barretenberg's generated Solidity verifier is used only as a local reference oracle.
@@ -52,7 +52,7 @@ for the valid proof in `lib/src/vectors.fe`, `lib/src/relations_vectors.fe` and
 | 3-5 | Sumcheck: the ten relations (`HonkRelations`) and the final check against them | Done |
 | 6 | Shplemini, the Libra consistency check and the pairing check | Done |
 | 7 | Verifier contract accepting proofs | Done: accepts both pinned proofs and rejects every recorded invalid call |
-| Toy | Honk over F_17 with KZG over F_101, with the sumcheck mask (`toy/README.md`) | Done |
+| Toy | Honk over F_17 with KZG over F_101, with the sumcheck mask (`../honk-toy/README.md`) | Done |
 
 Not written: an end-to-end script and a script that checks the code size. The sizes below were
 measured by hand.
@@ -168,7 +168,7 @@ cd ultrahonk
 (cd relations && fe test)  # 2: the relations contract against the reference values
 (cd verifier && fe test)   # 16: both contracts against the recorded reference reverts
 (cd vault && fe test)      # 11: the vault against stand-in verifiers, and in front of HonkVerifier
-(cd toy && fe test)        # 70: the toy verifier against its Python reference's vectors
+(cd ../honk-toy && fe test) # 70: the toy verifier against its Python reference's vectors
 ```
 
 The numbers are the tests that pass in each ingot, counted on 2026-11-23.
@@ -177,7 +177,7 @@ The numbers are the tests that pass in each ingot, counted on 2026-11-23.
 `verifier/` and `fe build --contract Vault` in `vault/` write the bytecode to `out/` in each
 directory. Without `--contract`, the build in `verifier/` also writes `FixedRelations` and
 `FailingRelations`, two stand-ins for the relations contract that only its tests deploy, and the
-build in `vault/` the five contracts its tests deploy. `lib/` and `toy/` are libraries and have
+build in `vault/` the five contracts its tests deploy. `lib/` and `../honk-toy/` are libraries and have
 no contract to build.
 
 ## Layout
@@ -199,7 +199,7 @@ no contract to build.
 | `relations/` | Ingot `ultrahonk_relations`: contract `HonkRelations` |
 | `verifier/` | Ingot `ultrahonk_verifier`: contract `HonkVerifier`; its tests deploy both contracts |
 | `vault/` | Ingot `ultrahonk_vault`: contract `Vault`, which records the first caller with a proof for `[y, caller]`; no payout. See `vault/README.md` |
-| `toy/` | Ingot `honk_toy`: a hand-sized Honk verifier over F_17 with KZG over F_101, with its Python reference and vector generator in `toy/reference/`. See `toy/README.md` |
+| `../honk-toy/` | Ingot `honk_toy`: a hand-sized Honk verifier over F_17 with KZG over F_101, with its Python reference and vector generator in `../honk-toy/reference/`. See `../honk-toy/README.md` |
 | `../docs/ultrahonk.md` | At the repository root: the project plan and its outcome |
 | `../docs/adr/` | At the repository root: the 14 decision records |
 | `.oracle/` | Not committed: Barretenberg's Solidity verifier, for local reference |
@@ -302,7 +302,7 @@ ones. Committing a new first proof means capturing `lib/src/expected.fe`, the se
 `scripts/proof_to_fe.sh --test-address > lib/src/test_address_vectors.fe`.
 
 The toy has its own generator, which needs Python 3 and nothing else:
-`python3 toy/reference/gen_vectors.py --check` (`toy/README.md`).
+`python3 ../honk-toy/reference/gen_vectors.py --check` (`../honk-toy/README.md`).
 
 The archives are the macOS arm64 builds. The script calls the tools by path and exits unless they
 report the versions below; tools installed elsewhere on the machine are not used.

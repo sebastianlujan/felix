@@ -1,6 +1,6 @@
 # UltraHonk verification in Fe: plan and outcome
 
-This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
+This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
 > **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 176 tests in `lib`, 2 in `relations`, 16 in `verifier`, 11 in `vault`, 70 in `toy`.
 >
@@ -23,7 +23,7 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
    (cd relations && fe test)  # 2
    (cd verifier && fe test)   # 16
    (cd vault && fe test)      # 11
-   (cd toy && fe test)        # 70
+   (cd ../honk-toy && fe test) # 70
    ```
 
 2. Read the result. In `verifier`, `test_the_valid_proof_is_accepted` shows the Fe verifier accepting the pinned proof. In `vault`, `test_the_real_verifier_accepts_a_claim_from_the_address_the_proof_was_made_for` shows a claim through the vault in front of it.
@@ -44,7 +44,7 @@ Regenerating inputs is optional and is not needed to verify: see [Verification](
 |---|---|---|---|---|
 | 1 | Real verifier | `ultrahonk/lib`, `ultrahonk/relations`, `ultrahonk/verifier` | Port of Barretenberg's ZK UltraHonk verifier (BN254, Keccak transcript with zero-knowledge), as two contracts: `HonkVerifier` and `HonkRelations` | Done. Accepts the pinned proof and rejects every recorded invalid call |
 | 2 | Integration contract | `ultrahonk/vault` | A Fe application contract that takes a Noir + Barretenberg proof through the verifier (the teaching page's vault) | Done. A claim succeeds in front of the real verifier. No payout, by decision |
-| 3 | Toy verifier | `ultrahonk/toy` | The teaching page's hand-sized Honk over F_17 with KZG over F_101, ported to Fe, including the page's sumcheck mask | Done. Its verdict equals the reference's in all 15 scenarios |
+| 3 | Toy verifier | `honk-toy` | The teaching page's hand-sized Honk over F_17 with KZG over F_101, ported to Fe, including the page's sumcheck mask | Done. Its verdict equals the reference's in all 15 scenarios |
 
 ## Purpose and context
 
@@ -102,7 +102,7 @@ Why the ZK flavor:
 | Usefulness | 15 |
 | Docs / demo | 10 |
 
-**Outcome wanted:** coherent, tested, honestly labelled packages under `ultrahonk/`, with the real verifier checked value by value against Barretenberg's own verifier on a real Noir proof. [What the Fe tests assert](#what-the-fe-tests-assert) states how far the tests go.
+**Outcome wanted:** coherent, tested, honestly labelled packages under `ultrahonk/` and `honk-toy/`, with the real verifier checked value by value against Barretenberg's own verifier on a real Noir proof. [What the Fe tests assert](#what-the-fe-tests-assert) states how far the tests go.
 
 ## Decisions
 
@@ -124,7 +124,7 @@ Each row links to the Architecture Decision Record that holds the context, the o
 | Tests and vectors | Every committed test is a Fe test run with `fe test`. Expected values and the revert of each invalid call are captured from the local oracle and committed as Fe constants with their provenance stated. Toy vectors are generated with Python 3 and committed. Tests need no `bb`, `nargo`, Python or Foundry. | [0009](adr/0009-uncommitted-reference-oracle-fe-only-tests.md) |
 | Circuit | The teaching page's vault circuit (shown in [Design: vault](#design-vault-integration-contract)). | [0010](adr/0010-vault-calls-verifier-through-abi.md) |
 | Vault ↔ verifier | A static call through the standard ABI `verify(bytes,bytes32[])`, not library linking. The vault stays small and is not tied to one verifier implementation. | [0010](adr/0010-vault-calls-verifier-through-abi.md) |
-| Source of truth (toy) | A Python port of the teaching page's math block, function by function (`toy/reference/honk.py`). A generator runs it and writes the vectors. Challenges are inputs. The toy includes the page's sumcheck mask. | [0011](adr/0011-toy-verifier-vectors-from-reference.md) |
+| Source of truth (toy) | A Python port of the teaching page's math block, function by function (`honk-toy/reference/honk.py`). A generator runs it and writes the vectors. Challenges are inputs. The toy includes the page's sumcheck mask. | [0011](adr/0011-toy-verifier-vectors-from-reference.md) |
 | Code size | The relations are a second contract, `HonkRelations`, asked with a static call. Sizes are measured with `fe build` at `-O 1`, `-O 2` and `-O s`. No script enforces the limit. | [0012](adr/0012-code-size-strategy.md) |
 | Scope and framing | Noir proofs verified natively in Fe, on the EVM. Not the Aztec network. | [0013](adr/0013-scope-noir-barretenberg-on-evm.md) |
 | Delivery | Stages, incremental commits, and parallel lines in separate worktrees. | [0014](adr/0014-staged-delivery-incremental-commits.md) |
@@ -132,12 +132,16 @@ Each row links to the Architecture Decision Record that holds the context, the o
 
 ## Package layout
 
-The work lives under `ultrahonk/` and `docs/`. Its commits do not change the root library or `calculator/`.
+The work lives under `ultrahonk/`, `honk-toy/` and `docs/`. Its commits do not change the root library or `calculator/`. The toy was first built inside `ultrahonk/`; it was moved to the top level on 2026-11-23, because it shares no code with the real verifier.
 
 ```
 docs/
   ultrahonk.md         this document
   adr/                 decision records 0001 to 0014
+honk-toy/              ingot "honk_toy": Honk over F_17 (library); README.md
+  src/lib.fe f17.fe relations.fe sumcheck.fe curve.fe shplemini.fe libra.fe verifier.fe
+      vectors.fe                generated
+  reference/honk.py gen_vectors.py   Python 3, standard library only
 ultrahonk/
   README.md            status, test coverage, measurements, how to regenerate
   docs/zk-verifier-reference.md   proof layout, transcript, formulas, errors
@@ -152,10 +156,6 @@ ultrahonk/
   relations/           ingot "ultrahonk_relations": contract HonkRelations
   verifier/            ingot "ultrahonk_verifier": contract HonkVerifier
   vault/               ingot "ultrahonk_vault": contract Vault; README.md
-  toy/                 ingot "honk_toy": Honk over F_17 (library); README.md
-    src/lib.fe f17.fe relations.fe sumcheck.fe curve.fe shplemini.fe libra.fe verifier.fe
-        vectors.fe                generated
-    reference/honk.py gen_vectors.py   Python 3, standard library only
   circuit/             Nargo.toml, Prover.toml, Prover_test_address.toml, src/main.nr
   vectors/             proof, public_inputs, vk, vk_hash (raw bb output); test_address/
   scripts/vectors.sh       regenerates vectors/ and the local oracle
@@ -228,8 +228,8 @@ The local Foundry tests are not in the repository, and `scripts/vectors.sh` does
 | `lib/src/opening_vectors.fe` | The oracle's Shplemini scalars, consistency-check terms, pairing points and aggregation values | Yes, with provenance |
 | `lib/src/expected.fe` | The oracle's reverts on invalid calls, and what its sumcheck alone does with them | Yes, with provenance |
 | `lib/src/test_address_vectors.fe` | `scripts/proof_to_fe.sh --test-address` from `vectors/test_address/` | Yes. `--check` compares |
-| `toy/reference/honk.py` | Python port of the teaching page's math block | Yes |
-| `toy/src/vectors.fe` | `toy/reference/gen_vectors.py` (Python 3, standard library only) | Yes. `gen_vectors.py --check` compares |
+| `honk-toy/reference/honk.py` | Python port of the teaching page's math block | Yes |
+| `honk-toy/src/vectors.fe` | `honk-toy/reference/gen_vectors.py` (Python 3, standard library only) | Yes. `gen_vectors.py --check` compares |
 
 ### What the Fe tests assert
 
@@ -385,7 +385,7 @@ The toy also verifies proofs whose sumcheck is masked, the one part of the ZK fl
 | `reference/honk.py` | The reference: a Python port of the page's math block. |
 | `reference/gen_vectors.py` | Runs the reference on 15 scenarios and writes `src/vectors.fe`: 8 of the page's scenarios, 2 more honest runs and 5 masked ones. |
 
-The Fe verdict equals the reference verdict in every scenario, including the "lucky dice" cheat that both accept. Limits, among them that the toy is not secure: [`ultrahonk/toy/README.md`](../ultrahonk/toy/README.md).
+The Fe verdict equals the reference verdict in every scenario, including the "lucky dice" cheat that both accept. Limits, among them that the toy is not secure: [`honk-toy/README.md`](../honk-toy/README.md).
 
 ## Stages
 
@@ -509,7 +509,7 @@ A reader needs only `fe`.
 | Committed proofs and key against the raw `bb` output | `scripts/proof_to_fe.sh --check`. Needs bash, `xxd` and `shasum`. |
 | Regeneration (proofs, key, oracle source) | `scripts/vectors.sh`. Proving is randomized, so it writes different valid proofs; the README pins the committed ones. Needs the [project-local tools](#project-local-tooling). |
 | Regeneration (captured values) | Not possible from the repository alone: it needs the local Foundry tests to be recreated. Their documented provenance stands in for it. |
-| Regeneration (toy) | `python3 toy/reference/gen_vectors.py` reproduces `toy/src/vectors.fe`; `--check` compares without writing. Needs Python 3. |
+| Regeneration (toy) | `python3 honk-toy/reference/gen_vectors.py` reproduces `honk-toy/src/vectors.fe`; `--check` compares without writing. Needs Python 3. |
 | End-to-end script | Not written. Run the five `fe test` commands of the [Quick path](#quick-path). |
 
 What the Fe tests show:
@@ -582,7 +582,7 @@ Upstream Solidity files are listed as the reference being ported or consulted. N
 | Reference | Location |
 |---|---|
 | Reference oracle | Generated locally into `ultrahonk/.oracle/src/HonkVerifier.sol` with `-t evm` (untracked). Upstream at `aztec-packages` commit `b225653c4d0521907559ae80baa626bbbff49e55`: template `honk_zk_contract.hpp`, sources `BaseZKHonkVerifier.sol` and `ZKTranscript.sol` |
-| Teaching page | "UltraHonk by hand", `https://claude.ai/artifact/TiC5eZeQs2U1Q9V3nAudPZ`: its section on practice (the vault) and its section on integration with Fe (modules and milestones). Its first inline script block is the math that `toy/reference/honk.py` ports. |
+| Teaching page | "UltraHonk by hand", `https://claude.ai/artifact/TiC5eZeQs2U1Q9V3nAudPZ`: its section on practice (the vault) and its section on integration with Fe (modules and milestones). Its first inline script block is the math that `honk-toy/reference/honk.py` ports. |
 | Fe std at the installed version | A local checkout of the Fe repository at tag `v26.6.0`: `ingots/std/src/evm/crypto.fe`, `ingots/std/src/evm/packed.fe`, `ingots/core/src/ptr.fe`, `ingots/core/src/abi.fe`, `ingots/std/src/abi.fe`, `docs/language/accesses.md` |
 | Msg and test idioms (same checkout) | `crates/fe/tests/evm_compiler_bench/merkle_verifier.fe`, `crates/fe/tests/fixtures/fe_test/abi_dynamic_payload.fe`, `crates/fe/tests/fixtures/fe_test/address_call_method.fe`, `crates/fe/tests/fixtures/fe_test/precompile_wrappers.fe` |
 | Pattern to mirror | `calculator/src/lib.fe` and `calculator/fe.toml` in this repository |
