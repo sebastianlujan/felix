@@ -42,7 +42,7 @@ Recorded differences from the reference:
 | Case | Reference | Fe | Tested |
 |---|---|---|---|
 | Proof word 138 with its low bit flipped: `shplonkQ` is off the curve, so the first multiplication of the multi-scalar multiplication fails | Goes on after the failed precompile call, which takes all the gas it was given, runs out of gas and reverts without data | Reverts with `ShpleminiFailed()` at the first failed call | Yes |
-| A carried pairing point off the curve | Reverts without data, according to the comment in `lib/src/opening.fe` | Reverts with `ShpleminiFailed()` | The Fe side only |
+| A carried pairing point off the curve | Reverts without data: captured from the reference (`lib/src/opening_vectors.fe`) | Reverts with `ShpleminiFailed()` | The Fe side only |
 | The `modexp` precompile call itself fails | Reverts with the four raw bytes `0xf8d61709` | Reverts with `ModExpFailed()` (`0x1f7ec5f0`) | No test triggers it |
 | The `modexp` precompile call succeeds and its answer is not the inverse | Uses the answer as returned | `fr::inv` reverts with `ModExpFailed()` unless `a * answer == 1` | The Fe side only: `inv(P)`, where the precompile answers 0. A chain with no code at 0x05 was read from the code, not run |
 

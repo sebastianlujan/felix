@@ -221,7 +221,8 @@ uses (evm: mut Evm)
 
 // What matters once the contract can return true: no proof with one bit changed is
 // accepted. The low bit of each of the 142 words, one word at a time. The recorded flips
-// above pin the reference's selector for 12 of them; this covers every word.
+// above pin the reference's selector for 11 of them, and word 138 reverted without
+// data; this covers every word.
 #[test]
 fn test_no_proof_with_one_bit_changed_is_accepted() uses (evm: mut Evm) {
     let verifier = deploy()

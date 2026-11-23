@@ -148,10 +148,13 @@ use super::fr::P
 use super::opening_vectors::{
     CHALLENGE_EVAL,
     CONSISTENCY_FLIPS,
+    DENOMINATOR_0,
+    DENOMINATOR_255,
     DIFF,
     DIFF_FLIPPED,
     LAGRANGE_FIRST,
     LAGRANGE_LAST,
+    NUMERATOR,
     VANISHING,
 }
 use super::shplemini::SUBGROUP_GENERATOR
@@ -225,6 +228,20 @@ fn test_consistency_lagrange_first_matches_reference() {
 #[test]
 fn test_consistency_lagrange_last_matches_reference() {
     assert!(pinned().lagrange_last == LAGRANGE_LAST)
+}
+
+// The numerator and the two denominators the reference computed on the way to the values
+// above. The check does not return them, so they are compared with its formulas.
+#[test]
+fn test_consistency_numerator_and_denominators_match_reference() {
+    let pinned = proof()
+    let r = generate(vk: VK, pinned, public_inputs()).gemini_r
+    assert!(mul(VANISHING, inv(SUBGROUP_SIZE as u256)) == NUMERATOR)
+    assert!(inv(sub(r, 1)) == DENOMINATOR_0)
+    // g^(-255) is g, as g^256 is 1.
+    assert!(inv(sub(mul(SUBGROUP_GENERATOR, r), 1)) == DENOMINATOR_255)
+    assert!(mul(NUMERATOR, DENOMINATOR_0) == LAGRANGE_FIRST)
+    assert!(mul(NUMERATOR, DENOMINATOR_255) == LAGRANGE_LAST)
 }
 
 #[test]

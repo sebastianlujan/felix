@@ -2,7 +2,7 @@
 
 This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 182 tests in `lib`, 2 in `relations`, 19 in `verifier`, 11 in `vault`, 70 in `toy`.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 183 tests in `lib`, 2 in `relations`, 19 in `verifier`, 13 in `vault`, 70 in `toy`.
 >
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
@@ -19,10 +19,10 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
 
    ```sh
    cd ultrahonk
-   (cd lib && fe test)        # 182 tests
+   (cd lib && fe test)        # 183 tests
    (cd relations && fe test)  # 2
    (cd verifier && fe test)   # 19
-   (cd vault && fe test)      # 11
+   (cd vault && fe test)      # 13
    (cd ../honk-toy && fe test) # 70
    ```
 
@@ -59,7 +59,7 @@ The research behind the plan established:
 | Finding | Detail |
 |---|---|
 | Not done in Fe | `fe-lang/rosetta/examples/verifier` has Groth16, a gnark Plonk and a Halo2 skeleton, and no Honk. No Fe UltraHonk verifier was found on GitHub. Another contest entry, `0xitsss/fe-zk`, covers Groth16/PLONK/halo2/FRI, not Honk. |
-| Already solved on the EVM as a product | Barretenberg emits an audited Solidity verifier that Fe can call. The value of this work is as a contest entry and as a readable reference. |
+| Already solved on the EVM as a product | Barretenberg emits a Solidity verifier that Fe can call. The value of this work is as a contest entry and as a readable reference. |
 
 ### Scope: Noir proofs verified natively in Fe
 
@@ -84,7 +84,6 @@ Why the ZK flavor:
 |---|---|
 | Applications with a private witness | A proof without zero-knowledge leaks witness evaluations, so an application that hides its witness needs ZK. The vault of this entry was planned as one. It is not: its witness can be computed from the public `y` (see [Design: vault](#design-vault-integration-contract)). The ZK flavor is ported for the applications that do need it. |
 | Standard target | `-t evm` is `bb`'s standard EVM target. |
-| Same flavor as Aztec | It is the flavor Aztec's own L1 verifier uses. |
 | Cost | More protocol steps: Libra masking, a small-subgroup consistency check, a Gemini masking polynomial. All of them are ported. |
 
 ### Deadline and judging
@@ -112,7 +111,7 @@ Each row links to the Architecture Decision Record that holds the context, the o
 
 | Topic | Decision | ADR |
 |---|---|---|
-| Source of truth (real) | The Solidity verifier that `bb` 6.0.0 generates with `-t evm`: Keccak transcript with zero-knowledge (upstream `BaseZKHonkVerifier.sol` + `ZKTranscript.sol` at `aztec-packages@b225653`, template `honk_zk_contract.hpp`). Only the ZK flavor is built. | [0001](adr/0001-port-bb-6-zk-verifier.md) |
+| Source of truth (real) | The Solidity verifier that `bb` 6.0.0 generates with `-t evm`: Keccak transcript with zero-knowledge (upstream `BaseZKHonkVerifier.sol` + `ZKTranscript.sol`, template `honk_zk_contract.hpp`; see [References](#references) for the commit they were read at). Only the ZK flavor is built. | [0001](adr/0001-port-bb-6-zk-verifier.md) |
 | Tooling | Project-local `bb` 6.0.0 and `nargo` 1.0.0 in `ultrahonk/.tools/`. The installed `bb` 0.84.0 / `nargo` beta.3 are too old and are left untouched. | [0002](adr/0002-project-local-bb-and-nargo.md) |
 | Layout | Five sibling ingots with relative path dependencies, no workspace. | [0003](adr/0003-sibling-ingots-without-workspace.md) |
 | Proof representation (real) | Keep the proof as `Bytes` and read words by index; no `Proof` struct. One `absorb` helper for the transcript: every round after the first hashes `prev ‖ one contiguous run of proof words`. | [0004](adr/0004-proof-as-bytes-read-by-offset.md) |
@@ -270,11 +269,11 @@ Upstream Solidity file and function names in this section are the upstream Barre
 |---|---|
 | Proof size in words (L = log N) | 82 + 12·L: 142 for this circuit |
 | Values per sumcheck round | 9 |
-| Evaluations in the proof | 42: the masking polynomial, then the 41 entities the relations read (37 unshifted, 5 shifted) |
+| Evaluations in the proof | 42: the masking polynomial, then the 41 entities the relations read (36 unshifted, 5 shifted) |
 | Subrelations | 31, in ten relations |
 | Slots of the multi-scalar multiplication | 42 + L |
 | ZK-specific steps | Libra masking of sumcheck (initial target and last comparison), the row-disabling factor of the last comparison, the Gemini masking polynomial (evaluation 0, slot 1), a consistency check over a subgroup of 256 elements |
-| Upstream sources | `BaseZKHonkVerifier.sol` + `ZKTranscript.sol`, with the relations and commitment-scheme helpers they use, at commit `b225653` |
+| Upstream sources | `BaseZKHonkVerifier.sol` + `ZKTranscript.sol`, with the relations and commitment-scheme helpers they use, read at commit `b225653`, which is not the `v6.0.0` tag (see [References](#references)) |
 
 The proof word layout, the hashed range of each transcript round and the table of slots are in [`ultrahonk/docs/zk-verifier-reference.md`](../ultrahonk/docs/zk-verifier-reference.md). Every layout row and every transcript row there was checked against the reference on the pinned proof.
 
@@ -324,7 +323,7 @@ Recorded differences from the reference:
 | Case | Reference | Fe | Tested |
 |---|---|---|---|
 | Proof word 138 with its low bit flipped: `shplonkQ` is off the curve, so the first multiplication of the multi-scalar multiplication fails | Goes on after the failed precompile call, which takes all the gas it was given, runs out of gas and reverts without data | Reverts with `ShpleminiFailed()` at the first failed call | Yes, in `verifier` and `lib` |
-| A carried pairing point off the curve | Reverts without data, according to the comment in `lib/src/opening.fe` | Reverts with `ShpleminiFailed()` | The Fe side, in `lib` |
+| A carried pairing point off the curve | Reverts without data: captured from the reference (`lib/src/opening_vectors.fe`) | Reverts with `ShpleminiFailed()` | The Fe side, in `lib` |
 | The `modexp` precompile call itself fails | Reverts with the four raw bytes `0xf8d61709` | `fr::inv` reverts with `ModExpFailed()` (`0x1f7ec5f0`) | No test triggers it |
 | The `modexp` precompile call succeeds and its answer is not the inverse | Uses the answer as returned | `fr::inv` reverts with `ModExpFailed()` unless `a * answer == 1` | The Fe side, in `lib`: `inv(P)`, where the precompile answers 0. A chain with no code at 0x05 was read from the code, not run |
 
@@ -368,7 +367,7 @@ fn main(x: Field, y: pub Field, recipient: pub Field) {
 | Why ZK | A proof without zero-knowledge leaks witness evaluations, which matters when the witness is private. Here it is not: anyone can compute a square root of the public `y`. The vault shows the integration with the ZK flavor; it does not need it. |
 | What it protects | Nothing. Anyone can compute `x` from `y` and prove for their own address, so the first claim wins a race, not a puzzle. The public inputs are `[y, caller]`, with no vault address and no chain id: a caller's proof is valid at every vault with the same `y`, on every chain. With a relayer, the relayer is the caller and becomes the winner. |
 | Payout | Not implemented, by decision. The contract records the claim and the claimant only. |
-| Tests | 11 Fe tests. Nine put a stand-in behind the vault: a valid claim, a replay, another caller, a wrong proof, a verifier that reverts, a verifier address without code, a verifier that writes storage, the calldata the verifier receives, and the fixed address of the test contract. Two put the vault in front of `HonkVerifier`. |
+| Tests | 13 Fe tests. Eleven put a stand-in behind the vault: a valid claim, a replay, another caller, a wrong proof, a verifier that reverts, a verifier address without code, a verifier that answers a word other than a `bool`, an answer longer than a word, a verifier that writes storage, the calldata the verifier receives, and the fixed address of the test contract. Two put the vault in front of `HonkVerifier`. |
 | Caller in tests | A Fe test cannot choose the caller of a call. A caller is a `Claimer` contract that forwards `claim`, or the test contract itself, whose address is always `0xbd770416a3345f91e4b34576cb804a576fa48eb1` with `fe` 26.6.0. |
 | Real claim | The second pinned proof is made for that test address, so a test claims through the vault in front of the real verifier. The first pinned proof, made for `0xc0ffe`, cannot be claimed from a Fe test. |
 
@@ -404,7 +403,7 @@ All stages are done. The table keeps the plan's stage numbers and states what ea
 | # | Work | Outcome |
 |---|---|---|
 | 0 | Tooling, Noir circuit, `vectors.sh`, the ZK vector, the recorded reference reverts, ingot skeletons, checks of the std | Done. The pipeline ends with `bb verify` accepting both proofs. |
-| 1 | `abi.fe` and the `Vault` contract, with Fe tests | Done. 11 tests. A valid claim returns `true`; a replay and another caller fail. |
+| 1 | `abi.fe` and the `Vault` contract, with Fe tests | Done. 13 tests. A valid claim returns `true`; a replay and another caller fail. |
 | 2 | `fr`, `types`, `proof`, `transcript`. Ports: `FrLib`, the checks of `loadProof`, the transcript | Done. Every challenge equals the oracle's value. A scalar ≥ P and a coordinate ≥ Q revert as in the reference. |
 | 3–5 | Sumcheck: public-input delta, round checks, the ten relations, the last comparison. Ports: `computePublicInputDelta`, `verifySumcheck`, `computeNextTargetSum`, the ten relations, `scaleAndBatchSubrelations` | Done. The delta, every round target and the partial pow match. The 31 subrelations match one by one, for the pinned proof and for a synthetic input that makes all 31 non-zero. The relations are the contract `HonkRelations`. |
 | 6 | The opening: Shplemini scalars, Libra consistency check, multi-scalar multiplication, pairing-point aggregation, pairing. Ports: `computeSquares`, `computeFoldPosEvaluations`, `checkEvalsConsistency`, `batchMul`, the aggregation, `pairing` | Done. The scalars match slot by slot, and the two pairing points match. The aggregation matches the reference on limbs put in place of the zeros, because no proof of this circuit carries pairing points. |
@@ -574,7 +573,7 @@ What is missing to submit the entry and to rely on the code outside its tests is
 | Does one `absorb` per round fit the ZK transcript? | Yes. Only `eta` differs: it has no previous challenge and hashes the VK hash and the public inputs before the proof words. |
 | How are expected values captured, and how is the key produced? | Each vectors file states its capture method at the top, and `ultrahonk/README.md` describes it. `scripts/proof_to_fe.sh` prints the key from `vectors/vk`. |
 | Where does the list of invalid calls come from? | It is the list in `lib/src/expected.fe`. |
-| How do Fe tests set the caller, and which verifier answers the vault? | Callers are `Claimer` contracts or the test contract. Nine tests put a stand-in behind the vault and two put `HonkVerifier` there. |
+| How do Fe tests set the caller, and which verifier answers the vault? | Callers are `Claimer` contracts or the test contract. Eleven tests put a stand-in behind the vault and two put `HonkVerifier` there. |
 | Are size and gas shown next to the reference? | Yes, in `ultrahonk/README.md` and in [Measured results](#measured-results). |
 | What does the externally linked transcript library mean for the oracle? | The local Foundry project builds and links it. Its runtime size is listed with the reference's. |
 | Does the library return `bool` or revert? | Both, by step: see [Failure behaviour](#failure-behaviour). |
@@ -585,7 +584,7 @@ Upstream Solidity files are listed as the reference being ported or consulted. N
 
 | Reference | Location |
 |---|---|
-| Reference oracle | Generated locally into `ultrahonk/.oracle/src/HonkVerifier.sol` with `-t evm` (untracked). Upstream at `aztec-packages` commit `b225653c4d0521907559ae80baa626bbbff49e55`: template `honk_zk_contract.hpp`, sources `BaseZKHonkVerifier.sol` and `ZKTranscript.sol` |
+| Reference oracle | Generated locally into `ultrahonk/.oracle/src/HonkVerifier.sol` with `-t evm` (untracked). The port follows that generated file. The upstream sources were read at `aztec-packages` commit `b225653c4d0521907559ae80baa626bbbff49e55`, which is not the `v6.0.0` tag (`0219f11d8133970df3974fe5ae65e006bf8c193a`) and not one of its ancestors. Compared on 2026-11-23: `BaseZKHonkVerifier.sol` and `ZKTranscript.sol` are identical at the two commits; `Relations.sol`, `CommitmentScheme.sol` and the template `honk_zk_contract.hpp` differ |
 | Teaching page | "UltraHonk by hand", `https://claude.ai/artifact/TiC5eZeQs2U1Q9V3nAudPZ`: its section on practice (the vault) and its section on integration with Fe (modules and milestones). Its first inline script block is the math that `honk-toy/reference/honk.py` ports. |
 | Fe std at the installed version | A local checkout of the Fe repository at tag `v26.6.0`: `ingots/std/src/evm/crypto.fe`, `ingots/std/src/evm/packed.fe`, `ingots/core/src/ptr.fe`, `ingots/core/src/abi.fe`, `ingots/std/src/abi.fe`, `docs/language/accesses.md` |
 | Msg and test idioms (same checkout) | `crates/fe/tests/evm_compiler_bench/merkle_verifier.fe`, `crates/fe/tests/fixtures/fe_test/abi_dynamic_payload.fe`, `crates/fe/tests/fixtures/fe_test/address_call_method.fe`, `crates/fe/tests/fixtures/fe_test/precompile_wrappers.fe` |
