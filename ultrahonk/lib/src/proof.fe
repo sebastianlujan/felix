@@ -122,6 +122,7 @@ use super::expected::{
     VALUE_GE_GROUP_ORDER,
     VALUE_GE_LIMB_MAX,
     WRONG_LENGTHS,
+    largest_values,
 }
 use super::vectors::{LOG_N, PROOF, proof, proof_with}
 use std::abi::bytes_from_words
@@ -179,6 +180,24 @@ fn test_validate_rejects_a_proof_one_word_short() {
 #[test(should_revert, selector = 0x59895a53)]
 fn test_validate_rejects_a_proof_one_word_long() {
     validate_wrong_length(case: 2)
+}
+
+#[test(should_revert, selector = 0x59895a53)]
+fn test_validate_rejects_an_empty_proof() {
+    assert!(WRONG_LENGTHS[3] == 0)
+    validate_wrong_length(case: 3)
+}
+
+// Proofs built from a rule (`expected.fe`): the reference rejected both after its range
+// checks, so every word of both is in range.
+#[test]
+fn test_validate_accepts_the_all_zero_proof() {
+    validate(Bytes::zeroed(PROOF_LENGTH), log_n: LOG_N)
+}
+
+#[test]
+fn test_validate_accepts_the_largest_values() {
+    validate(largest_values(limbs: true), log_n: LOG_N)
 }
 
 // selector of ValueGeLimbMax()

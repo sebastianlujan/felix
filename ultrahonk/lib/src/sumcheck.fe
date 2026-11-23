@@ -242,7 +242,17 @@ uses (call: Call, ctx: Ctx)
 use std::abi::dyn_array_from
 use std::evm::crypto::keccak256
 use std::evm::encode_msg_calldata
-use super::expected::{BIT_FLIPS, CONSISTENCY_CHECK_FAILED, PUBLIC_INPUT_CHANGES, SUMCHECK_FAILED}
+use super::expected::{
+    BIT_FLIPS,
+    LARGEST_VALUES,
+    PROOF_LENGTH,
+    PUBLIC_INPUT_CHANGES,
+    SUMCHECK_FAILED,
+    SUMCHECK_RETURNS_FALSE,
+    SUMCHECK_RETURNS_TRUE,
+    ZERO_PROOF_PASSES_SUMCHECK,
+    largest_values,
+}
 use super::fr::P
 use super::relations_vectors::{
     PROOF_ALPHA,
@@ -466,10 +476,9 @@ fn sumcheck_of(candidate: Bytes, y: u256, recipient: u256) -> bool {
     verify(candidate, t, delta, log_n: LOG_N)
 }
 
-fn sumcheck_with_bit_flip(case: usize) -> bool {
-    let flip = BIT_FLIPS[case]
+fn sumcheck_with_bit_flip(word: usize) -> bool {
     sumcheck_of(
-        candidate: proof_with(word: flip.word, value: PROOF[flip.word] ^ 1),
+        candidate: proof_with(word, value: PROOF[word] ^ 1),
         y: PUBLIC_INPUTS[0],
         recipient: PUBLIC_INPUTS[1],
     )
@@ -488,28 +497,71 @@ fn test_verify_accepts_the_pinned_proof() {
 
 // The two flips below leave every round check intact (the evaluations enter the transcript
 // after the last round challenge), so only the last comparison can reject them. The
-// reference rejected both with `SumcheckFailed`.
+// reference's `verifySumcheck` returned false for both.
 #[test]
 fn test_verify_rejects_a_flipped_relation_evaluation() {
-    assert!(BIT_FLIPS[4].word == 75)
-    assert!(BIT_FLIPS[4].selector == SUMCHECK_FAILED)
-    assert!(!sumcheck_with_bit_flip(case: 4))
+    assert!(SUMCHECK_RETURNS_FALSE[0] == 75)
+    assert!(!sumcheck_with_bit_flip(word: 75))
 }
 
 #[test]
 fn test_verify_rejects_a_flipped_libra_evaluation() {
-    assert!(BIT_FLIPS[5].word == 116)
-    assert!(BIT_FLIPS[5].selector == SUMCHECK_FAILED)
-    assert!(!sumcheck_with_bit_flip(case: 5))
+    assert!(SUMCHECK_RETURNS_FALSE[1] == 116)
+    assert!(!sumcheck_with_bit_flip(word: 116))
 }
 
-// Sumcheck does not read evaluation 0, the one of the masking polynomial: the reference
-// rejected this flip later, in the consistency check.
+// Sumcheck does not read evaluation 0, the one of the masking polynomial, or anything
+// after the Libra evaluation: the reference's `verifySumcheck` returned true for these
+// flips, and the reference rejected them later.
 #[test]
-fn test_verify_does_not_read_the_masking_evaluation() {
-    assert!(BIT_FLIPS[3].word == 74)
-    assert!(BIT_FLIPS[3].selector == CONSISTENCY_CHECK_FAILED)
-    assert!(sumcheck_with_bit_flip(case: 3))
+fn test_verify_passes_the_flips_the_reference_rejects_after_sumcheck() {
+    for word in SUMCHECK_RETURNS_TRUE {
+        assert!(sumcheck_with_bit_flip(word))
+    }
+}
+
+// Proofs built from a rule (`expected.fe`).
+
+// Sumcheck alone does not tie a proof to the circuit: with every word zero, each of its
+// checks compares 0 with 0. The reference's `verifySumcheck` returned true as well, and
+// the reference rejected the proof in its opening check.
+#[test]
+fn test_verify_passes_the_all_zero_proof() {
+    assert!(ZERO_PROOF_PASSES_SUMCHECK)
+    assert!(
+        sumcheck_of(
+            candidate: Bytes::zeroed(PROOF_LENGTH),
+            y: PUBLIC_INPUTS[0],
+            recipient: PUBLIC_INPUTS[1],
+        ),
+    )
+    assert!(
+        sumcheck_of(
+            candidate: Bytes::zeroed(PROOF_LENGTH),
+            y: 0,
+            recipient: 0,
+        ),
+    )
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_verify_rejects_the_largest_values() {
+    assert!(LARGEST_VALUES == SUMCHECK_FAILED)
+    sumcheck_of(
+        candidate: largest_values(limbs: true),
+        y: PUBLIC_INPUTS[0],
+        recipient: PUBLIC_INPUTS[1],
+    )
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_verify_rejects_the_largest_values_with_zero_limbs() {
+    assert!(LARGEST_VALUES == SUMCHECK_FAILED)
+    sumcheck_of(
+        candidate: largest_values(limbs: false),
+        y: PUBLIC_INPUTS[0],
+        recipient: PUBLIC_INPUTS[1],
+    )
 }
 
 // A changed public input changes the first challenge, so the first round already fails.

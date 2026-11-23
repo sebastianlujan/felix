@@ -56,7 +56,7 @@ pub contract HonkVerifier {
 // (the reference accepted the valid proof; nothing here does), the all-zero proof, and the
 // tests of the call between the two contracts, at the end.
 use core::error::ErrorVariant
-use std::abi::{Sol, bytes_from_words, dyn_array_from}
+use std::abi::{DynArray, Sol, bytes_from_words, dyn_array_from}
 use std::evm::{Evm, revert_selector}
 use ultrahonk::expected
 use ultrahonk::fr::{P, Q}
@@ -120,22 +120,45 @@ fn test_wrong_proof_length_reverts() uses (evm: mut Evm) {
         )
 }
 
-// Not a recorded case. A proof of the right length made of zeros passes every implemented
-// check: the round checks alone do not bind a proof to the circuit.
-// selector of VerificationNotImplemented()
-#[test(should_revert, selector = 0x342c2ccd)]
-fn test_right_proof_length_is_not_accepted() uses (evm: mut Evm) {
+// Waiting for the opening proof. The reference rejected the all-zero proof with
+// `ShpleminiFailed` (`expected::ZERO_PROOF`): it passes sumcheck there as it does here,
+// so until that step exists this contract can only stop at `VerificationNotImplemented`.
+#[test]
+fn test_the_all_zero_proof_is_not_accepted() uses (evm: mut Evm) {
     let verifier = deploy()
-    let _: bool = evm
-        .call(
-            addr: verifier,
-            gas: GAS,
-            value: Wei::zero(),
-            message: VerifierMsg::Verify {
+    assert!(expected::ZERO_PROOF == expected::SHPLEMINI_FAILED)
+    assert!(
+        revert_of(
+                verifier,
                 proof: Bytes::zeroed(expected::PROOF_LENGTH),
                 public_inputs: public_inputs(),
-            },
+            )
+            == not_implemented(),
+    )
+    assert!(
+        revert_of(
+                verifier,
+                proof: Bytes::zeroed(expected::PROOF_LENGTH),
+                public_inputs: two_inputs(0, 0),
+            )
+            == not_implemented(),
+    )
+}
+
+// Every word at the largest value its range check accepts, with and without the limbs.
+#[test]
+fn test_the_largest_values_revert_as_the_reference() uses (evm: mut Evm) {
+    let verifier = deploy()
+    for limbs in [true, false] {
+        assert!(
+            revert_of(
+                    verifier,
+                    proof: expected::largest_values(limbs),
+                    public_inputs: public_inputs(),
+                )
+                == expected::LARGEST_VALUES,
         )
+    }
 }
 
 // The reference verifier returned true for this call. This contract must not, at this stage.
@@ -231,7 +254,12 @@ fn test_wrong_public_input_counts_revert_as_the_reference()
 uses (evm: mut Evm)
 {
     let verifier = deploy()
-    assert!(expected::WRONG_PUBLIC_INPUT_COUNTS == [1, 3])
+    assert!(expected::WRONG_PUBLIC_INPUT_COUNTS == [0, 1, 3])
+    let none: Vec<Bytes32> = DynArray::empty()
+    assert!(
+        revert_of(verifier, proof: proof(), public_inputs: none)
+            == expected::PUBLIC_INPUTS_LENGTH_WRONG,
+    )
     let one = one_input(PUBLIC_INPUTS[0])
     let three = dyn_array_from(
         [Bytes32 { val: PUBLIC_INPUTS[0] }, Bytes32 { val: PUBLIC_INPUTS[1] }, Bytes32 { val: 0 }],
