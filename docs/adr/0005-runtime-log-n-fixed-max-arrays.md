@@ -28,7 +28,7 @@ Carried out as decided. The sizes, read from the generated ZK verifier:
 | Verification-key points | `[u256; 56]`: 28 points | `lib/src/types.fe` |
 
 - The proof holds 42 evaluations: the masking polynomial, then the 41 entities. They are read from the proof by offset, so no 42-word array exists.
-- Only `LOG_N = 5` is exercised: the one circuit of the project. No test runs another size.
+- The contracts are exercised at `LOG_N = 5` only: the one circuit of the project. Since 2026-11-23 the library tests also run other sizes, on proofs made by Garaga (`ultrahonk/README.md`, Other circuits).
 - The key is the constant `VK` in `lib/src/vectors.fe`, which `HonkVerifier` imports. There is no `verifier/src/vk.fe`.
 
 ## Options Considered
