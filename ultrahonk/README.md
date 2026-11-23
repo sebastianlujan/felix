@@ -3,11 +3,12 @@
 A port of Barretenberg's zero-knowledge UltraHonk verifier (BN254, Keccak transcript: the flavor
 `bb` selects with `-t evm`) from Solidity to [Fe](https://fe-lang.org).
 
-**The Fe verifier does not verify proofs yet.** It has the ABI of the Solidity verifier and runs
-its first steps (proof validation, the Fiat-Shamir transcript, the public-input delta and the whole
-sumcheck, relations included) in the same order and with the same errors. Shplemini, the Libra
-consistency check and the pairing are not ported, so a call that passes every implemented check
-reverts with `VerificationNotImplemented`. The contract never returns `true`.
+**The Fe verifier accepts the pinned valid proof.** It has the ABI of the Solidity verifier and
+runs its steps (proof validation, the Fiat-Shamir transcript, the public-input delta, sumcheck with
+the relations, then the opening: Shplemini scalars, Libra consistency check, multi-scalar
+multiplication, pairing-point aggregation and pairing) in the same order and with the same errors.
+It returns `true` only if the pairing holds. The tests cover the pinned proof, the recorded bit
+flips and the all-zero proof; they do not show that every proof the reference rejects is rejected.
 
 It is two contracts, as the reference is a contract and two linked libraries: `HonkVerifier`
 asks `HonkRelations` for the value of the relations with a static call.
@@ -27,7 +28,7 @@ for the valid proof in `lib/src/vectors.fe`.
 | Stage | Scope | State |
 |---|---|---|
 | 0 | Tooling, circuit, ZK vector, recorded reference reverts, ingot skeletons | Done |
-| 1 | Vault contract calling a verifier through `verify(bytes,bytes32[])` | Done against stand-in verifiers (`vault/README.md`). With `HonkVerifier` no claim succeeds until stage 7, and that needs a proof made for the caller |
+| 1 | Vault contract calling a verifier through `verify(bytes,bytes32[])` | Done against stand-in verifiers (`vault/README.md`). `HonkVerifier` accepts the pinned proof, but no claim succeeds through the vault: that needs a proof made for the caller |
 | 2 | Proof validation (length, range of every word) and Fiat-Shamir transcript | Done |
 | 3-5 | Sumcheck: public-input delta and the round checks | Done |
 | 3-5 | Sumcheck: the ten relations (`HonkRelations`) and the final check against them | Done |
@@ -48,7 +49,7 @@ In the order of the reference verifier, each with the reference's error:
 | The `LOG_N` sumcheck round checks | `lib/src/sumcheck.fe` | `SumcheckFailed` |
 | The ten relations at the sumcheck point, asked from `HonkRelations` | `lib/src/relations.fe`, `relations/src/lib.fe` | whatever that contract reverts with, unchanged |
 | Last sumcheck comparison: relations, row-disabling factor and Libra evaluation against the target | `lib/src/sumcheck.fe` | `SumcheckFailed` |
-| Everything after: Shplemini, consistency check, pairing | not ported | `VerificationNotImplemented`, always |
+| Everything after: Shplemini, consistency check, pairing | ported | `ConsistencyCheckFailed`, `ShpleminiFailed` |
 
 For the pinned proof, every challenge, the delta, the target of every sumcheck round, the final
 partial pow and the batched value of the relations equal the values captured from the reference
@@ -75,17 +76,17 @@ Of the reverts recorded from the reference, the contract tests assert the ones t
 | Bit flips in proof words 8, 28, 29 | Yes: `SumcheckFailed`, from a round check |
 | Bit flips in words 75, 116 | Yes: `SumcheckFailed`, from the last comparison |
 | Every proof word at its largest allowed value, with and without the limbs | Yes: `SumcheckFailed` |
-| Bit flips in words 74, 121, 129, 134, 137, 138, 140 | No: decided by steps not ported. A test asserts that they reach `VerificationNotImplemented` |
-| The all-zero proof (reference: `ShpleminiFailed`) | No, for the same reason: it passes sumcheck in the reference too |
+| Bit flips in words 74, 121, 129, 134, 137, 138, 140 | Yes: the selector the reference gave (`ConsistencyCheckFailed` or `ShpleminiFailed`); word 138 reverts with `ShpleminiFailed()`, the reference reverts without data |
+| The all-zero proof (reference: `ShpleminiFailed`) | Yes: `ShpleminiFailed` |
 | What the reference's sumcheck alone does with the bit flips, the changed public inputs, the all-zero proof and the largest values | Yes, in the library tests of `lib/src/sumcheck.fe` |
 
 Measured at this stage, with `fe` 26.6.0:
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| Runtime size of `HonkVerifier`, bytes (`fe build`) | 7,609 | 7,570 | 7,498 |
+| Runtime size of `HonkVerifier`, bytes (`fe build`) | 16,446 | 16,274 | 16,174 |
 | Runtime size of `HonkRelations`, bytes (`fe build`) | 8,527 | 6,336 | 6,343 |
-| Gas of `verify` on the valid proof, up to the revert | 312,542 | 312,199 | 318,385 |
+| Gas of `verify` on the valid proof, accepted | 2,108,994 | 2,106,426 | 2,124,076 |
 
 2,976 bytes of the `HonkVerifier` runtime are constants (the verification key, the zeroed challenge
 array, the barycentric denominators); `HonkRelations` has none. The limit for one contract is

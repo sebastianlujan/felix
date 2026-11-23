@@ -4,8 +4,9 @@
 `x * x == y`, shown with a proof of the circuit in `../circuit/`. It asks a verifier contract
 through the standard ABI `verify(bytes,bytes32[])`.
 
-**No claim can succeed with the real verifier yet.** `HonkVerifier` accepts no proof at this
-stage, so the tests use stand-in verifiers. **There is no payout:** the contract holds and
+**No claim can succeed with the real verifier in a Fe test.** `HonkVerifier` accepts the pinned
+proof, but it was made for the recipient `0xc0ffe` and the vault passes the caller, so the tests
+use stand-in verifiers. **There is no payout:** the contract holds and
 moves no funds, it only records that a claim was made and by whom.
 
 ## The rule
@@ -42,7 +43,7 @@ Three decisions:
 | Missing | Why |
 |---|---|
 | Payout | Out of scope by decision |
-| A claim accepted by `HonkVerifier` | The verifier reverts with `VerificationNotImplemented` once its checks pass (stage 7 in `../README.md`) |
+| A claim accepted by `HonkVerifier` | The verifier accepts the pinned proof for `[9, 0xc0ffe]`; through the vault the caller is the second input, so sumcheck rejects it |
 | A proof a Fe test can claim with | The pinned proof was made for the recipient `0xc0ffe`, and a Fe test cannot choose the caller of a call |
 | Checks on the constructor arguments | A vault deployed with a wrong verifier address, or a `y` the verifier rejects, can never be claimed |
 
@@ -86,12 +87,11 @@ Ten tests. The contracts they deploy are declared in the test section of `src/li
 | `test_a_verifier_that_writes_storage_makes_the_claim_revert` | The call to the verifier is static |
 | `test_the_verifier_is_sent_the_proof_then_y_and_the_caller` | The calldata word by word, equal to the standard encoding |
 | `test_a_test_claims_from_a_fixed_address` | The address of a test contract, and that the vault sees it as the caller |
-| `test_the_real_verifier_accepts_no_claim_yet` | `Vault` in front of `HonkVerifier` and `HonkRelations`, with the pinned proof |
+| `test_the_real_verifier_accepts_the_proof_but_no_test_caller_can_claim` | `Vault` in front of `HonkVerifier` and `HonkRelations`, with the pinned proof |
 
-The last test is the one to revisit when the verifier is complete. Today the verifier, asked
-directly with the public inputs the proof was made for, stops at `VerificationNotImplemented`;
-the test fails the day that call returns `true`. Through the vault the same proof reverts with
-`SumcheckFailed`, because the caller is not `0xc0ffe`. The reference verifier answered a changed
+The last test shows both sides. The verifier, asked directly with the public inputs the proof
+was made for, returns `true`. Through the vault the same proof reverts with `SumcheckFailed`,
+because the caller is not `0xc0ffe`. The reference verifier answered a changed
 recipient the same way, so that part stays.
 
 ## Measurements
@@ -112,4 +112,4 @@ built before, so it includes encoding the calldata in the caller. Those tests, a
 that accepts everything, were temporary and are not committed. The test deploys the contracts in
 the transaction that calls them, so the accounts are warm; a call in a transaction of its own
 pays the cold surcharges on top, and the transaction's own cost. None of the figures includes a
-real verification: `HonkVerifier` spends 312,542 gas on the pinned proof before it reverts.
+real verification: `HonkVerifier` spends 2,108,994 gas (`-O 1`) accepting the pinned proof.
