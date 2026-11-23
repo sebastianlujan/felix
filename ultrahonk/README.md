@@ -27,7 +27,7 @@ for the valid proof in `lib/src/vectors.fe`.
 | Stage | Scope | State |
 |---|---|---|
 | 0 | Tooling, circuit, ZK vector, recorded reference reverts, ingot skeletons | Done |
-| 1 | Vault contract calling a verifier through `verify(bytes,bytes32[])` | Pending |
+| 1 | Vault contract calling a verifier through `verify(bytes,bytes32[])` | Done against stand-in verifiers (`vault/README.md`). With `HonkVerifier` no claim succeeds until stage 7, and that needs a proof made for the caller |
 | 2 | Proof validation (length, range of every word) and Fiat-Shamir transcript | Done |
 | 3-5 | Sumcheck: public-input delta and the round checks | Done |
 | 3-5 | Sumcheck: the ten relations (`HonkRelations`) and the final check against them | Done |
@@ -109,12 +109,14 @@ cd ultrahonk
 (cd lib && fe test)        # field arithmetic, proof checks, transcript, relations, sumcheck
 (cd relations && fe test)  # the relations contract against the reference values
 (cd verifier && fe test)   # both contracts against the recorded reference reverts
+(cd vault && fe test)      # the vault against stand-in verifiers, and in front of HonkVerifier
 ```
 
-`fe build --contract HonkRelations` in `relations/` and `fe build --contract HonkVerifier` in
-`verifier/` write the bytecode to `out/` in each directory. Without `--contract`, the build in
-`verifier/` also writes `FixedRelations` and `FailingRelations`, two stand-ins for the relations
-contract that only its tests deploy.
+`fe build --contract HonkRelations` in `relations/`, `fe build --contract HonkVerifier` in
+`verifier/` and `fe build --contract Vault` in `vault/` write the bytecode to `out/` in each
+directory. Without `--contract`, the build in `verifier/` also writes `FixedRelations` and
+`FailingRelations`, two stand-ins for the relations contract that only its tests deploy, and the
+build in `vault/` the five contracts its tests deploy.
 
 ## Layout
 
@@ -131,6 +133,7 @@ contract that only its tests deploy.
 | `docs/zk-verifier-reference.md` | What the port must reproduce: proof layout, check order, transcript, formulas, errors |
 | `relations/` | Ingot `ultrahonk_relations`: contract `HonkRelations` |
 | `verifier/` | Ingot `ultrahonk_verifier`: contract `HonkVerifier`; its tests deploy both contracts |
+| `vault/` | Ingot `ultrahonk_vault`: contract `Vault`, which records the first caller with a proof for `[y, caller]`; no payout. See `vault/README.md` |
 | `.oracle/` | Not committed: Barretenberg's Solidity verifier, for local reference |
 | `.tools/` | Not committed: `bb` and `nargo` binaries |
 
