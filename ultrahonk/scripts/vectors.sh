@@ -2,9 +2,13 @@
 # Regenerates vectors/ from circuit/, and the local reference oracle in .oracle/.
 # Uses only the project-local tools in .tools/ (see README "Regenerate the vector").
 #
-# Proving with the ZK target is randomized: every run writes a different, valid
-# vectors/proof. The committed proof is the pinned vector; restore it with
-# `git checkout -- vectors/proof` unless the constants captured from it are redone too.
+# Two proofs for the same verification key: vectors/proof from circuit/Prover.toml, and
+# vectors/test_address/proof from circuit/Prover_test_address.toml, made for the address of
+# the Fe test contract so a vault test can claim with it.
+#
+# Proving with the ZK target is randomized: every run writes different, valid proofs. The
+# committed proofs are the pinned vectors; restore them with
+# `git checkout -- vectors/proof vectors/test_address/proof` unless the Fe constants are redone too.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -21,11 +25,13 @@ done
 "$NARGO" --version | rg -q '^nargo version = 1\.0\.0$' || { echo "nargo 1.0.0 required" >&2; exit 1; }
 
 rm -rf circuit/target vectors "$ORACLE/src/HonkVerifier.sol"
-mkdir -p vectors "$ORACLE/src"
+mkdir -p vectors/test_address "$ORACLE/src"
 
 (cd circuit && "../$NARGO" execute)
+(cd circuit && "../$NARGO" execute --prover-name Prover_test_address test_address)
 "$BB" write_vk -b circuit/target/vault.json -o vectors -t "$TARGET"
 "$BB" prove -b circuit/target/vault.json -w circuit/target/vault.gz -k vectors/vk -o vectors -t "$TARGET"
+"$BB" prove -b circuit/target/vault.json -w circuit/target/test_address.gz -k vectors/vk -o vectors/test_address -t "$TARGET"
 "$BB" write_solidity_verifier -k vectors/vk -o "$ORACLE/src/HonkVerifier.sol" -t "$TARGET"
 
 # Compiler settings the expected values were captured with. They follow
@@ -43,8 +49,10 @@ evm_version = "osaka"
 fs_permissions = [{ access = "read", path = "../vectors" }]
 EOF
 
-shasum -a 256 vectors/* "$ORACLE/src/HonkVerifier.sol"
+shasum -a 256 vectors/proof vectors/public_inputs vectors/vk vectors/vk_hash vectors/test_address/* \
+    "$ORACLE/src/HonkVerifier.sol"
 
-# Last step on purpose: with `set -e` the final line is printed only if bb accepted the proof.
+# Last step on purpose: with `set -e` the final line is printed only if bb accepted both proofs.
 "$BB" verify -k vectors/vk -p vectors/proof -i vectors/public_inputs -t "$TARGET"
-echo "OK: bb $("$BB" --version) verified vectors/proof against vectors/vk (target $TARGET)"
+"$BB" verify -k vectors/vk -p vectors/test_address/proof -i vectors/test_address/public_inputs -t "$TARGET"
+echo "OK: bb $("$BB" --version) verified vectors/proof and vectors/test_address/proof against vectors/vk (target $TARGET)"
