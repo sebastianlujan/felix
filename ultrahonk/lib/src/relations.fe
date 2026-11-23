@@ -5,11 +5,14 @@
 // subrelations into fixed slots of a shared array of 31; the slots are not in call
 // order. `accumulate` runs all ten and batches the 31 values with powers of alpha.
 //
-// Every input must be reduced (< P): `fr::sub` panics on a larger subtrahend where
-// the reference wraps. Outputs are reduced, so they equal the reference's bit for bit.
+// Inputs are expected to be reduced (< P), which the verifier's range checks and
+// challenge derivation guarantee. With an unreduced input the reference wraps inside
+// its subtraction, where `fr::sub` panics. Outputs are always reduced.
 //
-// Where the reference repeats a product or writes `x * MINUS_ONE + ONE`, this port
-// computes it once or writes `1 - x`; the values are the same field elements.
+// The formulas are the reference's, written with fewer operations where it repeats
+// itself: a product it computes several times is computed once, `x * MINUS_ONE + ONE`
+// is `1 - x`, `x + (0 - k)` is `x - k`, and `s^5` takes three multiplications. Each
+// result is the same field element, so the same reduced word.
 use super::fr::{add, mul, sub}
 use super::relations_vectors::*
 use super::wire::*
@@ -17,6 +20,7 @@ use super::wire::*
 pub const NUMBER_OF_SUBRELATIONS: usize = 31
 
 /// Challenges and derived values shared by the relations.
+#[abi]
 pub struct RelationParameters {
     pub eta: u256,
     /// Additive offset of the ROM log-derivative argument.
@@ -24,6 +28,21 @@ pub struct RelationParameters {
     pub beta: u256,
     pub gamma: u256,
     pub public_inputs_delta: u256,
+}
+
+/// Interface of a contract that evaluates the relations, for a verifier that keeps them
+/// in a separate contract to stay under the contract size limit. The calldata is 48
+/// static words after the selector: the 41 evaluations, the 5 parameters, alpha, pow.
+pub msg RelationsMsg {
+    #[selector = sol(
+        "accumulate(uint256[41],(uint256,uint256,uint256,uint256,uint256),uint256,uint256)",
+    )]
+    Accumulate {
+        evaluations: [u256; 41],
+        params: RelationParameters,
+        alpha: u256,
+        pow: u256,
+    } -> u256,
 }
 
 /// `-1/2` in the scalar field: `NEG_HALF_MODULO_P` of the reference.
