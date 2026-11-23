@@ -26,7 +26,8 @@ public inputs itself, `[y, caller]`, and asks the verifier with a static call.
 | The verifier returns `false` | returns `false` | nothing |
 | The vault was claimed before | returns `false`, without asking the verifier | nothing changes |
 | The verifier reverts | reverts with the verifier's revert data, unchanged | nothing |
-| The verifier address holds no code, or the answer is not one ABI `bool` | reverts without data | nothing |
+| The verifier address holds no code, or the first word of the answer is neither 0 nor 1 | reverts without data | nothing |
+| The answer is longer than one word | only its first word is read | as for that word |
 | The verifier writes storage while it answers | reverts without data | nothing |
 
 `claimed()` and `winner()` read the record; `winner()` is the zero address before the claim.
@@ -62,7 +63,7 @@ cd ultrahonk/vault
 fe test
 ```
 
-Eleven tests. The contracts they deploy are declared in the test section of `src/lib.fe`:
+Thirteen tests. The contracts they deploy are declared in the test section of `src/lib.fe`:
 
 | Contract | What it does |
 |---|---|
@@ -71,6 +72,8 @@ Eleven tests. The contracts they deploy are declared in the test section of `src
 | `RevertingVerifier` | Reverts with the library's `SumcheckFailed` |
 | `CountingVerifier` | Writes its storage, then returns `true` |
 | `EchoVerifier` | Reverts with the calldata it received, so a test reads what the vault sent |
+| `WordVerifier` | Answers `verify` with the word it was deployed with, in place of a `bool` |
+| `TwoWordVerifier` | Answers `verify` with 64 bytes: the word 1 twice |
 
 | Test | Asserts |
 |---|---|
@@ -80,6 +83,8 @@ Eleven tests. The contracts they deploy are declared in the test section of `src
 | `test_a_wrong_proof_is_not_accepted` | A changed, a shortened and an empty proof |
 | `test_a_revert_of_the_verifier_reaches_the_caller_unchanged` | The revert data is the selector of `SumcheckFailed` |
 | `test_a_verifier_address_without_code_makes_the_claim_revert` | No data, nothing recorded |
+| `test_a_verifier_that_answers_a_word_other_than_a_bool_makes_the_claim_revert` | The word 2 reverts the claim without data; the word 1 is an answer of `true` |
+| `test_a_verifier_answer_longer_than_a_word_is_read_by_its_first_word` | 64 bytes that begin with the word 1 make the claim |
 | `test_a_verifier_that_writes_storage_makes_the_claim_revert` | The call to the verifier is static |
 | `test_the_verifier_is_sent_the_proof_then_y_and_the_caller` | The calldata word by word, equal to the standard encoding |
 | `test_a_test_claims_from_a_fixed_address` | The address of a test contract, and that the vault sees it as the caller |
@@ -112,7 +117,7 @@ same verification key, and `scripts/proof_to_fe.sh --test-address` prints the Fe
 ## Measurements
 
 With `fe` 26.6.0. `fe build --contract Vault` writes the bytecode to `out/`; without
-`--contract` the build also writes the five test contracts.
+`--contract` the build also writes the seven test contracts.
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|

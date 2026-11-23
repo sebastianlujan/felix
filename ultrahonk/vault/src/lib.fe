@@ -26,9 +26,9 @@ pub msg VaultMsg {
 /// after the answer, so the verifier must not be able to change any state, or to call
 /// back into a vault that could, while it runs.
 ///
-/// A revert of the verifier reverts with the same data. An answer that is not one ABI
-/// `bool` reverts without data: a word other than 0 and 1, or nothing at all, which is
-/// what a call to an address without code returns.
+/// A revert of the verifier reverts with the same data. An answer whose first word
+/// is neither 0 nor 1 reverts without data, and so does no answer at all, which is what a
+/// call to an address without code returns. Bytes after the first word are ignored.
 fn proves(verifier: Address, proof: own Bytes, y: u256, claimer: Address) -> bool
 uses (call: Call)
 {
@@ -300,6 +300,92 @@ uses (evm: mut Evm)
     assert!(outcome.returndata_len() == 0)
     assert!(!claimed(vault))
     assert!(winner(vault) == Address::zero())
+}
+
+// The selector of `verify`, answered with a word in place of a `bool`.
+msg WordAnswerMsg {
+    #[selector = sol("verify(bytes,bytes32[])")]
+    Verify { proof: Bytes, public_inputs: Vec<Bytes32> } -> u256,
+}
+
+/// Answers every query with the word it was deployed with.
+contract WordVerifier {
+    answer: u256,
+
+    init(value: u256) uses (mut answer) { answer = value }
+
+    recv WordAnswerMsg {
+        Verify { proof, public_inputs } -> u256 uses (answer) {
+            answer
+        }
+    }
+}
+
+// An answer that is one word but neither 0 nor 1 is not a `bool`: the claim reverts,
+// without revert data, and nothing is recorded.
+#[test]
+fn test_a_verifier_that_answers_a_word_other_than_a_bool_makes_the_claim_revert()
+uses (evm: mut Evm)
+{
+    let verifier = evm.create2<WordVerifier>(value: Wei::zero(), args: (2,), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+    let outcome = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 0)
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+
+    // The same stand-in answering the word 1 is a verifier that says `true`.
+    let accepting = evm.create2<WordVerifier>(value: Wei::zero(), args: (1,), salt: 0)
+    let claimable = evm.create2<Vault>(value: Wei::zero(), args: (Y, accepting), salt: 0)
+    let made: bool = evm
+        .call(
+            addr: claimable,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(made)
+}
+
+// The selector of `verify`, answered with two words.
+msg TwoWordAnswerMsg {
+    #[selector = sol("verify(bytes,bytes32[])")]
+    Verify { proof: Bytes, public_inputs: Vec<Bytes32> } -> (u256, u256),
+}
+
+/// Answers every query with the word 1 twice: 64 bytes that begin like `true`.
+contract TwoWordVerifier {
+    recv TwoWordAnswerMsg {
+        Verify { proof, public_inputs } -> (u256, u256) {
+            (1, 1)
+        }
+    }
+}
+
+// Only the first word of the answer is read: bytes after it are ignored, so 64 bytes that
+// begin with the word 1 are an answer of `true`.
+#[test]
+fn test_a_verifier_answer_longer_than_a_word_is_read_by_its_first_word()
+uses (evm: mut Evm)
+{
+    let verifier = evm.create2<TwoWordVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+    let made: bool = evm
+        .call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(made)
+    assert!(claimed(vault))
 }
 
 /// Counts the queries in its storage, then accepts.
