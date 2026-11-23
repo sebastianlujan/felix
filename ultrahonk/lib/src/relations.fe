@@ -99,6 +99,76 @@ pub fn permutation(
     evals[2] = mul(mul(p[LAGRANGE_FIRST], p[Z_PERM]), pow)
 }
 
+/// Log-derivative lookup relation: slots 3 to 5.
+pub fn lookup(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+    evals: mut [u256; NUMBER_OF_SUBRELATIONS],
+) {
+    let beta = rp.beta
+    let beta_sqr = mul(beta, beta)
+    let beta_cube = mul(beta_sqr, beta)
+
+    // Write term: table_1 + gamma + table_2 * beta + table_3 * beta^2 + table_4 * beta^3
+    var table_term = add(p[TABLE_1], rp.gamma)
+    table_term = add(table_term, mul(p[TABLE_2], beta))
+    table_term = add(table_term, mul(p[TABLE_3], beta_sqr))
+    table_term = add(table_term, mul(p[TABLE_4], beta_cube))
+
+    // Read term: entry_1 + gamma + entry_2 * beta + entry_3 * beta^2 + q_o * beta^3
+    let derived_entry_1 = add(add(p[W_L], rp.gamma), mul(p[Q_R], p[W_L_SHIFT]))
+    let derived_entry_2 = add(p[W_R], mul(p[Q_M], p[W_R_SHIFT]))
+    let derived_entry_3 = add(p[W_O], mul(p[Q_C], p[W_O_SHIFT]))
+    var lookup_term = add(derived_entry_1, mul(derived_entry_2, beta))
+    lookup_term = add(lookup_term, mul(derived_entry_3, beta_sqr))
+    lookup_term = add(lookup_term, mul(p[Q_O], beta_cube))
+
+    let inverses = p[LOOKUP_INVERSES]
+    let lookup_inverse = mul(inverses, table_term)
+    let table_inverse = mul(inverses, lookup_term)
+
+    let read_tag = p[LOOKUP_READ_TAGS]
+    let q_lookup = p[Q_LOOKUP]
+    let inverse_exists_xor = sub(add(read_tag, q_lookup), mul(read_tag, q_lookup))
+
+    // The inverse is correct wherever it is needed.
+    evals[3] = mul(
+        sub(
+            mul(mul(lookup_term, table_term), inverses),
+            inverse_exists_xor,
+        ),
+        pow,
+    )
+    // The log-derivative sum. It holds over the whole trace, not row by row, so the
+    // reference does not scale it by the domain separator.
+    evals[4] = sub(
+        mul(q_lookup, lookup_inverse),
+        mul(p[LOOKUP_READ_COUNTS], table_inverse),
+    )
+    // The read tag is boolean.
+    evals[5] = mul(sub(mul(read_tag, read_tag), read_tag), pow)
+}
+
+/// delta * (delta - 1) * (delta - 2) * (delta - 3): zero when `delta` is 0, 1, 2 or 3.
+fn range_product(_ delta: u256) -> u256 {
+    var acc = mul(delta, sub(delta, 1))
+    acc = mul(acc, sub(delta, 2))
+    mul(acc, sub(delta, 3))
+}
+
+/// Delta range relation: slots 8 to 11.
+pub fn delta_range(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    let q_range_by_scaling = mul(p[Q_RANGE], pow)
+    evals[8] = mul(range_product(sub(p[W_R], p[W_L])), q_range_by_scaling)
+    evals[9] = mul(range_product(sub(p[W_O], p[W_R])), q_range_by_scaling)
+    evals[10] = mul(range_product(sub(p[W_4], p[W_O])), q_range_by_scaling)
+    evals[11] = mul(
+        range_product(sub(p[W_L_SHIFT], p[W_4])),
+        q_range_by_scaling,
+    )
+}
+
 /// RAM/ROM memory relation: slots 14 to 19.
 ///
 /// Gate layout: `w1` index, `w2` timestamp (RAM) or second value (ROM), `w3` value,
@@ -272,6 +342,38 @@ fn test_permutation_relation_matches_reference() {
         evals: mut proof,
     )
     assert!(proof_only(proof, first: 0, end: 3))
+}
+
+#[test]
+fn test_lookup_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    lookup(
+        p: SYNTH_EVALS,
+        rp: synth_params(),
+        pow: SYNTH_POW,
+        evals: mut synth,
+    )
+    assert!(synth_only(synth, first: 3, end: 6))
+
+    var proof: [u256; 31] = [0; 31]
+    lookup(
+        p: PROOF_EVALS,
+        rp: proof_params(),
+        pow: PROOF_POW,
+        evals: mut proof,
+    )
+    assert!(proof_only(proof, first: 3, end: 6))
+}
+
+#[test]
+fn test_delta_range_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    delta_range(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 8, end: 12))
+
+    var proof: [u256; 31] = [0; 31]
+    delta_range(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 8, end: 12))
 }
 
 #[test]
