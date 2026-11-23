@@ -20,12 +20,30 @@ Two rules.
 
 **Verifier failure.** The verifier contract reverts with the same custom errors as the reference, declared as `#[error]` structs and raised with `revert_error`. It does not return `false` for a bad proof.
 
-| Item | Value in the original non-ZK plan | ZK target |
-|---|---|---|
-| Error set | `SumcheckFailed`, `ShpleminiFailed`, `ProofLengthWrongWithLogN`, `PublicInputsLengthWrong`, `ValueGeLimbMax`, `ValueGeGroupOrder`, `ValueGeFieldOrder`, `InvertOfZero` | **[ZK: TBC]** |
-| Check order | Proof length, limbs, coordinates and scalars in proof order, public-input count, public-input range, sumcheck, Shplemini | **[ZK: TBC]** |
+| Item | ZK verifier |
+|---|---|
+| Error set | `ProofLengthWrongWithLogN`, `ValueGeLimbMax`, `ValueGeGroupOrder`, `ValueGeFieldOrder`, `PublicInputsLengthWrong`, `SumcheckFailed`, `ShpleminiFailed`, `ConsistencyCheckFailed`, `GeminiChallengeInSubgroup`, `PointAtInfinity`, `InvertOfZero`, `NotPowerOfTwo`, `ModExpFailed` |
+| Check order | Proof length; each proof word in order (limbs, coordinates, scalars); public-input count; public-input range; sumcheck; Shplemini scalars; consistency check; multi-scalar multiplication; pairing-point aggregation; pairing |
 
 The check order must match the reference, or a given bad input reverts with a different selector.
+
+## Outcome (2026-11-23)
+
+Carried out, with these details.
+
+- **Precompiles.** No `unwrap_or` exists in the verifier code. Each call is matched where it is made: a failed `ec_mul` or `ec_add` reverts with `ShpleminiFailed` (`lib/src/opening.fe`), a failed `modexp` with `ModExpFailed` (`lib/src/fr.fe`). A failed pairing call counts as a pairing that does not hold, as in the reference, and the contract reverts with `ShpleminiFailed`. The `expect_*` helpers appear only in the tests of `lib/src/std_assumptions.fe`.
+- **Where the revert is raised.** The library reverts for the range checks, a sumcheck round that does not hold, the consistency check and a failed curve operation. It returns a `bool` for the last sumcheck comparison and for the pairing. `HonkVerifier` turns `false` into `SumcheckFailed` or `ShpleminiFailed` and never returns `false`.
+- **Selectors.** A test asserts that each of the 13 errors in `lib/src/errors.fe` has the selector of the reference's declaration. `NotPowerOfTwo` is declared and never raised: the port computes `r^256` by eight squarings.
+- **Check order.** The order of the checks before any algebra was confirmed on the reference with calls that break two rules at once, and the Fe contract is tested with the same calls. The later steps follow the order of the reference's code. One recorded case shows it: a flipped fold commitment fails both the consistency check and the multi-scalar multiplication, and reverts with `ConsistencyCheckFailed` in both verifiers.
+- **Tests.** For every recorded invalid call the contract reverts with the selector the reference returned, with the one exception below. The tests do not show that every proof the reference rejects is rejected.
+
+Recorded differences from the reference:
+
+| Case | Reference | Fe | Tested |
+|---|---|---|---|
+| Proof word 138 with its low bit flipped: `shplonkQ` is off the curve, so the first multiplication of the multi-scalar multiplication fails | Goes on after the failed precompile call, which takes all the gas it was given, runs out of gas and reverts without data | Reverts with `ShpleminiFailed()` at the first failed call | Yes |
+| A carried pairing point off the curve | Reverts without data, according to the comment in `lib/src/opening.fe` | Reverts with `ShpleminiFailed()` | The Fe side only |
+| The `modexp` precompile call itself fails | Reverts with the four raw bytes `0xf8d61709` | Reverts with `ModExpFailed()` (`0x1f7ec5f0`) | No test triggers it |
 
 ## Options Considered
 
@@ -75,14 +93,14 @@ Option C is unsafe. Between A and B, the project wants a verifier that can repla
 ## Consequences
 
 - Easier: negative tests assert one selector per tamper case, captured from the reference.
-- Easier: the vault treats a revert or a `false` result the same way, as a failed claim (ADR-0010).
-- Harder: the check order and the error set are flavor-specific, and for the ZK contract they are **[ZK: TBC]**.
+- Easier: no claim is recorded when the verifier reverts or answers `false`. The vault passes a revert on and returns `false` for `false` (ADR-0010).
+- Harder: the check order and the error set are flavor-specific. For the ZK contract they are in the table above.
 - Harder: `inv(0)` must be caught before `modexp`, which would return 0 silently (ADR-0006).
-- Revisit: the layer at which the revert is raised. The plan's sketches give the library functions a `bool` result, and the plan does not say where the contract turns a failed check into the matching error.
+- Settled: the layer at which the revert is raised (see Outcome).
 
 ## Action Items
 
-1. [ ] Stage 0b: read the error set and the check order from the generated ZK contract.
-2. [ ] Stage 2: declare the errors and implement the length, limb, coordinate and scalar checks in the reference's order; test the reverts on scalar ≥ P and coordinate ≥ Q.
-3. [ ] Stage 6: wrap `ec_add`, `ec_mul`, `ec_pairing` and `modexp` with the `expect_*` match pattern.
-4. [ ] Stage 7: negative Fe tests assert, for each tamper case, the same selector as the reference.
+1. [x] Stage 0: read the error set and the check order from the generated ZK contract.
+2. [x] Stage 2: declare the errors and implement the length, limb, coordinate and scalar checks in the reference's order; test the reverts on scalar ≥ P and coordinate ≥ Q.
+3. [x] Stage 6: `match` the results of `ec_add`, `ec_mul`, `ec_pairing` and `modexp`.
+4. [x] Stage 7: negative Fe tests assert, for each recorded invalid call, the selector the reference returned.

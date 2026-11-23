@@ -8,20 +8,25 @@
 
 - The proof arrives as `bytes` through `verify(bytes,bytes32[])`.
 - The upstream Barretenberg reference first decodes the proof into a `Proof` struct (`loadProof`).
-- In the original non-ZK plan, each Fiat–Shamir round hashes `prev ‖ one contiguous run of proof words`.
+- In the reference's transcript, every Fiat–Shamir round after the first hashes `prev ‖ one contiguous run of proof words`.
 - In Fe, a plain parameter views the caller's value in place, with no copy.
-- The target is now the ZK flavor (ADR-0001), whose proof is 82 + 12·log N words and whose transcript differs from the non-ZK one.
+- The target is the ZK flavor (ADR-0001), whose proof is 82 + 12·log N words.
 
 ## Decision
 
 Keep the proof as `Bytes` and read 32-byte words by offset (`Bytes.word_at` takes a byte offset). There is no `Proof` struct. The transcript is one `absorb` helper, called once per round over a contiguous run of proof words.
 
 ```fe
-// sketch, not compiled
-fn absorb(prev: u256, _ proof: Bytes, start: usize, n: usize) -> u256
+// lib/src/transcript.fe
+pub fn absorb(prev: u256, _ proof: Bytes, start: usize, count: usize) -> u256
 ```
 
-The structural decision stands. The contiguous-absorb design is being re-validated for the ZK transcript, and the word layout is **[ZK: TBC]**.
+## Outcome (2026-11-23)
+
+- Carried out as decided. `proof::word(proof, index)` reads a word by its index, and `proof.fe` has one function per offset that depends on log N.
+- The design fits the ZK transcript. Every challenge is either `absorb` over one contiguous run or a rehash of the previous challenge. `eta` is the one exception: it has no previous challenge and hashes the VK hash and the public inputs before proof words 0–15.
+- For the pinned proof, each of the 16 challenges equals the value captured from the reference, one test per challenge.
+- The word layout and the hashed range of each round are in `ultrahonk/docs/zk-verifier-reference.md`.
 
 ## Options Considered
 
@@ -57,12 +62,11 @@ The transcript hashes runs of the proof exactly as they sit in the proof bytes, 
 
 - Easier: the transcript is one helper and a list of ranges.
 - Easier: no proof copy.
-- Harder: the layout table is the only map of the proof, so it must be exact. The non-ZK table in the plan is superseded and the ZK one is **[ZK: TBC]**.
-- Harder: if a ZK transcript round does not hash one contiguous run, `absorb` needs a different shape for that round.
-- Revisit: the outcome of the ZK re-validation.
+- Harder: the layout table is the only map of the proof, so it must be exact. It is in `ultrahonk/docs/zk-verifier-reference.md`, and every row was checked against the reference on the pinned proof.
+- Harder: a round that does not hash one contiguous run needs a different shape. Only `eta` does (see Outcome).
 
 ## Action Items
 
-1. [ ] Stage 0b: derive the ZK proof word layout and the hashed range of each transcript round from the generated ZK contract.
-2. [ ] Stage 0b: confirm or adjust the one-`absorb`-per-round design for the ZK transcript and record the result here.
-3. [ ] Stage 2: implement `proof.fe` and `transcript.fe`; `fe test -f transcript` compares every challenge with the reference value.
+1. [x] Stage 0: derive the ZK proof word layout and the hashed range of each transcript round from the generated ZK contract.
+2. [x] Stage 0: confirm or adjust the one-`absorb`-per-round design for the ZK transcript and record the result here.
+3. [x] Stage 2: implement `proof.fe` and `transcript.fe`; `fe test -f transcript` compares every challenge with the reference value.

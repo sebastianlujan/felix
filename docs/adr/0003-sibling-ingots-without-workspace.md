@@ -8,21 +8,28 @@
 
 - The work is added gradually in new packages, the same way the root library and `calculator` pair of this repository was built. `calculator/src/lib.fe` and `calculator/fe.toml` are the pattern to mirror.
 - The root library, `calculator/` and the root `README.md` must not be modified.
-- Four Fe packages are needed: a verifier library, a verifier contract, a vault contract and a toy verifier.
+- Four Fe packages were planned: a verifier library, a verifier contract, a vault contract and a toy verifier.
 - The verifier and the vault share one message definition for `verify(bytes,bytes32[])`.
 
 ## Decision
 
-Four sibling ingots under `ultrahonk/`, joined by relative path dependencies. No workspace.
+Sibling ingots under `ultrahonk/`, joined by relative path dependencies. No workspace. The decision named four ingots; the code-size split (ADR-0012) added `ultrahonk_relations`.
 
-| Ingot | Path | Kind |
-|---|---|---|
-| `ultrahonk` | `ultrahonk/lib` | Pure library |
-| `ultrahonk_verifier` | `ultrahonk/verifier` | Contract `HonkVerifier`, with a per-circuit `vk.fe` |
-| `ultrahonk_vault` | `ultrahonk/vault` | Contract `Vault` |
-| `honk_toy` | `ultrahonk/toy` | Pure library, Honk over F_17 |
+| Ingot | Path | Kind | Depends on |
+|---|---|---|---|
+| `ultrahonk` | `ultrahonk/lib` | Library | — |
+| `ultrahonk_relations` | `ultrahonk/relations` | Contract `HonkRelations` | `lib` |
+| `ultrahonk_verifier` | `ultrahonk/verifier` | Contract `HonkVerifier` | `lib`; `relations` for its tests |
+| `ultrahonk_vault` | `ultrahonk/vault` | Contract `Vault` | `lib`; `relations` and `verifier` for its tests |
+| `honk_toy` | `ultrahonk/toy` | Library, Honk over F_17 | — |
 
 `lib/src/abi.fe` holds the shared `msg`: the verifier receives it and the vault sends it.
+
+## Outcome (2026-11-23)
+
+- Five ingots exist, each with its own `fe.toml`. `fe test` passes in each.
+- There is no per-circuit `vk.fe` in the verifier ingot. The verification key is the constant `VK` in `lib/src/vectors.fe`.
+- `scripts/check.sh` was not written. `ultrahonk/README.md` lists one `fe test` command per ingot.
 
 ## Options Considered
 
@@ -36,7 +43,7 @@ Four sibling ingots under `ultrahonk/`, joined by relative path dependencies. No
 | Fit with Fe 26.6.0 | Mirrors a package pair that already exists here |
 
 **Pros:** Follows an existing, known pattern. Each ingot builds and tests alone. The toy line can be developed in a separate worktree without touching the others.  
-**Cons:** No single command covers all ingots; `scripts/check.sh` has to loop over them.
+**Cons:** No single command covers all ingots; a script or the reader has to loop over them.
 
 ### Option B: A Fe workspace
 
@@ -59,12 +66,12 @@ With about 48 hours available, the plan prefers the pattern that already exists 
 - Easier: each ingot is a self-contained unit for review, and a stage can be reverted alone.
 - Easier: the two implementation lines touch disjoint directories (ADR-0014).
 - Harder: dependency paths are relative, so moving an ingot means editing its dependants.
-- Harder: an end-to-end run needs a script.
+- Harder: an end-to-end run is five commands, one per ingot.
 - Revisit: a workspace, once the deadline has passed.
 
 ## Action Items
 
-1. [ ] Stage 0b: keep one `fe.toml` per ingot, with relative path dependencies, while the skeletons are switched to the ZK target.
-2. [ ] Stage 1: add `lib/src/abi.fe` with the shared `VerifierMsg`.
-3. [ ] Stage T1: create `ultrahonk/toy` as its own ingot on the toy line.
-4. [ ] Stage 8: make `scripts/check.sh` run the checks in every ingot.
+1. [x] Stage 0: keep one `fe.toml` per ingot, with relative path dependencies.
+2. [x] Stage 1: add `lib/src/abi.fe` with the shared `VerifierMsg`.
+3. [x] Stage T1: create `ultrahonk/toy` as its own ingot on the toy line. It is merged into `feature/ultrahonk-verifier`.
+4. [ ] Stage 8: make `scripts/check.sh` run the checks in every ingot. Not done: the script was not written.

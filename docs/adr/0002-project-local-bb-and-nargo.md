@@ -24,6 +24,10 @@ curl -sSfL https://github.com/noir-lang/noir/releases/download/v1.0.0/noir-aarch
 
 The asset names were verified for Darwin arm64.
 
+## Outcome (2026-11-23)
+
+Carried out as decided. `scripts/vectors.sh` calls the two binaries by path and exits unless they report `bb` 6.0.0 and `nargo` 1.0.0. The download commands are in `ultrahonk/README.md`, section "Regenerate the vector". No checksum of the archives is checked.
+
 ## Options Considered
 
 ### Option A: Project-local copies in `ultrahonk/.tools/` (chosen)
@@ -77,6 +81,6 @@ Option C does not meet ADR-0001. Between A and B, the rule against changing glob
 
 ## Action Items
 
-1. [ ] Stage 0b: confirm that `.tools/bb/bb --version` and `.tools/nargo/bin/nargo --version` print 6.0.0 and 1.0.0 before regenerating the ZK artifacts.
-2. [ ] Stage 0b: confirm the `bb` 6.0.0 flags and output file names for `-t evm` with `bb prove --help`.
-3. [ ] Stage 8: put the download commands in the reproduce steps of `ultrahonk/README.md`.
+1. [x] Stage 0: confirm that `.tools/bb/bb --version` and `.tools/nargo/bin/nargo --version` print 6.0.0 and 1.0.0 before regenerating the ZK artifacts. `scripts/vectors.sh` checks both on every run.
+2. [x] Stage 0: confirm the `bb` 6.0.0 flags and output file names for `-t evm`. They are the ones `scripts/vectors.sh` uses.
+3. [x] Stage 8: put the download commands in the reproduce steps of `ultrahonk/README.md`.

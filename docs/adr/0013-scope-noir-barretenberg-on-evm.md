@@ -6,7 +6,7 @@
 
 ## Context
 
-- The work is described as an "Aztec integration". That phrase can be read two ways.
+- The work was first described as an "Aztec integration". That phrase can be read two ways.
 - Aztec network contracts are written in Noir and verify by recursion, so no Fe contract runs there. The project's teaching page says the same.
 - As a product, verifying these proofs on the EVM is already solved: Barretenberg emits an audited Solidity verifier that Fe can call.
 - No Fe UltraHonk verifier was found. `fe-lang/rosetta` has Groth16, a gnark Plonk and a Halo2 skeleton. Another contest entry covers Groth16/PLONK/halo2/FRI.
@@ -22,7 +22,7 @@
 
 ## Decision
 
-The integration is with Aztec's proving stack: a Noir circuit, proved by Barretenberg, verified on the EVM by a verifier written in Fe. `ultrahonk/README.md` states exactly that.
+The work is described as Noir proofs verified natively in Fe: a Noir circuit, proved by Barretenberg, with the proof verified on the EVM by a verifier written in Fe. It is not described as built for the Aztec network, because nothing in Fe runs there. `ultrahonk/README.md` states exactly that.
 
 | In scope | Out of scope |
 |---|---|
@@ -32,6 +32,14 @@ The integration is with Aztec's proving stack: a Noir circuit, proved by Barrete
 | Committed expected values and stated assumptions | Any change to the teaching page |
 
 The work is presented as a contest entry and a readable reference, not as a replacement for the audited verifier.
+
+## Outcome (2026-11-23)
+
+- Carried out as decided. The three in-scope deliverables exist and are tested: the verifier port, the vault and the toy.
+- `ultrahonk/README.md` states the scope, the limits of the tests and which branch of pairing-point aggregation the pinned proofs exercise.
+- Nothing from the out-of-scope column was built. The vault has no payout, and one circuit is supported.
+- The table of what was reused and what was only read is in the project plan (`docs/ultrahonk.md`, "Reuse and licences"), not in the README.
+- The port is not audited.
 
 ## Options Considered
 
@@ -85,6 +93,6 @@ Option B is not available. Option C is the sensible product choice and the weake
 
 ## Action Items
 
-1. [ ] Stage 8: state the framing in `ultrahonk/README.md`: proving stack, not network.
-2. [ ] Stage 8: list assumptions and out-of-scope items in the README, including which branch of pairing-point aggregation the test circuit exercises.
-3. [ ] Stage 8: add the "reused from / learned from" table to the README.
+1. [x] Stage 8: state the framing in `ultrahonk/README.md`: Noir proofs verified natively in Fe, nothing on the Aztec network.
+2. [x] Stage 8: list the limits in the README, including which branch of pairing-point aggregation the test circuit exercises.
+3. [ ] Stage 8: add the "reused from / learned from" table to the README. Not done there: the table is in the project plan.

@@ -26,11 +26,20 @@ fn main(x: Field, y: pub Field, recipient: pub Field) {
 
 | Element | Design |
 |---|---|
-| Storage | `{ y, verifier, claimed }` |
-| Entry points | `init(y, verifier)`, `claim(bytes proof) -> bool` |
+| Storage | `{ y, verifier, claimed, winner }` |
+| Entry points | `init(y, verifier)`, `claim(bytes proof) -> bool`, `claimed()`, `winner()` |
 | Public inputs | Built by the vault itself as `[y, caller]`. The claimant never supplies them, so a proof copied from the mempool is useless to anyone else. |
-| Failure | A revert or a `false` result from the verifier fails the claim |
-| Payout | Not implemented. The contract records the claim only. |
+| Call | A static call with the typed message `VerifierMsg::Verify`. The verifier cannot change state or call back into a vault that could. |
+| Failure | If the verifier answers `false`, `claim` returns `false`. If it reverts, `claim` reverts with the same data. Nothing is recorded in either case. |
+| Payout | Not implemented, by decision. The contract records the claim and the claimant only. |
+
+## Outcome (2026-11-23)
+
+- Carried out. `Vault` is in `ultrahonk/vault`, with 11 Fe tests. Details and measurements are in `ultrahonk/vault/README.md`.
+- A claim succeeds in front of the real `HonkVerifier`, with a second pinned proof made for the address of the Fe test contract.
+- A Fe test cannot choose the caller of a call. A caller is a `Claimer` contract that forwards `claim`, or the test contract itself, whose address is fixed with `fe` 26.6.0.
+- Nine tests put a stand-in behind the vault (in one of them, an address without code). Two put `HonkVerifier` there.
+- The decision named a storage of `{ y, verifier, claimed }` and one entry point. `winner` and the two read functions were added.
 
 ## Options Considered
 
@@ -68,12 +77,13 @@ The verifier's size is a known risk (ADR-0012), so adding it to the vault's byte
 
 - Easier: the vault's code can be written at stage 1, before the Fe verifier exists.
 - Easier: the vault works with any verifier that implements the ABI.
-- Harder: under the Fe-only layout (ADR-0009) the vault is tested with Fe tests. Which verifier answers the vault in those tests before stage 7 is not stated, and the original stage 1 cut line, which relied on the Solidity verifier, needs restating.
-- Harder: the tests (valid claim, replay, different caller) need the Fe test harness to choose the caller, which the original plan treated as unconfirmed.
+- Harder: under the Fe-only layout (ADR-0009) the vault is tested with Fe tests, so the tests need verifier contracts written in Fe. They are stand-ins declared in the test section of `vault/src/lib.fe`.
+- Harder: the tests (valid claim, replay, different caller) cannot choose the caller. They use forwarding contracts (see Outcome).
+- Harder: a real claim from a test needs a proof made for the caller. A proof made for a contract deployed with `create2` breaks when that contract's code changes, so the second pinned proof is made for the test contract's own address.
 - Revisit: payout logic, which is out of scope.
 
 ## Action Items
 
-1. [ ] Stage 1: add `VerifierMsg` to `lib/src/abi.fe` and implement `Vault` with `init` and `claim`.
-2. [ ] Stage 1: Fe tests for a valid claim, a replay and a different caller; settle how the caller is set and which verifier answers.
-3. [ ] Stage 7: run the vault tests against the Fe verifier.
+1. [x] Stage 1: add `VerifierMsg` to `lib/src/abi.fe` and implement `Vault` with `init` and `claim`.
+2. [x] Stage 1: Fe tests for a valid claim, a replay and a different caller; settle how the caller is set and which verifier answers.
+3. [x] Stage 7: run the vault in front of the Fe verifier. Two tests do.

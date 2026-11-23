@@ -13,7 +13,7 @@ The project needs one reference to port from and to test against.
 - Barretenberg already emits an audited Solidity verifier for the EVM, in a non-ZK flavor (`-t evm-no-zk`) and a ZK flavor (`-t evm`).
 - The application is a vault that hides a secret. A non-ZK proof leaks witness evaluations.
 - The submission deadline is Nov 24, 2026 23:59 UTC, about 48 hours away when the plan was written.
-- The original plan targeted the non-ZK flavor. Stage 0 was completed for it on 2026-11-22. The project owner then changed the target.
+- A first draft of the plan named the non-ZK flavor. The project owner changed the target on 2026-11-22, during stage 0, when the real verifier was still a skeleton.
 
 ## Decision
 
@@ -28,6 +28,14 @@ The source of truth for the real verifier is the Solidity verifier that `bb` 6.0
 
 The generated verifier is used as a local reference oracle and is not committed (ADR-0009).
 
+## Outcome (2026-11-23)
+
+- The port is complete: `HonkVerifier` and `HonkRelations` in `ultrahonk/`. It runs proof validation, the transcript, sumcheck with the relations, the Shplemini scalars, the Libra consistency check, the multi-scalar multiplication, the pairing-point aggregation and the pairing.
+- It accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
+- The tests do not show that every proof the reference rejects is rejected.
+- The proof size, the values per sumcheck round and the evaluation counts this record gives for the ZK flavor match the generated verifier. The full layout is in `ultrahonk/docs/zk-verifier-reference.md`.
+- The three recorded differences from the reference are in ADR-0008.
+
 ## Options Considered
 
 ### Option A: ZK flavor only (chosen)
@@ -41,14 +49,14 @@ The generated verifier is used as a local reference oracle and is not committed 
 | Fit with the ecosystem | `-t evm` is `bb`'s standard EVM target and the flavor Aztec's own L1 verifier uses |
 
 **Pros:** The proof does not leak witness evaluations. Matches the standard target. The 31 subrelations are the same ones, in the shared relations code.  
-**Cons:** More steps to port under the same deadline. Stage 0 artifacts built for non-ZK must be switched (stage 0b).
+**Cons:** More steps to port under the same deadline. The pipeline and the skeleton built in stage 0 had to be switched to `-t evm`.
 
-### Option B: Non-ZK flavor only (the original plan)
+### Option B: Non-ZK flavor only (the first draft of the plan)
 
 | Dimension | Assessment |
 |-----------|------------|
 | Complexity | Fewer protocol steps: 8 values per sumcheck round, 41 evaluated entities, proof of 67 + 11·log N words |
-| Cost | Stage 0 was already completed for this target |
+| Cost | The stage 0 pipeline and skeleton already targeted it |
 | Risk | Lower schedule risk |
 | Fit with the application | A non-ZK proof leaks witness evaluations, which defeats a vault that hides its secret |
 | Fit with the ecosystem | Not `bb`'s standard EVM target |
@@ -71,7 +79,7 @@ The generated verifier is used as a local reference oracle and is not committed 
 
 ## Trade-off Analysis
 
-The vault is the integration deliverable, and it only makes sense if the proof hides the secret. That rules out option B on correctness of purpose, not on effort. Option C adds roughly 990 lines of reference to cover for no benefit to the vault. Option A costs more protocol steps than the original plan and raises the risk of not reaching the final pairing check, which the staged delivery with cut lines (ADR-0014) is meant to absorb.
+The vault is the integration deliverable, and it only makes sense if the proof hides the secret. That rules out option B on correctness of purpose, not on effort. Option C adds roughly 990 lines of reference to cover for no benefit to the vault. Option A costs more protocol steps than option B and raises the risk of not reaching the final pairing check, which the staged delivery with cut lines (ADR-0014) is meant to absorb.
 
 `fe-lang/rosetta` was also looked at as a starting point. It has no Honk verifier, targets the 26.1 std, does not compile on Fe 26.6.0 and has no licence. It is used for structure only and nothing is copied from it.
 
@@ -79,16 +87,16 @@ The vault is the integration deliverable, and it only makes sense if the proof h
 
 - Easier: one pinned tool version produces the proof, the verification key and the reference verifier, so expected values can be compared bit-for-bit (ADR-0009).
 - Easier: the 31 subrelations are the same ones, in shared upstream code, so the relations stages change least.
-- Harder: every flavor-specific number in the original plan must be re-derived. The proof word layout, the hashed range of each transcript round, the Shplemini array sizes and slot indices, and the check order are **[ZK: TBC]**.
+- Harder: every flavor-specific number had to be read from the generated ZK contract: the proof word layout, the hashed range of each transcript round, the Shplemini array sizes and slot indices, and the check order. They are in `ultrahonk/docs/zk-verifier-reference.md`.
 - Harder: the generated contract links its transcript library externally, which the local oracle setup has to handle.
-- Harder: stages 1–8 and their estimates were written for the non-ZK target and are not yet re-cut.
-- Revisit: the contiguous-absorb transcript design (ADR-0004) is being re-validated for the ZK transcript.
+- Harder: the stage estimates predate the switch to ZK. They were not re-cut; the stages were carried out in the plan's order.
+- Settled: the contiguous-absorb transcript design (ADR-0004) fits the ZK transcript.
 - Revisit: a non-ZK variant, if a later use needs it.
 
 ## Action Items
 
-1. [ ] Stage 0b: switch the pipeline, the local oracle and the Fe skeleton from `-t evm-no-zk` to `-t evm`.
-2. [ ] Stage 0b: read the proof layout, transcript ranges, array sizes, check order and error set from the generated ZK contract and replace every **[ZK: TBC]** value in the plan.
-3. [ ] Assign the ZK-specific steps (Libra masking, small-subgroup consistency check, Gemini masking polynomial) to stages and estimate them.
-4. [ ] Stages 2–7: port in the order of the stage table.
-5. [ ] Stage 8: state the pinned `bb` version and the ZK flavor in `ultrahonk/README.md`.
+1. [x] Stage 0: switch the pipeline, the local oracle and the Fe skeleton to `-t evm`.
+2. [x] Stage 0: read the proof layout, transcript ranges, array sizes, check order and error set from the generated ZK contract. They are in `ultrahonk/docs/zk-verifier-reference.md`.
+3. [x] Assign the ZK-specific steps to stages: the Libra terms of sumcheck went into stages 3–5, the consistency check and the masking polynomial into stage 6. They were not estimated.
+4. [x] Stages 2–7: port in the order of the stage table.
+5. [x] Stage 8: state the pinned `bb` version and the ZK flavor in `ultrahonk/README.md`.

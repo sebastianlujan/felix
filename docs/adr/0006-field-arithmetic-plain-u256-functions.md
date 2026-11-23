@@ -16,14 +16,19 @@
 Field elements are `u256` values. Arithmetic is a set of plain functions in `fr.fe`. There is no operator-overloaded field type.
 
 ```fe
-// sketch, not compiled
+// lib/src/fr.fe
 pub fn add(_ a: u256, _ b: u256) -> u256 { addmod(a, b, P) }
 pub fn sub(_ a: u256, _ b: u256) -> u256 { addmod(a, P - b, P) }
 pub fn mul(_ a: u256, _ b: u256) -> u256 { mulmod(a, b, P) }
-pub fn inv(_ a: u256) -> u256            // a != 0 required; modexp with exponent P - 2
+pub fn neg(_ a: u256) -> u256 { sub(0, a) }
+pub fn inv(_ a: u256) -> u256            // reverts on 0; modexp with exponent P - 2
 ```
 
 `P` is the scalar field modulus and `Q` the base field modulus. Both are constants in `fr.fe`.
+
+## Outcome (2026-11-23)
+
+Carried out as decided. The relations, sumcheck and the opening use these functions only. `inv(0)` reverts with `InvertOfZero`, and a failed `modexp` call reverts with `ModExpFailed`. Six tests in `fr.fe` cover the wrap-around of each function and the revert of `inv(0)`.
 
 ## Options Considered
 
@@ -59,13 +64,13 @@ Option B offers readability, and the plan rules it out, citing `sonatina#232`. P
 
 - Easier: each reference call has a direct Fe counterpart.
 - Harder: three rules must be held by hand:
-  - `sub` needs `b < P`.
+  - `sub` needs `b ≤ P`: `P - b` underflows otherwise, where the reference wraps.
   - `neg(0)` is `P` in the upstream reference and 0 in Fe. The two are equal after reduction, so raw values are never compared.
   - `inv(0)` must revert, because `modexp` returns 0 silently.
 - Revisit: a field type, once `sonatina#232` no longer applies.
 
 ## Action Items
 
-1. [ ] Stage 2: implement `fr.fe` with `add`, `sub`, `mul`, `inv` and the constants `P` and `Q`.
-2. [ ] Stage 2: test that `inv(0)` reverts and that `mul(inv(2), 2) == 1` (the stage 0 spike 3 check).
-3. [ ] Stages 3–5: write the relations with these functions only.
+1. [x] Stage 2: implement `fr.fe` with `add`, `sub`, `mul`, `inv` and the constants `P` and `Q`.
+2. [x] Stage 2: test that `inv(0)` reverts and that `mul(inv(2), 2) == 1` (the stage 0 spike 3 check).
+3. [x] Stages 3–5: write the relations with these functions only.

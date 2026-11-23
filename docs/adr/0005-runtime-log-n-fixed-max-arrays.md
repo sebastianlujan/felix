@@ -8,14 +8,28 @@
 
 - The circuit size differs per circuit, and several verifier arrays grow with log N.
 - The upstream Barretenberg reference uses fixed maximum-size arrays and a runtime log N.
-- The verification key is generated per circuit (`verifier/src/vk.fe`), and the library is meant to serve any of them.
+- The verification key differs per circuit, and the library functions take it as a parameter.
 - The port is compared with the reference value by value, so staying close to its shape helps review.
 
 ## Decision
 
 `log_n` is a runtime value. Arrays have a fixed maximum size, like the reference. No const generics.
 
-The original plan named `[u256; 25]` and `[u256; 63]` for the non-ZK contract. The sizes for the ZK contract are **[ZK: TBC]**. One known ZK size: 42 evaluated entities, so the evaluations array is `[u256; 42]`.
+## Outcome (2026-11-23)
+
+Carried out as decided. The sizes, read from the generated ZK verifier:
+
+| Constant or type | Value | Where |
+|---|---|---|
+| `MAX_LOG_N` | 25, the reference's `CONST_PROOF_SIZE_LOG_N` | `lib/src/types.fe` |
+| Sumcheck challenges, powers of the Gemini challenge, fold evaluations | `[u256; MAX_LOG_N]` | `types.fe`, `shplemini.fe` |
+| `MAX_SLOTS`, the scalars of the multi-scalar multiplication | 67 = 42 + `MAX_LOG_N` | `lib/src/shplemini.fe` |
+| Evaluations the relations read | `[u256; 41]` | `lib/src/relations.fe` |
+| Verification-key points | `[u256; 56]`: 28 points | `lib/src/types.fe` |
+
+- The proof holds 42 evaluations: the masking polynomial, then the 41 entities. They are read from the proof by offset, so no 42-word array exists.
+- Only `LOG_N = 5` is exercised: the one circuit of the project. No test runs another size.
+- The key is the constant `VK` in `lib/src/vectors.fe`, which `HonkVerifier` imports. There is no `verifier/src/vk.fe`.
 
 ## Options Considered
 
@@ -50,12 +64,12 @@ The plan chooses the shape the reference already has. It keeps the port mechanic
 ## Consequences
 
 - Easier: review against the reference.
-- Easier: a new circuit needs a new `vk.fe`, not a new library build.
+- Easier: a new circuit needs a new `VerificationKey` constant and a contract that passes it, not new verifier functions. This is untested: the project has one circuit.
 - Harder: array sizes are constants that must match the reference exactly, and they are flavor-specific.
 - Revisit: const generics, after the deadline.
 
 ## Action Items
 
-1. [ ] Stage 0b: read the maximum array sizes from the generated ZK contract and replace the **[ZK: TBC]** values.
-2. [ ] Stage 2: define the sized types in `types.fe`.
-3. [ ] Stage 6: check the Shplemini arrays index by index against the reference scalars.
+1. [x] Stage 0: read the maximum array sizes from the generated ZK contract.
+2. [x] Stage 2: define the sized types in `types.fe`.
+3. [x] Stage 6: check the Shplemini arrays index by index against the reference scalars.

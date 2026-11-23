@@ -22,6 +22,13 @@ Use the std `Packed` builder for every multi-word hash and for the pairing input
 | Pairing input | `Packed`, then `span` |
 | Single-word rehash | `keccak_words([x]) % P` |
 
+## Outcome (2026-11-23)
+
+- Carried out. `Packed` builds every hash whose length depends on the circuit (the transcript rounds), the pairing input, and the calldata `HonkVerifier` sends to `HonkRelations`.
+- `keccak_words` hashes the two inputs of fixed size: the single-word rehash and the eight-word recursion separator of the pairing-point aggregation.
+- The ZK transcript needed no hash shape the builder does not cover.
+- `lib/src/std_assumptions.fe` pins both against known hashes, so a std upgrade that changes them fails there first.
+
 ## Options Considered
 
 ### Option A: The std `Packed` builder (chosen)
@@ -57,10 +64,10 @@ Both options produce the same bytes. Option A removes code the project would oth
 - Easier: `absorb` (ADR-0004) is a short function over the builder.
 - Easier: the pairing input uses the same idiom.
 - Harder: the transcript's bytes now depend on the std API of the installed Fe version (26.6.0).
-- Revisit: whether the ZK transcript needs any hash shape the builder does not cover.
+- Settled: the ZK transcript needs no hash shape the builder does not cover.
 
 ## Action Items
 
-1. [ ] Stage 2: implement `absorb` with `Packed` and test that absorbing 32 zero bytes equals `keccak(0x00…00) % P` (the stage 0 spike 4 check).
-2. [ ] Stage 2: compare every transcript challenge with the reference value.
-3. [ ] Stage 6: build the pairing input with `Packed`.
+1. [x] Stage 2: implement `absorb` with `Packed` and test it against a known hash (the stage 0 spike 4 check). The tests are in `transcript.fe` and `std_assumptions.fe`.
+2. [x] Stage 2: compare every transcript challenge with the reference value.
+3. [x] Stage 6: build the pairing input with `Packed`.

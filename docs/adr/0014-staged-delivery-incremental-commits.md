@@ -17,7 +17,7 @@
 
 | Topic | Rule |
 |---|---|
-| Stages | Main line: stages 0 to 8, with stage 0b added for the scope changes. Toy line: T1 and T2. Each stage has an acceptance test and a cut line ("if the deadline hits here"). |
+| Stages | Main line: stages 0 to 8, with a stage 0b for the switch to the ZK flavor and the Fe-only layout (the plan now counts it inside stage 0). Toy line: T1 and T2. Each stage has an acceptance test and a cut line ("if the deadline hits here"). |
 | Feature freeze | Nov 24, 2026 14:00 UTC. Feature work stops and the docs stage starts. |
 | Status | The status table in `ultrahonk/README.md` is updated at the end of every stage. |
 | Commits | Each working unit is committed as soon as its tests pass: several commits per stage, not one per stage. |
@@ -27,6 +27,16 @@
 | Review | Stages do not wait for review. Work pauses only for a real decision, for example single contract or split after stage 3. |
 | Order of sacrifice | T2 first, then vault extras, never the main-line stage in progress. |
 | Boundaries | No changes to global tools, the root library or `calculator/`. |
+
+## Outcome (2026-11-23)
+
+- Every stage of both lines was done by 2026-11-23, before the feature freeze. No cut line was used, and nothing in the order of sacrifice was given up. The toy also got its later step, the sumcheck mask.
+- **More parallel lines than decided.** Besides the toy, the relations, the opening, the integration of the opening into the verifier, and the documents each had a branch and a git worktree: `feature/ultrahonk-relations`, `feature/ultrahonk-opening`, `feature/ultrahonk-integration`, `feature/ultrahonk-docs`. All are merged into `feature/ultrahonk-verifier`.
+- Commits were incremental: one per working unit, with conventional messages.
+- The status table in `ultrahonk/README.md` was updated as stages landed.
+- The stage estimates were not re-cut after the switch to the ZK flavor. The stages were carried out in the plan's order, with the ZK-specific steps inside stages 3–5 and 6.
+- The relations went into a second contract as they were ported. The repository records no pause for that decision (ADR-0012).
+- Two items of stage 8 were not written: `scripts/check.sh` and the code-size script.
 
 ## Options Considered
 
@@ -89,12 +99,11 @@ The plan's workflow text says both that each stage "is its own commit" and that 
 - Easier: the submission at the deadline is whatever stages have passed, each labelled honestly.
 - Easier: review can lag behind implementation without blocking it.
 - Harder: stage boundaries must stay visible in the commit history.
-- Harder: the stage table needs maintenance when scope changes. Stages 1–8 and their estimates were written for the non-ZK target and are not yet re-cut, and stage 0b has no stated acceptance or estimate.
-- Revisit: the stage table and estimates once the ZK-specific steps have been assigned.
+- Harder: the stage table needs maintenance when scope changes. The estimates predate the switch to the ZK flavor and were never re-cut.
 
 ## Action Items
 
-1. [ ] Stage 0b: finish the switch to the ZK flavor and the Fe-only layout, then re-cut stages 1–8 and their estimates for the ZK target.
-2. [ ] Every stage: commit each working unit when its tests pass, and update the README status table at the end of the stage.
-3. [ ] After stage 3: pause for the single-contract-or-split decision (ADR-0012).
-4. [ ] Nov 24, 2026 14:00 UTC: stop feature work and start stage 8.
+1. [ ] Stage 0b: finish the switch to the ZK flavor and the Fe-only layout (done), then re-cut stages 1–8 and their estimates for the ZK target (not done: the stages were carried out in the plan's order).
+2. [x] Every stage: commit each working unit when its tests pass, and update the README status table at the end of the stage.
+3. [ ] After stage 3: pause for the single-contract-or-split decision (ADR-0012). No pause is recorded: the relations were split as they were ported.
+4. [x] Nov 24, 2026 14:00 UTC: stop feature work and start stage 8. The documentation stage started on 2026-11-23, ahead of the freeze.

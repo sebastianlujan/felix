@@ -11,8 +11,7 @@
 - The plan's size concern is the relations. The largest in the upstream reference is `accumulateMemoryRelation`, at 169 lines.
 - The plan lists "Fe compiler crash or code size on the relations" as a risk.
 - The upstream reference keeps its relations in a separate library, `RelationsLib`.
-- The ZK flavor (ADR-0001) adds protocol steps on top of the shared relations. Their effect on size is unmeasured.
-- No size has been recorded in the project documents yet.
+- The ZK flavor (ADR-0001) adds protocol steps on top of the shared relations. When this record was written, no size had been measured.
 
 ## Decision
 
@@ -25,6 +24,24 @@
 | Fallback 2 | A second contract, `HonkRelations`, staticcalled by the verifier |
 
 Work pauses after stage 3 for the decision between a single contract and a split.
+
+## Outcome (2026-11-23)
+
+The relations are a second contract, `HonkRelations`, which `HonkVerifier` asks with a static call. This is fallback 2, and it mirrors the reference's linked `RelationsLib`.
+
+Measured with `fe` 26.6.0 (`fe build --contract <Name> -O <level>`; the size is half the length of the hex text in `out/<Name>.runtime.bin`):
+
+| Runtime size, bytes | `-O 1` | `-O 2` | `-O s` |
+|---|---|---|---|
+| `HonkVerifier` | 16,446 | 16,274 | 16,174 |
+| `HonkRelations` | 8,527 | 6,336 | 6,343 |
+| Both together | 24,973 | 22,610 | 22,517 |
+
+- Each contract is below the 24,576-byte limit at every level.
+- The reference is a 16,946-byte contract plus two linked libraries of 8,211 and 6,008 bytes.
+- The split was made when the relations were ported, on 2026-11-22. The repository records no size for a single Fe contract holding everything, and no use of the × ~4.5 projection. The sums in the last row only indicate what a single contract would weigh: above the limit at `-O 1`, below it at `-O 2` and `-O s`.
+- The call between the two contracts sends hand-built calldata. The typed message made the verifier 2,103 bytes larger at `-O 1`, measured before the opening was ported (`ultrahonk/README.md`).
+- No script enforces the limit. Sizes are read from the build by hand.
 
 ## Options Considered
 
@@ -70,15 +87,14 @@ The spike costs little and moves the answer to the point where it can still chan
 
 ## Consequences
 
-- Easier: the single-contract-or-split decision rests on a measured number.
-- Easier: the limit is enforced mechanically by a script.
-- Harder: the main line has a decision point after stage 3.
-- Harder: if the split is needed, the verifier gains a second deployment and a `staticcall`.
-- Revisit: the × ~4.5 projection once the ZK-specific steps have been sized.
+- Easier: the single-contract-or-split decision was meant to rest on a measured number. As built, the split came first and the measurements after (see Outcome).
+- Not reached: mechanical enforcement of the limit by a script.
+- Harder: the verifier has a second deployment and a static call. `HonkRelations` is deployed first, and its address is the constructor argument of `HonkVerifier`.
+- Revisit: a single contract at `-O 2` or `-O s`, which the sums suggest might fit. The repository has no such build.
 
 ## Action Items
 
-1. [ ] Stage 3: port `accumulateMemoryRelation`, check that it compiles and that slots 14–19 match the reference, and record the `runtime.bin` size at `-O 1`, `-O 2` and `-O s`.
-2. [ ] After stage 3: decide single contract or split, and record the measured sizes in this ADR.
-3. [ ] Stage 7: add the script that checks `.runtime.bin` against 24,576 bytes.
-4. [ ] Stage 8: run that script from `scripts/check.sh`.
+1. [x] Stage 3: port `accumulateMemoryRelation` and check that it compiles and that its slots match the reference. The memory relation was the first one ported. No size of it alone is recorded.
+2. [x] After stage 3: decide single contract or split, and record the measured sizes in this ADR. The split was made; the sizes are in Outcome.
+3. [ ] Stage 7: add the script that checks `.runtime.bin` against 24,576 bytes. Not done.
+4. [ ] Stage 8: run that script from `scripts/check.sh`. Not done: neither script was written.
