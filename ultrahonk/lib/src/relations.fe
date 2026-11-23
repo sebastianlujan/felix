@@ -1,0 +1,826 @@
+// The UltraHonk relations, evaluated at the sumcheck point.
+//
+// Port of `RelationsLib` in the Solidity verifier that Barretenberg 6.0.0 generates
+// with `-t evm`. Each relation reads the 41 entity evaluations and writes its
+// subrelations into fixed slots of a shared array of 31; the slots are not in call
+// order. `accumulate` runs all ten and batches the 31 values with powers of alpha.
+//
+// Inputs are expected to be reduced (< P), which the verifier's range checks and
+// challenge derivation guarantee. With an unreduced input the reference wraps inside
+// its subtraction, where `fr::sub` panics. Outputs are always reduced.
+//
+// The formulas are the reference's, written with fewer operations where it repeats
+// itself: a product it computes several times is computed once, `x * MINUS_ONE + ONE`
+// is `1 - x`, `x + (0 - k)` is `x - k`, and `s^5` takes three multiplications. Each
+// result is the same field element, so the same reduced word.
+use super::fr::{add, mul, sub}
+use super::relations_vectors::*
+use super::wire::*
+
+pub const NUMBER_OF_SUBRELATIONS: usize = 31
+
+/// Challenges and derived values shared by the relations.
+#[abi]
+pub struct RelationParameters {
+    pub eta: u256,
+    /// Additive offset of the ROM log-derivative argument.
+    pub rom_logup_gamma: u256,
+    pub beta: u256,
+    pub gamma: u256,
+    pub public_inputs_delta: u256,
+}
+
+/// Interface of a contract that evaluates the relations, for a verifier that keeps them
+/// in a separate contract to stay under the contract size limit. The calldata is 48
+/// static words after the selector: the 41 evaluations, the 5 parameters, alpha, pow.
+pub msg RelationsMsg {
+    #[selector = sol(
+        "accumulate(uint256[41],(uint256,uint256,uint256,uint256,uint256),uint256,uint256)",
+    )]
+    Accumulate {
+        evaluations: [u256; 41],
+        params: RelationParameters,
+        alpha: u256,
+        pow: u256,
+    } -> u256,
+}
+
+/// `-1/2` in the scalar field: `NEG_HALF_MODULO_P` of the reference.
+const NEG_HALF_MODULO_P: u256 = 0x183227397098d014dc2822db40c0ac2e9419f4243cdcb848a1f0fac9f8000000
+
+/// Arithmetic relation: slots 6 and 7.
+pub fn arithmetic(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    let q_arith = p[Q_ARITH]
+    let q_arith_by_scaling = mul(q_arith, pow)
+
+    // (q_arith - 3) * q_m * w_r * w_l * (-1/2) + q_l w_l + q_r w_r + q_o w_o + q_4 w_4 + q_c
+    //     + (q_arith - 1) * w_4_shift
+    var accum = mul(
+        mul(sub(q_arith, 3), mul(mul(p[Q_M], p[W_R]), p[W_L])),
+        NEG_HALF_MODULO_P,
+    )
+    accum = add(accum, mul(p[Q_L], p[W_L]))
+    accum = add(accum, mul(p[Q_R], p[W_R]))
+    accum = add(accum, mul(p[Q_O], p[W_O]))
+    accum = add(accum, mul(p[Q_4], p[W_4]))
+    accum = add(accum, p[Q_C])
+    accum = add(accum, mul(sub(q_arith, 1), p[W_4_SHIFT]))
+    evals[6] = mul(accum, q_arith_by_scaling)
+
+    // (w_l + w_4 - w_l_shift + q_m) * (q_arith - 2) * (q_arith - 1)
+    var accum_two = add(sub(add(p[W_L], p[W_4]), p[W_L_SHIFT]), p[Q_M])
+    accum_two = mul(accum_two, sub(q_arith, 2))
+    accum_two = mul(accum_two, sub(q_arith, 1))
+    evals[7] = mul(accum_two, q_arith_by_scaling)
+}
+
+/// (w_1 + s_1 beta + gamma) ... (w_4 + s_4 beta + gamma), where `s_1..s_4` are the four
+/// consecutive entities starting at `first`: the identity or the sigma polynomials.
+fn grand_product(p: [u256; 41], first: usize, rp: RelationParameters) -> u256 {
+    var product: u256 = 1
+    var i: usize = 0
+    while i < 4 {
+        product = mul(
+            product,
+            add(add(p[W_L + i], mul(p[first + i], rp.beta)), rp.gamma),
+        )
+        i += 1
+    }
+    product
+}
+
+/// Permutation relation: slots 0 to 2.
+pub fn permutation(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+    evals: mut [u256; NUMBER_OF_SUBRELATIONS],
+) {
+    let grand_product_numerator = grand_product(p, first: ID_1, rp)
+    let grand_product_denominator = grand_product(p, first: SIGMA_1, rp)
+
+    let acc = sub(
+        mul(
+            add(p[Z_PERM], p[LAGRANGE_FIRST]),
+            grand_product_numerator,
+        ),
+        mul(
+            add(
+                p[Z_PERM_SHIFT],
+                mul(p[LAGRANGE_LAST], rp.public_inputs_delta),
+            ),
+            grand_product_denominator,
+        ),
+    )
+    evals[0] = mul(acc, pow)
+    evals[1] = mul(mul(p[LAGRANGE_LAST], p[Z_PERM_SHIFT]), pow)
+    // z_perm initialization check: lagrange_first * z_perm = 0
+    evals[2] = mul(mul(p[LAGRANGE_FIRST], p[Z_PERM]), pow)
+}
+
+/// Log-derivative lookup relation: slots 3 to 5.
+pub fn lookup(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+    evals: mut [u256; NUMBER_OF_SUBRELATIONS],
+) {
+    let beta = rp.beta
+    let beta_sqr = mul(beta, beta)
+    let beta_cube = mul(beta_sqr, beta)
+
+    // Write term: table_1 + gamma + table_2 * beta + table_3 * beta^2 + table_4 * beta^3
+    var table_term = add(p[TABLE_1], rp.gamma)
+    table_term = add(table_term, mul(p[TABLE_2], beta))
+    table_term = add(table_term, mul(p[TABLE_3], beta_sqr))
+    table_term = add(table_term, mul(p[TABLE_4], beta_cube))
+
+    // Read term: entry_1 + gamma + entry_2 * beta + entry_3 * beta^2 + q_o * beta^3
+    let derived_entry_1 = add(add(p[W_L], rp.gamma), mul(p[Q_R], p[W_L_SHIFT]))
+    let derived_entry_2 = add(p[W_R], mul(p[Q_M], p[W_R_SHIFT]))
+    let derived_entry_3 = add(p[W_O], mul(p[Q_C], p[W_O_SHIFT]))
+    var lookup_term = add(derived_entry_1, mul(derived_entry_2, beta))
+    lookup_term = add(lookup_term, mul(derived_entry_3, beta_sqr))
+    lookup_term = add(lookup_term, mul(p[Q_O], beta_cube))
+
+    let inverses = p[LOOKUP_INVERSES]
+    let lookup_inverse = mul(inverses, table_term)
+    let table_inverse = mul(inverses, lookup_term)
+
+    let read_tag = p[LOOKUP_READ_TAGS]
+    let q_lookup = p[Q_LOOKUP]
+    let inverse_exists_xor = sub(add(read_tag, q_lookup), mul(read_tag, q_lookup))
+
+    // The inverse is correct wherever it is needed.
+    evals[3] = mul(
+        sub(
+            mul(mul(lookup_term, table_term), inverses),
+            inverse_exists_xor,
+        ),
+        pow,
+    )
+    // The log-derivative sum. It holds over the whole trace, not row by row, so the
+    // reference does not scale it by the domain separator.
+    evals[4] = sub(
+        mul(q_lookup, lookup_inverse),
+        mul(p[LOOKUP_READ_COUNTS], table_inverse),
+    )
+    // The read tag is boolean.
+    evals[5] = mul(sub(mul(read_tag, read_tag), read_tag), pow)
+}
+
+/// delta * (delta - 1) * (delta - 2) * (delta - 3): zero when `delta` is 0, 1, 2 or 3.
+fn range_product(_ delta: u256) -> u256 {
+    var acc = mul(delta, sub(delta, 1))
+    acc = mul(acc, sub(delta, 2))
+    mul(acc, sub(delta, 3))
+}
+
+/// Delta range relation: slots 8 to 11.
+pub fn delta_range(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    let q_range_by_scaling = mul(p[Q_RANGE], pow)
+    evals[8] = mul(range_product(sub(p[W_R], p[W_L])), q_range_by_scaling)
+    evals[9] = mul(range_product(sub(p[W_O], p[W_R])), q_range_by_scaling)
+    evals[10] = mul(range_product(sub(p[W_4], p[W_O])), q_range_by_scaling)
+    evals[11] = mul(
+        range_product(sub(p[W_L_SHIFT], p[W_4])),
+        q_range_by_scaling,
+    )
+}
+
+/// `-b` for Grumpkin's `y^2 = x^3 + b`, with `b = -17`: `GRUMPKIN_CURVE_B_PARAMETER_NEGATED`
+/// of the reference.
+const GRUMPKIN_CURVE_B_PARAMETER_NEGATED: u256 = 17
+
+/// Elliptic curve relation (point addition and doubling on Grumpkin): slots 12 and 13.
+pub fn elliptic(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    let x_1 = p[W_R]
+    let y_1 = p[W_O]
+    let x_2 = p[W_L_SHIFT]
+    let y_2 = p[W_4_SHIFT]
+    let x_3 = p[W_R_SHIFT]
+    let y_3 = p[W_O_SHIFT]
+    let q_sign = p[Q_L]
+    let q_is_double = p[Q_M]
+
+    let q_elliptic_by_scaling = mul(p[Q_ELLIPTIC], pow)
+    let q_add = mul(q_elliptic_by_scaling, sub(1, q_is_double))
+    let q_double = mul(q_elliptic_by_scaling, q_is_double)
+
+    let x_diff = sub(x_2, x_1)
+    let y1_sqr = mul(y_1, y_1)
+
+    // Addition, x: (x3 + x2 + x1)(x2 - x1)^2 - y2^2 - y1^2 + 2 * y1 * y2 * q_sign = 0
+    let y1y2 = mul(mul(y_1, y_2), q_sign)
+    var x_add_identity = mul(mul(add(add(x_3, x_2), x_1), x_diff), x_diff)
+    x_add_identity = sub(sub(x_add_identity, mul(y_2, y_2)), y1_sqr)
+    x_add_identity = add(add(x_add_identity, y1y2), y1y2)
+
+    // Addition, y: (y1 + y3)(x2 - x1) + (x3 - x1)(y2 * q_sign - y1) = 0
+    let y_diff = sub(mul(y_2, q_sign), y_1)
+    let y_add_identity = add(mul(add(y_1, y_3), x_diff), mul(sub(x_3, x_1), y_diff))
+
+    // Doubling, x: (x3 + 2 * x1) * 4 * y1^2 - 9 * x1^4 = 0, with x1^3 = y1^2 - b.
+    let x_pow_4 = mul(add(y1_sqr, GRUMPKIN_CURVE_B_PARAMETER_NEGATED), x_1)
+    var y1_sqr_mul_4 = add(y1_sqr, y1_sqr)
+    y1_sqr_mul_4 = add(y1_sqr_mul_4, y1_sqr_mul_4)
+    let x_double_identity = sub(
+        mul(add(add(x_3, x_1), x_1), y1_sqr_mul_4),
+        mul(x_pow_4, 9),
+    )
+
+    // Doubling, y: 3 * x1^2 * (x1 - x3) - 2 * y1 * (y1 + y3) = 0
+    let x1_sqr_mul_3 = mul(add(add(x_1, x_1), x_1), x_1)
+    let y_double_identity = sub(
+        mul(x1_sqr_mul_3, sub(x_1, x_3)),
+        mul(add(y_1, y_1), add(y_1, y_3)),
+    )
+
+    evals[12] = add(
+        mul(x_add_identity, q_add),
+        mul(x_double_identity, q_double),
+    )
+    evals[13] = add(
+        mul(y_add_identity, q_add),
+        mul(y_double_identity, q_double),
+    )
+}
+
+/// RAM/ROM memory relation: slots 14 to 19.
+///
+/// Gate layout: `w1` index, `w2` timestamp (RAM) or second value (ROM), `w3` value,
+/// `w4` record, `q_c` access type (RAM only).
+pub fn memory(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+    evals: mut [u256; NUMBER_OF_SUBRELATIONS],
+) {
+    let eta = rp.eta
+    let eta_two = mul(eta, eta)
+    let eta_three = mul(eta_two, eta)
+    let q_memory_by_scaling = mul(p[Q_MEMORY], pow)
+
+    // Record check: q_c + w1 * eta + w2 * eta^2 + w3 * eta^3 - w4 = 0.
+    var memory_record_check = mul(p[W_O], eta_three)
+    memory_record_check = add(memory_record_check, mul(p[W_R], eta_two))
+    memory_record_check = add(memory_record_check, mul(p[W_L], eta))
+    memory_record_check = add(memory_record_check, p[Q_C])
+    let partial_record_check = memory_record_check
+    memory_record_check = sub(memory_record_check, p[W_4])
+
+    // ROM consistency: in the sorted records, indices increase by 0 or 1, and
+    // records with the same index are equal.
+    let index_delta = sub(p[W_L_SHIFT], p[W_L])
+    let record_delta = sub(p[W_4_SHIFT], p[W_4])
+    let index_is_monotonically_increasing = mul(index_delta, sub(index_delta, 1))
+    let indices_match = sub(1, index_delta)
+    let adjacent_values_match_if_adjacent_indices_match = mul(indices_match, record_delta)
+
+    let q_l_by_q_r = mul(p[Q_L], p[Q_R])
+    evals[15] = mul(
+        mul(
+            adjacent_values_match_if_adjacent_indices_match,
+            q_l_by_q_r,
+        ),
+        q_memory_by_scaling,
+    )
+    evals[16] = mul(
+        mul(index_is_monotonically_increasing, q_l_by_q_r),
+        q_memory_by_scaling,
+    )
+    let rom_consistency_check_identity = mul(memory_record_check, q_l_by_q_r)
+
+    // RAM consistency: the access type `w4 - partial_record_check` is boolean, and two
+    // adjacent records with the same index hold the same value when the next one is a read.
+    let access_type = sub(p[W_4], partial_record_check)
+    let access_check = mul(access_type, sub(access_type, 1))
+
+    var next_gate_access_type = mul(p[W_O_SHIFT], eta_three)
+    next_gate_access_type = add(next_gate_access_type, mul(p[W_R_SHIFT], eta_two))
+    next_gate_access_type = add(next_gate_access_type, mul(p[W_L_SHIFT], eta))
+    next_gate_access_type = sub(p[W_4_SHIFT], next_gate_access_type)
+
+    let value_delta = sub(p[W_O_SHIFT], p[W_O])
+    let adjacent_values_match_if_adjacent_indices_match_and_next_access_is_a_read_operation = mul(
+        mul(indices_match, value_delta),
+        sub(1, next_gate_access_type),
+    )
+    // The last sorted record has no successor to run the check above against, so the
+    // next gate's access type is constrained to be boolean as well.
+    let next_gate_access_type_is_boolean = sub(
+        mul(next_gate_access_type, next_gate_access_type),
+        next_gate_access_type,
+    )
+
+    let q_o_by_scaling = mul(p[Q_O], q_memory_by_scaling)
+    evals[17] = mul(
+        adjacent_values_match_if_adjacent_indices_match_and_next_access_is_a_read_operation,
+        q_o_by_scaling,
+    )
+    evals[18] = mul(index_is_monotonically_increasing, q_o_by_scaling)
+    evals[19] = mul(next_gate_access_type_is_boolean, q_o_by_scaling)
+    let ram_consistency_check_identity = mul(access_check, p[Q_O])
+
+    // RAM timestamp check: (1 - index_delta) * timestamp_delta - w3 = 0.
+    let timestamp_delta = sub(p[W_R_SHIFT], p[W_R])
+    let ram_timestamp_check_identity = sub(mul(indices_match, timestamp_delta), p[W_O])
+
+    var memory_identity = rom_consistency_check_identity
+    memory_identity = add(
+        memory_identity,
+        mul(ram_timestamp_check_identity, mul(p[Q_4], p[Q_L])),
+    )
+    memory_identity = add(
+        memory_identity,
+        mul(memory_record_check, mul(p[Q_M], p[Q_L])),
+    )
+    memory_identity = add(memory_identity, ram_consistency_check_identity)
+    evals[14] = mul(memory_identity, q_memory_by_scaling)
+}
+
+/// ROM log-derivative relation (single-value ROM tables): slots 20 and 21.
+///
+/// Row layout: `w1` index, `w2` value, `w3` read count, `w4` inverse, `q_c` array id.
+/// `q_r * (1 - q_l)` marks a table entry and `q_4 * (1 - q_l)` a read.
+pub fn rom_logup(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+    evals: mut [u256; NUMBER_OF_SUBRELATIONS],
+) {
+    let eta_two = mul(rp.eta, rp.eta)
+    let not_q_l = sub(1, p[Q_L])
+    let q_logup_table = mul(p[Q_R], not_q_l)
+    let q_logup_read = mul(p[Q_4], not_q_l)
+
+    var denom = add(rp.rom_logup_gamma, p[W_L])
+    denom = add(denom, mul(p[W_R], rp.eta))
+    denom = add(denom, mul(p[Q_C], eta_two))
+
+    // The inverse is correct on every table and read row.
+    evals[20] = mul(
+        mul(
+            add(q_logup_table, q_logup_read),
+            sub(mul(p[W_4], denom), 1),
+        ),
+        mul(p[Q_MEMORY], pow),
+    )
+    // The log-derivative sum. It holds over the whole trace, not row by row, so the
+    // reference does not scale it by the domain separator.
+    evals[21] = mul(
+        mul(sub(q_logup_read, mul(q_logup_table, p[W_O])), p[W_4]),
+        p[Q_MEMORY],
+    )
+}
+
+/// Limb size of the non-native field relation: `LIMB_SIZE` of the reference.
+const LIMB_SIZE: u256 = 1 << 68
+
+/// Sublimb size of the non-native field relation: `SUBLIMB_SHIFT` of the reference.
+const SUBLIMB_SHIFT: u256 = 1 << 14
+
+/// `acc * 2^14 + sublimb`: one step of joining 14-bit sublimbs.
+fn push_sublimb(_ acc: u256, _ sublimb: u256) -> u256 {
+    add(mul(acc, SUBLIMB_SHIFT), sublimb)
+}
+
+/// Non-native field relation: slot 22.
+pub fn non_native_field(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    // Gate 2: ((w_l * w_4 + w_r * w_o - w_o_shift) * 2^68 - w_4_shift + limb_subproduct) * q_4
+    var limb_subproduct = add(mul(p[W_L], p[W_R_SHIFT]), mul(p[W_L_SHIFT], p[W_R]))
+    var non_native_field_gate_2 = sub(
+        add(mul(p[W_L], p[W_4]), mul(p[W_R], p[W_O])),
+        p[W_O_SHIFT],
+    )
+    non_native_field_gate_2 = mul(non_native_field_gate_2, LIMB_SIZE)
+    non_native_field_gate_2 = sub(non_native_field_gate_2, p[W_4_SHIFT])
+    non_native_field_gate_2 = add(non_native_field_gate_2, limb_subproduct)
+    non_native_field_gate_2 = mul(non_native_field_gate_2, p[Q_4])
+
+    limb_subproduct = mul(limb_subproduct, LIMB_SIZE)
+    limb_subproduct = add(limb_subproduct, mul(p[W_L_SHIFT], p[W_R_SHIFT]))
+
+    let non_native_field_gate_1 = mul(sub(limb_subproduct, add(p[W_O], p[W_4])), p[Q_O])
+    let non_native_field_gate_3 = mul(
+        sub(
+            add(limb_subproduct, p[W_4]),
+            add(p[W_O_SHIFT], p[W_4_SHIFT]),
+        ),
+        p[Q_M],
+    )
+
+    var non_native_field_identity = add(non_native_field_gate_1, non_native_field_gate_2)
+    non_native_field_identity = add(non_native_field_identity, non_native_field_gate_3)
+    non_native_field_identity = mul(non_native_field_identity, p[Q_R])
+
+    // ((((w_r_shift * 2^14 + w_l_shift) * 2^14 + w_o) * 2^14 + w_r) * 2^14 + w_l - w_4) * q_4
+    var limb_accumulator_1 = push_sublimb(p[W_R_SHIFT], p[W_L_SHIFT])
+    limb_accumulator_1 = push_sublimb(limb_accumulator_1, p[W_O])
+    limb_accumulator_1 = push_sublimb(limb_accumulator_1, p[W_R])
+    limb_accumulator_1 = push_sublimb(limb_accumulator_1, p[W_L])
+    limb_accumulator_1 = mul(sub(limb_accumulator_1, p[W_4]), p[Q_4])
+
+    // ((((w_o_shift * 2^14 + w_r_shift) * 2^14 + w_l_shift) * 2^14 + w_4) * 2^14 + w_o
+    //     - w_4_shift) * q_m
+    var limb_accumulator_2 = push_sublimb(p[W_O_SHIFT], p[W_R_SHIFT])
+    limb_accumulator_2 = push_sublimb(limb_accumulator_2, p[W_L_SHIFT])
+    limb_accumulator_2 = push_sublimb(limb_accumulator_2, p[W_4])
+    limb_accumulator_2 = push_sublimb(limb_accumulator_2, p[W_O])
+    limb_accumulator_2 = mul(sub(limb_accumulator_2, p[W_4_SHIFT]), p[Q_M])
+
+    let limb_accumulator_identity = mul(add(limb_accumulator_1, limb_accumulator_2), p[Q_O])
+
+    evals[22] = mul(
+        add(non_native_field_identity, limb_accumulator_identity),
+        mul(p[Q_NNF], pow),
+    )
+}
+
+/// `x^5`, the Poseidon2 S-box.
+fn pow5(_ x: u256) -> u256 {
+    let x_sqr = mul(x, x)
+    mul(mul(x_sqr, x_sqr), x)
+}
+
+/// Poseidon2 external round relation: slots 23 to 26. It adds to its slots, as the
+/// reference does.
+pub fn poseidon2_external(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    // Add the round constants (held in the selectors) and apply the S-box.
+    let u1 = pow5(add(p[W_L], p[Q_L]))
+    let u2 = pow5(add(p[W_R], p[Q_R]))
+    let u3 = pow5(add(p[W_O], p[Q_O]))
+    let u4 = pow5(add(p[W_4], p[Q_4]))
+
+    // v = M_E * u, the external matrix, in 14 additions.
+    let t0 = add(u1, u2)
+    let t1 = add(u3, u4)
+    let t2 = add(add(u2, u2), t1)
+    let t3 = add(add(u4, u4), t0)
+    var v4 = add(t1, t1)
+    v4 = add(add(v4, v4), t3)
+    var v2 = add(t0, t0)
+    v2 = add(add(v2, v2), t2)
+    let v1 = add(t3, v2)
+    let v3 = add(t2, v4)
+
+    let q_pos_by_scaling = mul(p[Q_POSEIDON2_EXTERNAL], pow)
+    evals[23] = add(evals[23], mul(q_pos_by_scaling, sub(v1, p[W_L_SHIFT])))
+    evals[24] = add(evals[24], mul(q_pos_by_scaling, sub(v2, p[W_R_SHIFT])))
+    evals[25] = add(evals[25], mul(q_pos_by_scaling, sub(v3, p[W_O_SHIFT])))
+    evals[26] = add(evals[26], mul(q_pos_by_scaling, sub(v4, p[W_4_SHIFT])))
+}
+
+/// `INTERNAL_MATRIX_DIAGONAL` of the reference: the factor `d_i` of the Poseidon2 internal
+/// matrix product `v_i = u_i * d_i + (u_1 + u_2 + u_3 + u_4)`.
+const INTERNAL_MATRIX_DIAGONAL: [u256; 4] = [
+    0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7,
+    0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b,
+    0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15,
+    0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b,
+]
+
+/// Poseidon2 internal round relation: slots 27 to 30. It adds to its slots, as the
+/// reference does.
+pub fn poseidon2_internal(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    // Only the first element gets a round constant and the S-box.
+    let u1 = pow5(add(p[W_L], p[Q_L]))
+    let u2 = p[W_R]
+    let u3 = p[W_O]
+    let u4 = p[W_4]
+
+    // v = M_I * u, the internal matrix.
+    let u_sum = add(add(add(u1, u2), u3), u4)
+    let v1 = add(mul(u1, INTERNAL_MATRIX_DIAGONAL[0]), u_sum)
+    let v2 = add(mul(u2, INTERNAL_MATRIX_DIAGONAL[1]), u_sum)
+    let v3 = add(mul(u3, INTERNAL_MATRIX_DIAGONAL[2]), u_sum)
+    let v4 = add(mul(u4, INTERNAL_MATRIX_DIAGONAL[3]), u_sum)
+
+    let q_pos_by_scaling = mul(p[Q_POSEIDON2_INTERNAL], pow)
+    evals[27] = add(evals[27], mul(q_pos_by_scaling, sub(v1, p[W_L_SHIFT])))
+    evals[28] = add(evals[28], mul(q_pos_by_scaling, sub(v2, p[W_R_SHIFT])))
+    evals[29] = add(evals[29], mul(q_pos_by_scaling, sub(v3, p[W_O_SHIFT])))
+    evals[30] = add(evals[30], mul(q_pos_by_scaling, sub(v4, p[W_4_SHIFT])))
+}
+
+/// The 31 subrelations: the ten relations run in the reference's order on one array.
+pub fn subrelations(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+) -> [u256; NUMBER_OF_SUBRELATIONS] {
+    var evals: [u256; NUMBER_OF_SUBRELATIONS] = [0; NUMBER_OF_SUBRELATIONS]
+    arithmetic(p, pow, evals: mut evals)
+    permutation(p, rp, pow, evals: mut evals)
+    lookup(p, rp, pow, evals: mut evals)
+    delta_range(p, pow, evals: mut evals)
+    elliptic(p, pow, evals: mut evals)
+    memory(p, rp, pow, evals: mut evals)
+    rom_logup(p, rp, pow, evals: mut evals)
+    non_native_field(p, pow, evals: mut evals)
+    poseidon2_external(p, pow, evals: mut evals)
+    poseidon2_internal(p, pow, evals: mut evals)
+    evals
+}
+
+/// `evals[0] + evals[1] * alpha + ... + evals[30] * alpha^30`.
+///
+/// `scaleAndBatchSubrelations` of the reference, which receives the powers of alpha
+/// precomputed by its transcript instead of alpha.
+pub fn batch(evals: [u256; NUMBER_OF_SUBRELATIONS], alpha: u256) -> u256 {
+    var accumulator = evals[0]
+    var alpha_power = alpha
+    var i: usize = 1
+    while i < NUMBER_OF_SUBRELATIONS {
+        accumulator = add(accumulator, mul(evals[i], alpha_power))
+        alpha_power = mul(alpha_power, alpha)
+        i += 1
+    }
+    accumulator
+}
+
+/// The full Honk relation at the sumcheck point: `accumulateRelationEvaluations` of the
+/// reference. `evaluations[e]` is the evaluation of entity `e` (see `wire.fe`) and `pow`
+/// the partial evaluation of the pow polynomial after the last sumcheck round.
+pub fn accumulate(
+    evaluations: [u256; 41],
+    params: RelationParameters,
+    alpha: u256,
+    pow: u256,
+) -> u256 {
+    batch(
+        evals: subrelations(p: evaluations, rp: params, pow),
+        alpha,
+    )
+}
+
+fn proof_params() -> RelationParameters {
+    RelationParameters {
+        eta: PROOF_ETA,
+        rom_logup_gamma: PROOF_ROM_LOGUP_GAMMA,
+        beta: PROOF_BETA,
+        gamma: PROOF_GAMMA,
+        public_inputs_delta: PROOF_PUBLIC_INPUTS_DELTA,
+    }
+}
+
+fn synth_params() -> RelationParameters {
+    RelationParameters {
+        eta: SYNTH_ETA,
+        rom_logup_gamma: SYNTH_ROM_LOGUP_GAMMA,
+        beta: SYNTH_BETA,
+        gamma: SYNTH_GAMMA,
+        public_inputs_delta: SYNTH_PUBLIC_INPUTS_DELTA,
+    }
+}
+
+/// True if `evals` holds `expected` in slots `first..end` and zero in every other slot:
+/// what a relation run alone on a zeroed array must leave.
+fn only_slots(_ evals: [u256; 31], expected: [u256; 31], first: usize, end: usize) -> bool {
+    var i: usize = 0
+    while i < NUMBER_OF_SUBRELATIONS {
+        let want = if i >= first && i < end {
+            expected[i]
+        } else {
+            0
+        }
+        if evals[i] != want {
+            return false
+        }
+        i += 1
+    }
+    true
+}
+
+fn proof_only(_ evals: [u256; 31], first: usize, end: usize) -> bool {
+    only_slots(evals, expected: PROOF_SUBRELATIONS, first, end)
+}
+
+fn synth_only(_ evals: [u256; 31], first: usize, end: usize) -> bool {
+    only_slots(evals, expected: SYNTH_SUBRELATIONS, first, end)
+}
+
+// One test per relation: run alone on a zeroed array, it leaves the reference's values
+// in its own slots and nothing elsewhere, for the synthetic inputs (every slot non-zero)
+// and for the pinned proof (slots 8 to 30 are zero).
+
+#[test]
+fn test_arithmetic_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    arithmetic(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 6, end: 8))
+
+    var proof: [u256; 31] = [0; 31]
+    arithmetic(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 6, end: 8))
+}
+
+#[test]
+fn test_permutation_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    permutation(
+        p: SYNTH_EVALS,
+        rp: synth_params(),
+        pow: SYNTH_POW,
+        evals: mut synth,
+    )
+    assert!(synth_only(synth, first: 0, end: 3))
+
+    var proof: [u256; 31] = [0; 31]
+    permutation(
+        p: PROOF_EVALS,
+        rp: proof_params(),
+        pow: PROOF_POW,
+        evals: mut proof,
+    )
+    assert!(proof_only(proof, first: 0, end: 3))
+}
+
+#[test]
+fn test_lookup_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    lookup(
+        p: SYNTH_EVALS,
+        rp: synth_params(),
+        pow: SYNTH_POW,
+        evals: mut synth,
+    )
+    assert!(synth_only(synth, first: 3, end: 6))
+
+    var proof: [u256; 31] = [0; 31]
+    lookup(
+        p: PROOF_EVALS,
+        rp: proof_params(),
+        pow: PROOF_POW,
+        evals: mut proof,
+    )
+    assert!(proof_only(proof, first: 3, end: 6))
+}
+
+#[test]
+fn test_delta_range_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    delta_range(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 8, end: 12))
+
+    var proof: [u256; 31] = [0; 31]
+    delta_range(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 8, end: 12))
+}
+
+#[test]
+fn test_elliptic_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    elliptic(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 12, end: 14))
+
+    var proof: [u256; 31] = [0; 31]
+    elliptic(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 12, end: 14))
+}
+
+#[test]
+fn test_rom_logup_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    rom_logup(
+        p: SYNTH_EVALS,
+        rp: synth_params(),
+        pow: SYNTH_POW,
+        evals: mut synth,
+    )
+    assert!(synth_only(synth, first: 20, end: 22))
+
+    var proof: [u256; 31] = [0; 31]
+    rom_logup(
+        p: PROOF_EVALS,
+        rp: proof_params(),
+        pow: PROOF_POW,
+        evals: mut proof,
+    )
+    assert!(proof_only(proof, first: 20, end: 22))
+}
+
+#[test]
+fn test_non_native_field_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    non_native_field(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 22, end: 23))
+
+    var proof: [u256; 31] = [0; 31]
+    non_native_field(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 22, end: 23))
+}
+
+#[test]
+fn test_memory_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    memory(
+        p: SYNTH_EVALS,
+        rp: synth_params(),
+        pow: SYNTH_POW,
+        evals: mut synth,
+    )
+    assert!(synth_only(synth, first: 14, end: 20))
+
+    var proof: [u256; 31] = [0; 31]
+    memory(
+        p: PROOF_EVALS,
+        rp: proof_params(),
+        pow: PROOF_POW,
+        evals: mut proof,
+    )
+    assert!(proof_only(proof, first: 14, end: 20))
+}
+
+#[test]
+fn test_poseidon2_external_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    poseidon2_external(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 23, end: 27))
+
+    var proof: [u256; 31] = [0; 31]
+    poseidon2_external(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 23, end: 27))
+}
+
+#[test]
+fn test_poseidon2_internal_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    poseidon2_internal(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 27, end: 31))
+
+    var proof: [u256; 31] = [0; 31]
+    poseidon2_internal(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 27, end: 31))
+}
+
+// The ten relations together: every slot, the batched value, and a tampered evaluation.
+
+#[test]
+fn test_subrelations_match_reference() {
+    assert!(
+        subrelations(p: SYNTH_EVALS, rp: synth_params(), pow: SYNTH_POW) == SYNTH_SUBRELATIONS,
+    )
+    assert!(
+        subrelations(p: PROOF_EVALS, rp: proof_params(), pow: PROOF_POW) == PROOF_SUBRELATIONS,
+    )
+}
+
+#[test]
+fn test_batch_matches_reference() {
+    assert!(
+        batch(evals: SYNTH_SUBRELATIONS, alpha: SYNTH_ALPHA) == SYNTH_BATCHED,
+    )
+    assert!(
+        batch(evals: PROOF_SUBRELATIONS, alpha: PROOF_ALPHA) == PROOF_BATCHED,
+    )
+}
+
+#[test]
+fn test_accumulate_matches_reference() {
+    assert!(
+        accumulate(
+                evaluations: SYNTH_EVALS,
+                params: synth_params(),
+                alpha: SYNTH_ALPHA,
+                pow: SYNTH_POW,
+            )
+            == SYNTH_BATCHED,
+    )
+    assert!(
+        accumulate(
+                evaluations: PROOF_EVALS,
+                params: proof_params(),
+                alpha: PROOF_ALPHA,
+                pow: PROOF_POW,
+            )
+            == PROOF_BATCHED,
+    )
+}
+
+// Adding one to a single evaluation gives the value the reference gives for the same
+// change, which is not the value of the untouched inputs.
+#[test]
+fn test_accumulate_follows_a_changed_evaluation() {
+    var synth = SYNTH_EVALS
+    synth[TAMPERED_ENTITY] = add(synth[TAMPERED_ENTITY], 1)
+    let synth_result = accumulate(
+        evaluations: synth,
+        params: synth_params(),
+        alpha: SYNTH_ALPHA,
+        pow: SYNTH_POW,
+    )
+    assert!(synth_result == SYNTH_BATCHED_TAMPERED)
+    assert!(synth_result != SYNTH_BATCHED)
+
+    var proof = PROOF_EVALS
+    proof[TAMPERED_ENTITY] = add(proof[TAMPERED_ENTITY], 1)
+    let proof_result = accumulate(
+        evaluations: proof,
+        params: proof_params(),
+        alpha: PROOF_ALPHA,
+        pow: PROOF_POW,
+    )
+    assert!(proof_result == PROOF_BATCHED_TAMPERED)
+    assert!(proof_result != PROOF_BATCHED)
+}

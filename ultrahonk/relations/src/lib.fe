@@ -1,0 +1,82 @@
+// The UltraHonk relations as a contract of their own.
+//
+// The Solidity verifier that Barretenberg generates links its relations as a separate
+// library because one contract holding everything exceeds the 24,576-byte code size
+// limit. This contract is the same split for the Fe port: a verifier sends it the
+// sumcheck evaluations and the challenges, and gets the batched relation value back.
+// It keeps no state.
+use std::evm::Evm
+use std::evm::packed::Packed
+use ultrahonk::relations::{RelationParameters, RelationsMsg, accumulate}
+use ultrahonk::relations_vectors::*
+
+pub contract HonkRelations {
+    recv RelationsMsg {
+        Accumulate { evaluations, params, alpha, pow } -> u256 {
+            accumulate(evaluations, params, alpha, pow)
+        }
+    }
+}
+
+// `cast sig` (cast 1.5.1) of
+// accumulate(uint256[41],(uint256,uint256,uint256,uint256,uint256),uint256,uint256)
+const ACCUMULATE_SELECTOR: u32 = 0x55d66ca0
+
+// The deployed contract, called through the typed message, returns the reference's
+// value for the pinned proof.
+#[test]
+fn test_contract_accumulates_pinned_proof() uses (evm: mut Evm) {
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    let result: u256 = evm
+        .call(
+            addr: relations,
+            gas: 1000000,
+            value: Wei::zero(),
+            message: RelationsMsg::Accumulate {
+                evaluations: PROOF_EVALS,
+                params: RelationParameters {
+                    eta: PROOF_ETA,
+                    rom_logup_gamma: PROOF_ROM_LOGUP_GAMMA,
+                    beta: PROOF_BETA,
+                    gamma: PROOF_GAMMA,
+                    public_inputs_delta: PROOF_PUBLIC_INPUTS_DELTA,
+                },
+                alpha: PROOF_ALPHA,
+                pow: PROOF_POW,
+            },
+        )
+    assert!(result == PROOF_BATCHED)
+}
+
+// The wire format, built by hand: the selector, then 48 static words (41 evaluations,
+// the 5 parameters, alpha, pow). The synthetic inputs make every subrelation non-zero.
+#[test]
+fn test_contract_takes_48_words_after_the_selector() uses (evm: mut Evm) {
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    var calldata = Packed::with_capacity(bytes: 4 + 48 * 32)
+    calldata.u32(ACCUMULATE_SELECTOR)
+    for evaluation in SYNTH_EVALS {
+        calldata.u256(evaluation)
+    }
+    calldata.u256(SYNTH_ETA)
+    calldata.u256(SYNTH_ROM_LOGUP_GAMMA)
+    calldata.u256(SYNTH_BETA)
+    calldata.u256(SYNTH_GAMMA)
+    calldata.u256(SYNTH_PUBLIC_INPUTS_DELTA)
+    calldata.u256(SYNTH_ALPHA)
+    calldata.u256(SYNTH_POW)
+    assert!(calldata.len() == 1540)
+
+    let outcome = evm
+        .try_call_raw(
+            addr: relations,
+            gas: 1000000,
+            value: Wei::zero(),
+            args: calldata.span(),
+        )
+    assert!(outcome.success())
+    assert!(outcome.returndata_len() == 32)
+    assert!(
+        Bytes::from_payload(source: outcome.returndata()).word_at(0) == SYNTH_BATCHED,
+    )
+}
