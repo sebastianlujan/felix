@@ -438,6 +438,17 @@ fn test_scalars_beyond_the_msm_stay_zero() {
     }
 }
 
+// selector of InvertOfZero(). The reference was not made to raise it: its challenges are
+// hashes. Here the Shplonk challenge is replaced by the Gemini challenge, so `z - r` is zero.
+#[test(should_revert, selector = 0xb2c952e2)]
+fn test_scalars_revert_on_a_zero_denominator() {
+    let pinned = proof()
+    var t = generate(vk: VK, pinned, public_inputs())
+    t.shplonk_z = t.gemini_r
+    var out: [u256; MAX_SLOTS] = [0; MAX_SLOTS]
+    scalars(pinned, t, log_n: LOG_N, out: mut out)
+}
+
 #[test]
 fn test_commitment_of_every_slot_matches_reference() {
     let pinned = proof()
