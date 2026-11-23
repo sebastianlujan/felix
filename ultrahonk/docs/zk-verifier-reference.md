@@ -11,7 +11,7 @@ What the Fe port reproduces, extracted from the verifier that Barretenberg 6.0.0
 | Public inputs | `[9, 0xc0ffe]` (y, recipient) |
 | Proof | 142 words = 4,544 bytes |
 | `VK_HASH` | `0x03e0d5e7c5aee8b953749c3240e058d6ab8ac1735bec103038e76b3c008bbf1c` |
-| Pairing limbs in the pinned proof | all zero (only the skip-aggregation branch is exercised) |
+| Pairing limbs in the pinned proof | all zero: the pinned proofs exercise only the skip-aggregation branch. Garaga's `recursive` proof, in the library tests, exercises the other |
 | Proving | randomized: `bb prove -t evm` gives a different valid proof each run; `vectors/proof` is pinned |
 
 ## Constants
@@ -156,7 +156,7 @@ Observed on proofs built from a rule: the all-zero proof of the right length →
 | Off-curve points | A failed precompile call consumes the gas forwarded to it, so the reference can revert with empty data instead of `ShpleminiFailed` | The first failed call reverts with `ShpleminiFailed()`. For proof word 138 the two verifiers therefore differ, and the Fe tests assert `ShpleminiFailed()` |
 | Consistency check cost | 256 modular inversions, most multiplied by zero: only indices 0..9L of the Lagrange array are non-zero, and the denominator of index 255 is used on its own, for the last Lagrange polynomial | `consistency::check` makes the 9L + 2 inversions that are used (`evaluate_sparse`): 47 for this circuit, and one more for 1/256. `evaluate`, with the 256 inversions, is kept for the tests, which show that both give the same values on the pinned proof, four tampered proofs and synthetic proofs at L = 1, 5 and 25 |
 | Gas for a valid proof | 2,654,961 (forge gas report, `../README.md`) | 1,152,338 at `-O 1` (`../README.md`) |
-| Branches no proof reaches | Aggregation with non-zero limbs, `PointAtInfinity`, `InvertOfZero`, `GeminiChallengeInSubgroup` and `NotPowerOfTwo` were read on the reference. Later the aggregation was run on it with limbs put in place of the zeros (`lib/src/opening_vectors.fe`) | Library tests cover the aggregation against those values, and trigger `PointAtInfinity`, `InvertOfZero` and `GeminiChallengeInSubgroup`. `NotPowerOfTwo` is never raised: `r^256` is computed by eight squarings |
+| Branches no proof reaches | Aggregation with non-zero limbs, `PointAtInfinity`, `InvertOfZero`, `GeminiChallengeInSubgroup` and `NotPowerOfTwo` were read on the reference. Later the aggregation was run on it with limbs put in place of the zeros (`lib/src/opening_vectors.fe`) | Library tests cover the aggregation against those values and, since 2026-11-23, on a proof that carries pairing points (Garaga's `recursive`); they trigger `PointAtInfinity`, `InvertOfZero` and `GeminiChallengeInSubgroup`. `NotPowerOfTwo` is never raised: `r^256` is computed by eight squarings |
 
 ## Fe 26.6.0 notes from this stage
 

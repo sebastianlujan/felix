@@ -32,6 +32,9 @@ The toolchain, as recorded in `noir_artifacts.json` of that directory:
 | `mutator_set` | 17 | 3 | All zero | 9152 bytes |
 | `recursive` | 20 | 1 | All eight non-zero: the circuit verifies another proof (`std::verify_proof_with_type` in its `main.nr`), so this proof carries pairing points | 10304 bytes |
 
+Garaga's fourth bundle, `memory` (`LOG_N = 12`, 1 public input), is not copied. `bb verify`
+accepts it as well; its key has no selector that the three above lack.
+
 Each file is 32-byte big-endian words, as `bb` writes them. The sha256 of each equals the one
 `noir_artifacts.json` records for it.
 
