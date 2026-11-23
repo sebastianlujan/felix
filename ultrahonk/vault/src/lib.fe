@@ -351,3 +351,85 @@ uses (evm: mut Evm)
     )
     assert!(sent == Bytes::from_payload(source: standard.span()))
 }
+
+// The real verifier, and the caller a claim that succeeds will need.
+use ultrahonk::vectors::{PUBLIC_INPUTS, proof, public_inputs}
+use ultrahonk_relations::HonkRelations
+use ultrahonk_verifier::{HonkVerifier, VerificationNotImplemented}
+
+/// The address of every Fe test contract with `fe` 26.6.0, whatever its code: the test
+/// runner creates it from the zero address with nonce 0. It is the caller of the calls a
+/// test makes itself. A `Claimer` has no such address: `create2` derives it from its code,
+/// which changes with the optimization level.
+const TEST_ADDRESS: u256 = 0xbd770416a3345f91e4b34576cb804a576fa48eb1
+
+#[test]
+fn test_a_test_claims_from_a_fixed_address() uses (evm: mut Evm) {
+    assert!(evm.address().word() == TEST_ADDRESS)
+    let vault = deploy_vault_for(claimer: Address::new(TEST_ADDRESS))
+    let made: bool = evm
+        .call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(made)
+    assert!(winner(vault).word() == TEST_ADDRESS)
+}
+
+// The vault in front of the real `HonkVerifier`, with the pinned proof.
+// REVISIT WHEN THE VERIFIER ACCEPTS PROOFS: today no claim can succeed, because the
+// verifier never returns `true`.
+//
+// Asked directly with the public inputs the proof was made for, `[9, 0xc0ffe]`, the
+// verifier passes every check it has and stops at `VerificationNotImplemented`. That
+// assertion fails the day the verifier accepts the proof: a claim that succeeds must then
+// be tested here.
+//
+// Through the vault the second public input is the caller, and no caller in a Fe test has
+// the address 0xc0ffe. The verifier rejects the proof in sumcheck, as the reference did
+// when that public input was changed (`expected::PUBLIC_INPUT_CHANGES`), and a complete
+// verifier will do the same. A claim that succeeds needs a second proof, made for the
+// address of the caller: `TEST_ADDRESS` if the test claims itself.
+#[test]
+fn test_the_real_verifier_accepts_no_claim_yet() uses (evm: mut Evm) {
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+    let vault = evm.create2<Vault>(
+            value: Wei::zero(),
+            args: (PUBLIC_INPUTS[0], verifier),
+            salt: 0,
+        )
+
+    let direct = evm
+        .try_call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof: proof(), public_inputs: public_inputs() },
+        )
+    assert!(!direct.success())
+    assert!(direct.returndata_len() == 4)
+    assert!(
+        revert_selector(direct.returndata()).unwrap()
+            == <VerificationNotImplemented as ErrorVariant<Sol>>::SELECTOR,
+    )
+
+    assert!(TEST_ADDRESS != PUBLIC_INPUTS[1])
+    let claim = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: proof() },
+        )
+    assert!(!claim.success())
+    assert!(claim.returndata_len() == 4)
+    assert!(
+        revert_selector(claim.returndata()).unwrap()
+            == <SumcheckFailed as ErrorVariant<Sol>>::SELECTOR,
+    )
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+}
