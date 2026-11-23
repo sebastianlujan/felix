@@ -1,0 +1,249 @@
+// Fiat-Shamir transcript: port of `ZKTranscriptLib.generateTranscript`.
+//
+// Every challenge is `keccak256(input) % P`. The first input is the verification-key hash,
+// the public inputs and the start of the proof. Every later input is the previous challenge,
+// followed by one contiguous run of proof words or by nothing; the table of runs is in
+// `docs/zk-verifier-reference.md`. The proof must have passed `proof::validate`.
+use std::abi::Bytes32
+use std::evm::crypto::keccak_words
+use std::evm::packed::Packed
+use super::errors::ValueGeFieldOrder
+use super::fr::P
+use super::proof::{
+    UNIVARIATES,
+    UNIVARIATE_LENGTH,
+    evaluations,
+    fold_commitments,
+    gemini_evaluations,
+    shplonk_q,
+}
+use super::types::{MAX_LOG_N, PAIRING_POINTS_SIZE, Transcript, VerificationKey}
+
+/// `keccak256(prev ‖ proof words start..start + count) % P`.
+pub fn absorb(prev: u256, _ proof: Bytes, start: usize, count: usize) -> u256 {
+    var input = Packed::with_capacity(bytes: 32 + count * 32)
+    input.u256(prev)
+    input.append_span(proof.span().slice(offset: start * 32, len: count * 32))
+    input.keccak256() % P
+}
+
+/// `keccak256(prev) % P`: a challenge drawn without anything new from the proof.
+fn rehash(_ prev: u256) -> u256 {
+    keccak_words([prev]) % P
+}
+
+/// Reverts with `ValueGeFieldOrder` if a public input is not below `P`. The caller has
+/// checked that there are `vk.num_public_inputs - 8` of them.
+pub fn generate(vk: VerificationKey, _ proof: Bytes, _ public_inputs: Vec<Bytes32>) -> Transcript {
+    let log_n = vk.log_n
+
+    // eta: the only challenge with no previous one. Proof words 0-15 are the pairing-point
+    // limbs (which are public inputs), the Gemini masking commitment, w1, w2 and w3.
+    let supplied = vk.num_public_inputs - PAIRING_POINTS_SIZE
+    var round0 = Packed::with_capacity(bytes: (1 + supplied + 16) * 32)
+    round0.u256(vk.vk_hash)
+    for i in 0 .. supplied {
+        let input = public_inputs[i].val
+        if input >= P {
+            revert_error(ValueGeFieldOrder {})
+        }
+        round0.u256(input)
+    }
+    round0.append_span(proof.span().slice(offset: 0, len: 16 * 32))
+    let eta = round0.keccak256() % P
+    let rom_logup_gamma = rehash(eta)
+
+    // lookupReadCounts, lookupReadTags, w4
+    let beta = absorb(prev: rom_logup_gamma, proof, start: 16, count: 6)
+    let gamma = rehash(beta)
+    // lookupInverses, zPerm
+    let alpha = absorb(prev: gamma, proof, start: 22, count: 4)
+    let gate_challenge = rehash(alpha)
+    // libraCommitments[0], libraSum
+    let libra_challenge = absorb(prev: gate_challenge, proof, start: 26, count: 3)
+
+    // One challenge per sumcheck round, from the 9 values of its univariate.
+    var u: [u256; MAX_LOG_N] = [0; MAX_LOG_N]
+    var prev = libra_challenge
+    for round in 0 .. log_n {
+        prev = absorb(
+            prev,
+            proof,
+            start: UNIVARIATES + UNIVARIATE_LENGTH * round,
+            count: UNIVARIATE_LENGTH,
+        )
+        u[round] = prev
+    }
+
+    // The 42 evaluations, libraEvaluation, libraCommitments[1] and libraCommitments[2].
+    let rho = absorb(prev, proof, start: evaluations(log_n), count: 47)
+    let gemini_r = absorb(
+        prev: rho,
+        proof,
+        start: fold_commitments(log_n),
+        count: 2 * (log_n - 1),
+    )
+    // Gemini evaluations and the 4 Libra polynomial evaluations.
+    let shplonk_nu = absorb(
+        prev: gemini_r,
+        proof,
+        start: gemini_evaluations(log_n),
+        count: log_n + 4,
+    )
+    // kzgQuotient, the last point of the proof, is never hashed.
+    let shplonk_z = absorb(prev: shplonk_nu, proof, start: shplonk_q(log_n), count: 2)
+
+    Transcript {
+        eta,
+        rom_logup_gamma,
+        beta,
+        gamma,
+        alpha,
+        gate_challenge,
+        libra_challenge,
+        u,
+        rho,
+        gemini_r,
+        shplonk_nu,
+        shplonk_z,
+    }
+}
+
+// Tests: one per challenge, so that a failure names the first challenge that differs from
+// the value the reference verifier produced for the pinned proof (`vectors.fe`).
+use std::abi::dyn_array_from
+use super::vectors::{
+    ALPHA,
+    BETA,
+    ETA,
+    GAMMA,
+    GATE_CHALLENGE,
+    GEMINI_R,
+    LIBRA_CHALLENGE,
+    LOG_N,
+    PROOF,
+    PUBLIC_INPUTS,
+    RHO,
+    ROM_LOGUP_GAMMA,
+    SHPLONK_NU,
+    SHPLONK_Z,
+    U,
+    proof,
+    public_inputs,
+    vk,
+}
+
+fn pinned() -> Transcript {
+    generate(vk: vk(), proof(), public_inputs())
+}
+
+// keccak256 of 32 zero bytes is 0x290decd9...e563, which is above P.
+#[test]
+fn test_absorb_of_nothing_is_the_reduced_hash_of_the_previous_challenge() {
+    let reduced = 0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563 % P
+    assert!(absorb(prev: 0, proof(), start: 0, count: 0) == reduced)
+    assert!(rehash(0) == reduced)
+}
+
+#[test]
+fn test_absorb_hashes_the_previous_challenge_then_the_run() {
+    assert!(
+        absorb(prev: 7, proof(), start: 140, count: 2)
+            == keccak_words([7, PROOF[140], PROOF[141]]) % P,
+    )
+}
+
+#[test]
+fn test_transcript_eta() {
+    assert!(pinned().eta == ETA)
+}
+
+#[test]
+fn test_transcript_rom_logup_gamma() {
+    assert!(pinned().rom_logup_gamma == ROM_LOGUP_GAMMA)
+}
+
+#[test]
+fn test_transcript_beta() {
+    assert!(pinned().beta == BETA)
+}
+
+#[test]
+fn test_transcript_gamma() {
+    assert!(pinned().gamma == GAMMA)
+}
+
+#[test]
+fn test_transcript_alpha() {
+    assert!(pinned().alpha == ALPHA)
+}
+
+#[test]
+fn test_transcript_gate_challenge() {
+    assert!(pinned().gate_challenge == GATE_CHALLENGE)
+}
+
+#[test]
+fn test_transcript_libra_challenge() {
+    assert!(pinned().libra_challenge == LIBRA_CHALLENGE)
+}
+
+#[test]
+fn test_transcript_u_0() {
+    assert!(pinned().u[0] == U[0])
+}
+
+#[test]
+fn test_transcript_u_1() {
+    assert!(pinned().u[1] == U[1])
+}
+
+#[test]
+fn test_transcript_u_2() {
+    assert!(pinned().u[2] == U[2])
+}
+
+#[test]
+fn test_transcript_u_3() {
+    assert!(pinned().u[3] == U[3])
+}
+
+#[test]
+fn test_transcript_u_4() {
+    assert!(pinned().u[4] == U[4])
+}
+
+#[test]
+fn test_transcript_u_beyond_log_n_stays_zero() {
+    let transcript = pinned()
+    for round in LOG_N .. MAX_LOG_N {
+        assert!(transcript.u[round] == 0)
+    }
+}
+
+#[test]
+fn test_transcript_rho() {
+    assert!(pinned().rho == RHO)
+}
+
+#[test]
+fn test_transcript_gemini_r() {
+    assert!(pinned().gemini_r == GEMINI_R)
+}
+
+#[test]
+fn test_transcript_shplonk_nu() {
+    assert!(pinned().shplonk_nu == SHPLONK_NU)
+}
+
+#[test]
+fn test_transcript_shplonk_z() {
+    assert!(pinned().shplonk_z == SHPLONK_Z)
+}
+
+// selector of ValueGeFieldOrder(); recorded in `expected::PUBLIC_INPUT_CHANGES`
+#[test(should_revert, selector = 0x20a33589)]
+fn test_transcript_rejects_a_public_input_at_p() {
+    let inputs = dyn_array_from([Bytes32 { val: P }, Bytes32 { val: PUBLIC_INPUTS[1] }])
+    generate(vk: vk(), proof(), inputs)
+}
