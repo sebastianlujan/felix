@@ -1,0 +1,221 @@
+// Sumcheck, first part: the public-input delta and the round checks. Port of
+// `computePublicInputDelta`, of the round loop of `verifySumcheck`, and of
+// `computeNextTargetSum`. The last step of sumcheck, which evaluates the relations and
+// compares them with the final target, is not here yet.
+use std::abi::Bytes32
+use super::errors::SumcheckFailed
+use super::fr::{add, inv, mul, sub}
+use super::proof::{LIBRA_SUM, UNIVARIATES, UNIVARIATE_LENGTH, word}
+use super::types::{PAIRING_POINTS_SIZE, Transcript}
+
+const PERMUTATION_ARGUMENT_VALUE_SEPARATOR: u256 = 1 << 28
+
+/// Row of the first public input: `NUM_DISABLED_ROWS_IN_SUMCHECK + NUM_ZERO_ROWS = 4 + 1`.
+const PUBLIC_INPUTS_OFFSET: u256 = 5
+
+/// `BARYCENTRIC_LAGRANGE_DENOMINATORS` of the reference, copied from it:
+/// entry `i` is the product of `i - j` over the other points `j` of `0..9`.
+const BARYCENTRIC_LAGRANGE_DENOMINATORS: [u256; 9] = [
+    0x0000000000000000000000000000000000000000000000000000000000009d80,
+    0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffec51,
+    0x00000000000000000000000000000000000000000000000000000000000005a0,
+    0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffd31,
+    0x0000000000000000000000000000000000000000000000000000000000000240,
+    0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffd31,
+    0x00000000000000000000000000000000000000000000000000000000000005a0,
+    0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffec51,
+    0x0000000000000000000000000000000000000000000000000000000000009d80,
+]
+
+/// What the round checks leave for the last step of sumcheck.
+pub struct Rounds {
+    /// The value the batched relations must take at the challenge point.
+    pub target: u256,
+    /// `powPartialEvaluation`: the pow polynomial of the gate challenges at that point.
+    pub pow: u256,
+}
+
+/// The factor by which the public inputs change the grand product of the permutation
+/// argument. The inputs are the ones the caller supplies (already checked to be below `P`,
+/// and to be as many as the circuit has) followed by the pairing-point limbs of the proof.
+pub fn public_input_delta(
+    _ proof: Bytes,
+    _ public_inputs: Vec<Bytes32>,
+    beta: u256,
+    gamma: u256,
+) -> u256 {
+    var numerator: u256 = 1
+    var denominator: u256 = 1
+    var numerator_acc = add(
+        gamma,
+        mul(
+            beta,
+            PERMUTATION_ARGUMENT_VALUE_SEPARATOR + PUBLIC_INPUTS_OFFSET,
+        ),
+    )
+    var denominator_acc = sub(gamma, mul(beta, PUBLIC_INPUTS_OFFSET + 1))
+
+    let supplied = public_inputs.len()
+    for i in 0 .. supplied + PAIRING_POINTS_SIZE {
+        let input = if i < supplied {
+            public_inputs[i].val
+        } else {
+            word(proof, i - supplied)
+        }
+        numerator = mul(numerator, add(numerator_acc, input))
+        denominator = mul(denominator, add(denominator_acc, input))
+        numerator_acc = add(numerator_acc, beta)
+        denominator_acc = sub(denominator_acc, beta)
+    }
+    mul(numerator, inv(denominator))
+}
+
+/// The value at `u` of the polynomial of degree 8 whose values at `0..9` are the proof words
+/// `start..start + 9`, in barycentric form: `B(u) * sum of S[i] / (d_i * (u - i))` with
+/// `B(u)` the product of all `u - i`. Reverts with `InvertOfZero` if `u` is one of `0..9`.
+fn next_target(_ proof: Bytes, start: usize, u: u256) -> u256 {
+    var numerator: u256 = 1
+    var sum: u256 = 0
+    for i in 0 .. UNIVARIATE_LENGTH {
+        let distance = sub(u, i as u256)
+        numerator = mul(numerator, distance)
+        let weight = inv(mul(BARYCENTRIC_LAGRANGE_DENOMINATORS[i], distance))
+        sum = add(sum, mul(word(proof, start + i), weight))
+    }
+    mul(sum, numerator)
+}
+
+/// Runs the `log_n` round checks: the first two values of each round univariate must add up
+/// to the current target, and the univariate at the round challenge gives the next target.
+/// Reverts with `SumcheckFailed` at the first round that does not hold.
+pub fn rounds(_ proof: Bytes, t: Transcript, log_n: usize) -> Rounds {
+    // ZK: the target starts at the claimed sum of the Libra masking polynomial, not at 0.
+    var target = mul(t.libra_challenge, word(proof, LIBRA_SUM))
+    var pow: u256 = 1
+    // gateChallenges[round]: each is the square of the one before.
+    var gate = t.gate_challenge
+    for round in 0 .. log_n {
+        let start = UNIVARIATES + UNIVARIATE_LENGTH * round
+        if add(word(proof, start), word(proof, start + 1)) != target {
+            revert_error(SumcheckFailed {})
+        }
+        let u = t.u[round]
+        target = next_target(proof, start, u)
+        pow = mul(pow, add(1, mul(u, sub(gate, 1))))
+        gate = mul(gate, gate)
+    }
+    Rounds { target, pow }
+}
+
+// Tests, against the values the reference verifier computed for the pinned proof.
+use super::expected::{BIT_FLIPS, SUMCHECK_FAILED}
+use super::fr::P
+use super::transcript::generate
+use super::vectors::{
+    BETA,
+    GAMMA,
+    LIBRA_CHALLENGE,
+    LOG_N,
+    PARTIAL_POW,
+    PROOF,
+    PUBLIC_INPUT_DELTA,
+    ROUND_TARGETS,
+    U,
+    proof,
+    proof_with,
+    public_inputs,
+    vk,
+}
+
+// Entry `i` is the product of `i - j` over the other eight points `j`.
+#[test]
+fn test_barycentric_denominators_are_the_lagrange_denominators() {
+    for i in 0 .. UNIVARIATE_LENGTH {
+        var product: u256 = 1
+        for j in 0 .. UNIVARIATE_LENGTH {
+            if i != j {
+                product = mul(product, sub(i as u256, j as u256))
+            }
+        }
+        assert!(BARYCENTRIC_LAGRANGE_DENOMINATORS[i] == product)
+    }
+}
+
+#[test]
+fn test_public_input_delta_matches_reference() {
+    let delta = public_input_delta(proof(), public_inputs(), beta: BETA, gamma: GAMMA)
+    assert!(delta == PUBLIC_INPUT_DELTA)
+}
+
+#[test]
+fn test_first_round_target_is_libra_challenge_times_libra_sum() {
+    assert!(mul(LIBRA_CHALLENGE, PROOF[LIBRA_SUM]) == ROUND_TARGETS[0])
+}
+
+// The recorded target before round `i` is what the round check compares with the proof,
+// and the recorded target after it is the round univariate at `U[i]`.
+#[test]
+fn test_each_round_target_matches_reference() {
+    let pinned = proof()
+    for round in 0 .. LOG_N {
+        let start = UNIVARIATES + UNIVARIATE_LENGTH * round
+        assert!(
+            add(PROOF[start], PROOF[start + 1]) == ROUND_TARGETS[round],
+        )
+        assert!(
+            next_target(pinned, start, u: U[round]) == ROUND_TARGETS[round + 1],
+        )
+    }
+}
+
+#[test]
+fn test_rounds_return_the_reference_final_target() {
+    let pinned = proof()
+    let t = generate(vk: vk(), pinned, public_inputs())
+    assert!(
+        rounds(pinned, t, log_n: LOG_N).target == ROUND_TARGETS[LOG_N],
+    )
+}
+
+#[test]
+fn test_rounds_return_the_reference_partial_pow() {
+    let pinned = proof()
+    let t = generate(vk: vk(), pinned, public_inputs())
+    assert!(rounds(pinned, t, log_n: LOG_N).pow == PARTIAL_POW)
+}
+
+/// Runs the rounds on the pinned proof with the bit flip `BIT_FLIPS[case]`, which the
+/// reference verifier rejected with `SumcheckFailed`.
+fn rounds_with_bit_flip(case: usize) {
+    let flip = BIT_FLIPS[case]
+    assert!(flip.selector == SUMCHECK_FAILED)
+    let tampered = proof_with(word: flip.word, value: PROOF[flip.word] ^ 1)
+    let t = generate(vk: vk(), tampered, public_inputs())
+    rounds(tampered, t, log_n: LOG_N)
+}
+
+// selector of SumcheckFailed()
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_rounds_reject_a_flipped_libra_sum() {
+    assert!(BIT_FLIPS[1].word == 28)
+    rounds_with_bit_flip(case: 1)
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_rounds_reject_a_flipped_first_univariate_value() {
+    assert!(BIT_FLIPS[2].word == 29)
+    rounds_with_bit_flip(case: 2)
+}
+
+// A univariate value changed with the challenges kept: only the round check can catch it.
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_rounds_reject_a_round_that_does_not_add_up() {
+    let pinned = proof()
+    let t = generate(vk: vk(), pinned, public_inputs())
+    let last_round = UNIVARIATES + UNIVARIATE_LENGTH * (LOG_N - 1)
+    rounds(
+        proof_with(word: last_round, value: PROOF[last_round] ^ 1),
+        t,
+        log_n: LOG_N,
+    )
+}
