@@ -1,0 +1,129 @@
+// Opening verification: everything the verifier does after sumcheck. Port of the part of
+// `verifyShplemini` that follows the scalars, and of `batchMul` and `negateInplace`.
+use std::evm::crypto::{ec_add, ec_mul}
+use super::errors::ShpleminiFailed
+use super::fr::Q
+use super::shplemini::{MAX_SLOTS, commitment, slots}
+use super::types::VerificationKey
+
+/// `s * (x, y)`. Reverts with `ShpleminiFailed` if the precompile rejects the point: a
+/// coordinate not below `Q`, or a point that is not on the curve.
+fn mul_point(x: u256, y: u256, s: u256) -> (u256, u256) {
+    match ec_mul(px: x, py: y, s) {
+        Result::Ok(point) => point,
+        Result::Err(_) => revert_error(ShpleminiFailed {}),
+    }
+}
+
+/// `(ax, ay) + (bx, by)`, reverting like `mul_point`.
+fn add_points(ax: u256, ay: u256, bx: u256, by: u256) -> (u256, u256) {
+    match ec_add(ax, ay, bx, by) {
+        Result::Ok(point) => point,
+        Result::Err(_) => revert_error(ShpleminiFailed {}),
+    }
+}
+
+/// The multi-scalar multiplication over every slot: the sum of `scalars[slot]` times the
+/// commitment of the slot (`batchMul`). `(0, 0)` is the point at infinity, which both
+/// precompiles accept: it is where the sum starts, and the commitment of a selector the
+/// circuit does not use.
+///
+/// The reference goes on after a failed precompile call and reverts with `ShpleminiFailed`
+/// once the loop ends, unless it runs out of gas first: a failed precompile call takes all
+/// the gas it was given. Here the first failure reverts.
+pub fn msm(vk: VerificationKey, _ proof: Bytes, scalars: [u256; MAX_SLOTS]) -> (u256, u256) {
+    // The reference does not write its accumulator before the first addition: it relies
+    // on unused memory being zero.
+    var x: u256 = 0
+    var y: u256 = 0
+    for slot in 0 .. slots(vk.log_n) {
+        let (cx, cy) = commitment(vk, proof, slot)
+        let (px, py) = mul_point(x: cx, y: cy, s: scalars[slot])
+        let (sx, sy) = add_points(ax: x, ay: y, bx: px, by: py)
+        x = sx
+        y = sy
+    }
+    (x, y)
+}
+
+/// `-(x, y)`: `(x, Q - y)`, in the base field. A point with `y = 0` is returned as it is,
+/// as in `negateInplace`, where `Q - 0` would not be a coordinate. `y` must be below `Q`.
+/// The reference negates the point it read from the proof in place; here the caller keeps
+/// the point it passed.
+pub fn negate(x: u256, y: u256) -> (u256, u256) {
+    if y == 0 { (x, y) } else { (x, Q - y) }
+}
+
+// Tests, against the values the reference verifier computed for the pinned proof
+// (`opening_vectors.fe`).
+use super::opening_vectors::{P0_X, P0_Y, P1_X, P1_Y, SCALARS}
+use super::proof::shplonk_q
+use super::vectors::{LOG_N, PROOF, VK, proof, proof_with}
+
+/// The scalars the reference computed for the pinned proof.
+fn reference_scalars() -> [u256; MAX_SLOTS] {
+    var out: [u256; MAX_SLOTS] = [0; MAX_SLOTS]
+    for slot in 0 .. SCALARS.len() {
+        out[slot] = SCALARS[slot]
+    }
+    out
+}
+
+#[test]
+fn test_msm_of_the_reference_scalars_is_the_reference_p0() {
+    let (x, y) = msm(vk: VK, proof(), scalars: reference_scalars())
+    assert!(x == P0_X)
+    assert!(y == P0_Y)
+}
+
+// All scalars zero: every product is the point at infinity, and so is the sum.
+#[test]
+fn test_msm_of_zero_scalars_is_the_point_at_infinity() {
+    let (x, y) = msm(vk: VK, proof(), scalars: [0; MAX_SLOTS])
+    assert!(x == 0)
+    assert!(y == 0)
+}
+
+// Only the slot of `(1, 2)` counts: the sum starts at the point at infinity.
+#[test]
+fn test_msm_of_one_generator_is_the_generator() {
+    var scalars: [u256; MAX_SLOTS] = [0; MAX_SLOTS]
+    scalars[40 + LOG_N] = 1
+    let (x, y) = msm(vk: VK, proof(), scalars)
+    assert!(x == 1)
+    assert!(y == 2)
+}
+
+// selector of ShpleminiFailed(). x of shplonkQ with its lowest bit flipped is not on the
+// curve; the reference runs out of gas there (`expected::BIT_FLIP_WITHOUT_REVERT_DATA`).
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_msm_rejects_a_commitment_off_the_curve() {
+    let word = shplonk_q(LOG_N)
+    msm(
+        vk: VK,
+        proof_with(word, value: PROOF[word] ^ 1),
+        scalars: reference_scalars(),
+    )
+}
+
+#[test]
+fn test_negated_kzg_quotient_is_the_reference_p1() {
+    let kzg = shplonk_q(LOG_N) + 2
+    let (x, y) = negate(x: PROOF[kzg], y: PROOF[kzg + 1])
+    assert!(x == P1_X)
+    assert!(y == P1_Y)
+}
+
+#[test]
+fn test_negate_is_in_the_base_field() {
+    let (x, y) = negate(x: 1, y: 2)
+    assert!(x == 1)
+    assert!(y == Q - 2)
+}
+
+#[test]
+fn test_negate_leaves_a_zero_y_alone() {
+    let (x, y) = negate(x: 0, y: 0)
+    assert!(x == 0)
+    assert!(y == 0)
+}
