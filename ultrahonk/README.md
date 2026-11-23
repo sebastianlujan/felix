@@ -14,7 +14,7 @@ Fe, one Noir circuit and shell scripts. **No Solidity is committed.**
 
 Barretenberg's generated Solidity verifier is used only as a local reference oracle.
 `scripts/vectors.sh` writes it to `.oracle/`, which git ignores. Values captured from it are
-committed as Fe constants in `verifier/src/expected.fe`, with the tools and versions that produced
+committed as Fe constants in `lib/src/expected.fe`, with the tools and versions that produced
 them, and the Fe tests assert against those constants.
 
 ## Status
@@ -47,8 +47,8 @@ cd ultrahonk
 | `circuit/` | Noir package `vault`: `x * x == y`, with `y` and `recipient` public |
 | `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
-| `lib/` | Ingot `ultrahonk`: verifier message, errors, scalar field arithmetic |
-| `verifier/` | Ingot `ultrahonk_verifier`: contract `HonkVerifier` and `expected.fe` |
+| `lib/` | Ingot `ultrahonk`: verifier message, errors, scalar field arithmetic, proof checks, the test vector (`vectors.fe`) and the recorded reference reverts (`expected.fe`) |
+| `verifier/` | Ingot `ultrahonk_verifier`: contract `HonkVerifier` |
 | `.oracle/` | Not committed: Barretenberg's Solidity verifier, for local reference |
 | `.tools/` | Not committed: `bb` and `nargo` binaries |
 
@@ -73,21 +73,21 @@ ea1bf219985bbd9a6d536d5235273f68d024b81a861440dc6395f301056ce5e3  vectors/public
 **`vectors/proof` is pinned.** ZK proving is randomized: three runs of `bb prove -t evm` on the
 same inputs gave three different proofs, each accepted by `bb verify`. The other three files, and
 the generated Solidity verifier, came out byte-identical every time. No test regenerates the
-vector or reads `vectors/`; the values in `verifier/src/expected.fe` belong to the pinned proof.
+vector or reads `vectors/`; the values in `lib/src/expected.fe` belong to the pinned proof.
 
 ## The reference oracle
 
 The oracle is the Solidity verifier `bb write_solidity_verifier -t evm` emits for `vectors/vk`
 (2,518 lines, sha256 `5609d13d...3878d8bfe`). It stays out of the repository.
 
-How the values in `verifier/src/expected.fe` were captured:
+How the values in `lib/src/expected.fe` were captured:
 
 1. `scripts/vectors.sh` wrote `.oracle/src/HonkVerifier.sol` and `.oracle/foundry.toml`.
 2. A Foundry test kept locally in `.oracle/test/` deployed `HonkVerifier`, read `vectors/proof`
    and `vectors/public_inputs`, and required `verify` to return `true`.
 3. For each case the same test changed one thing (the proof length, one proof word, one public
    input), called `verify` with 20,000,000 gas and logged the revert data.
-4. The logged values were copied into `verifier/src/expected.fe`.
+4. The logged values were copied into `lib/src/expected.fe`.
 
 Measured on that verifier for the pinned proof:
 
@@ -112,7 +112,7 @@ scripts/vectors.sh
 
 The script ends with `bb verify` accepting the new proof. It **overwrites `vectors/proof` with a
 different valid proof**; run `git checkout -- vectors/proof` afterwards to return to the pinned
-one. Committing a new proof means capturing `verifier/src/expected.fe` again.
+one. Committing a new proof means capturing `lib/src/expected.fe` again.
 
 The archives are the macOS arm64 builds. The script calls the tools by path and exits unless they
 report the versions below; tools installed elsewhere on the machine are not used.

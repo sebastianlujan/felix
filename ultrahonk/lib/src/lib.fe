@@ -2,6 +2,8 @@
 // Port of the Solidity verifier that Barretenberg 6.0.0 generates with `-t evm`.
 pub use abi
 pub use errors
+pub use expected
 pub use fr
+pub use proof
 pub use types
 pub use vectors

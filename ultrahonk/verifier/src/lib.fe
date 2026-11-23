@@ -6,8 +6,7 @@ use std::abi::{Bytes32, bytes_from_words, dyn_array_from}
 use std::evm::{Evm, revert_selector}
 use ultrahonk::abi::VerifierMsg
 use ultrahonk::errors::ProofLengthWrongWithLogN
-
-pub use expected
+use ultrahonk::expected
 
 // `LOG_N` of the Solidity verifier generated for `vectors/vk`.
 const LOG_N: usize = 5

@@ -235,6 +235,7 @@ pub const PROOF: [u256; 142] = [
 ]
 
 // END OF GENERATED PART
+use std::abi::{Bytes32, bytes_from_words, dyn_array_from}
 use super::types::VerificationKey
 
 /// Verification key of the vault circuit.
@@ -245,6 +246,24 @@ pub fn vk() -> VerificationKey {
         vk_hash: VK_HASH,
         points: VK_POINTS,
     }
+}
+
+/// The pinned proof as the caller sends it.
+pub fn proof() -> Bytes {
+    bytes_from_words(PROOF)
+}
+
+/// The pinned proof with word `word` replaced by `value`.
+pub fn proof_with(word: usize, value: u256) -> Bytes {
+    var words = PROOF
+    words[word] = value
+    bytes_from_words(words)
+}
+
+pub fn public_inputs() -> Vec<Bytes32> {
+    dyn_array_from(
+        [Bytes32 { val: PUBLIC_INPUTS[0] }, Bytes32 { val: PUBLIC_INPUTS[1] }],
+    )
 }
 
 // VALUES CAPTURED FROM THE REFERENCE VERIFIER, for the proof and public inputs above.

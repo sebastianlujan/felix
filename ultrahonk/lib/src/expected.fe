@@ -16,7 +16,7 @@
 // again.
 use core::error::ErrorVariant
 use std::abi::Sol
-use ultrahonk::errors::{
+use super::errors::{
     ConsistencyCheckFailed,
     ProofLengthWrongWithLogN,
     PublicInputsLengthWrong,
@@ -26,13 +26,13 @@ use ultrahonk::errors::{
     ValueGeGroupOrder,
     ValueGeLimbMax,
 }
-use ultrahonk::fr::{P, Q}
+use super::fr::{P, Q}
 
 /// Length of a proof for this circuit: `(82 + 12 * LOG_N) * 32` with `LOG_N = 5`.
 pub const PROOF_LENGTH: usize = 4544
 
 // Selectors returned by the reference verifier. They equal the selectors of the
-// errors of the same name in `ultrahonk::errors` (checked by a test below).
+// errors of the same name in `errors` (checked by a test below).
 pub const PROOF_LENGTH_WRONG_WITH_LOG_N: u32 = 0x59895a53
 pub const VALUE_GE_LIMB_MAX: u32 = 0xeb73e0bd
 pub const VALUE_GE_GROUP_ORDER: u32 = 0x607be13e
@@ -106,6 +106,25 @@ pub const OVERWRITES: [Overwrite; 7] = [
     Overwrite { word: 28, value: P, selector: VALUE_GE_FIELD_ORDER },
 ]
 
+/// Every proof word replaced by `Q`, one word at a time: the range check that rejected it.
+/// `Q` is above all three bounds, so the selector tells which kind of value the reference
+/// reads at that word. Each entry is the first word after a run and the selector of the run:
+/// words 0-7 `VALUE_GE_LIMB_MAX`, 8-27 `VALUE_GE_GROUP_ORDER`, 28-116
+/// `VALUE_GE_FIELD_ORDER`, 117-128 `VALUE_GE_GROUP_ORDER`, 129-137 `VALUE_GE_FIELD_ORDER`,
+/// 138-141 `VALUE_GE_GROUP_ORDER`. The revert data was the bare selector every time.
+pub struct WordRun { pub end: usize, pub selector: u32 }
+
+impl Copy for WordRun {}
+
+pub const Q_OVERWRITE_RUNS: [WordRun; 6] = [
+    WordRun { end: 8, selector: VALUE_GE_LIMB_MAX },
+    WordRun { end: 28, selector: VALUE_GE_GROUP_ORDER },
+    WordRun { end: 117, selector: VALUE_GE_FIELD_ORDER },
+    WordRun { end: 129, selector: VALUE_GE_GROUP_ORDER },
+    WordRun { end: 138, selector: VALUE_GE_FIELD_ORDER },
+    WordRun { end: 142, selector: VALUE_GE_GROUP_ORDER },
+]
+
 /// Public input `index` replaced by `value`. The valid inputs are `[9, 0xc0ffe]`.
 pub struct PublicInputChange { pub index: usize, pub value: u256, pub selector: u32 }
 
@@ -164,6 +183,7 @@ fn test_cases_address_words_inside_the_proof() {
         assert!(overwrite.word < words)
     }
     assert!(BIT_FLIP_WITHOUT_REVERT_DATA < words)
+    assert!(Q_OVERWRITE_RUNS[5].end == words)
     for change in PUBLIC_INPUT_CHANGES {
         assert!(change.index < 2)
     }
