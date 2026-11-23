@@ -81,7 +81,10 @@ pub contract Vault {
 // Tests. The verifier is a stand-in declared below: the Fe `HonkVerifier` accepts no proof
 // yet. A Fe test cannot choose the caller of a call, so a caller is a `Claimer` contract
 // that forwards `claim`: two of them are two different callers.
-use std::evm::Evm
+use core::error::ErrorVariant
+use std::abi::Sol
+use std::evm::{Evm, revert_selector}
+use ultrahonk::errors::SumcheckFailed
 
 const GAS: u256 = 20000000
 const Y: u256 = 9
@@ -228,4 +231,62 @@ fn test_a_wrong_proof_is_not_accepted() uses (evm: mut Evm) {
         assert!(winner(vault) == Address::zero())
     }
     assert!(claim_from(claimer: alice, vault, proof: right_proof()))
+}
+
+/// Reverts on every query, as `HonkVerifier` does on a proof that fails sumcheck.
+contract RevertingVerifier {
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool {
+            revert_error(SumcheckFailed {})
+        }
+    }
+}
+
+// The verifier rejects a proof by reverting, never by answering `false`: the claim must
+// revert with what the verifier said, and leave no trace.
+#[test]
+fn test_a_revert_of_the_verifier_reaches_the_caller_unchanged()
+uses (evm: mut Evm)
+{
+    let verifier = evm.create2<RevertingVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+    let outcome = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 4)
+    assert!(
+        revert_selector(outcome.returndata()).unwrap()
+            == <SumcheckFailed as ErrorVariant<Sol>>::SELECTOR,
+    )
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+}
+
+// A call to an address without code succeeds and returns nothing. The vault must not read
+// that as an answer: the claim reverts, without revert data, and nothing is recorded.
+#[test]
+fn test_a_verifier_address_without_code_makes_the_claim_revert()
+uses (evm: mut Evm)
+{
+    let vault = evm.create2<Vault>(
+            value: Wei::zero(),
+            args: (Y, Address::new(0xdead)),
+            salt: 0,
+        )
+    let outcome = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 0)
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
 }
