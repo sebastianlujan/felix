@@ -93,7 +93,7 @@ use std::evm::{Evm, RawOps, encode_msg_calldata, revert_selector}
 use ultrahonk::errors::SumcheckFailed
 use ultrahonk::vectors::{PUBLIC_INPUTS, proof, public_inputs}
 use ultrahonk_relations::HonkRelations
-use ultrahonk_verifier::{HonkVerifier, VerificationNotImplemented}
+use ultrahonk_verifier::HonkVerifier
 
 const GAS: u256 = 20000000
 const Y: u256 = 9
@@ -416,21 +416,17 @@ fn test_a_test_claims_from_a_fixed_address() uses (evm: mut Evm) {
 }
 
 // The vault in front of the real `HonkVerifier`, with the pinned proof.
-// REVISIT WHEN THE VERIFIER ACCEPTS PROOFS: today no claim can succeed, because the
-// verifier never returns `true`.
 //
-// Asked directly with the public inputs the proof was made for, `[9, 0xc0ffe]`, the
-// verifier passes every check it has and stops at `VerificationNotImplemented`. That
-// assertion fails the day the verifier accepts the proof: a claim that succeeds must then
-// be tested here.
-//
-// Through the vault the second public input is the caller, and no caller in a Fe test has
-// the address 0xc0ffe. The verifier rejects the proof in sumcheck, as the reference did
-// when that public input was changed (`expected::PUBLIC_INPUT_CHANGES`), and a complete
-// verifier will do the same. A claim that succeeds needs a second proof, made for the
-// address of the caller: `TEST_ADDRESS` if the test claims itself.
+// Asked directly with the public inputs the proof was made for, `[9, 0xc0ffe]`, the verifier
+// accepts the proof. Through the vault the second public input is the caller, and no caller
+// in a Fe test has the address 0xc0ffe, so the same proof is rejected in sumcheck, as the
+// reference did when that public input was changed (`expected::PUBLIC_INPUT_CHANGES`). A
+// claim that succeeds needs a second proof, made for the address of the caller:
+// `TEST_ADDRESS` if the test claims itself.
 #[test]
-fn test_the_real_verifier_accepts_no_claim_yet() uses (evm: mut Evm) {
+fn test_the_real_verifier_accepts_the_proof_but_no_test_caller_can_claim()
+uses (evm: mut Evm)
+{
     let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
     let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
     let vault = evm.create2<Vault>(
@@ -439,19 +435,14 @@ fn test_the_real_verifier_accepts_no_claim_yet() uses (evm: mut Evm) {
             salt: 0,
         )
 
-    let direct = evm
-        .try_call(
+    let direct: bool = evm
+        .call(
             addr: verifier,
             gas: GAS,
             value: Wei::zero(),
             message: VerifierMsg::Verify { proof: proof(), public_inputs: public_inputs() },
         )
-    assert!(!direct.success())
-    assert!(direct.returndata_len() == 4)
-    assert!(
-        revert_selector(direct.returndata()).unwrap()
-            == <VerificationNotImplemented as ErrorVariant<Sol>>::SELECTOR,
-    )
+    assert!(direct)
 
     assert!(TEST_ADDRESS != PUBLIC_INPUTS[1])
     let claim = evm
