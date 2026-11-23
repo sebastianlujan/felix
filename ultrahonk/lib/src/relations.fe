@@ -418,6 +418,72 @@ pub fn non_native_field(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SU
     )
 }
 
+/// `x^5`, the Poseidon2 S-box.
+fn pow5(_ x: u256) -> u256 {
+    let x_sqr = mul(x, x)
+    mul(mul(x_sqr, x_sqr), x)
+}
+
+/// Poseidon2 external round relation: slots 23 to 26. It adds to its slots, as the
+/// reference does.
+pub fn poseidon2_external(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    // Add the round constants (held in the selectors) and apply the S-box.
+    let u1 = pow5(add(p[W_L], p[Q_L]))
+    let u2 = pow5(add(p[W_R], p[Q_R]))
+    let u3 = pow5(add(p[W_O], p[Q_O]))
+    let u4 = pow5(add(p[W_4], p[Q_4]))
+
+    // v = M_E * u, the external matrix, in 14 additions.
+    let t0 = add(u1, u2)
+    let t1 = add(u3, u4)
+    let t2 = add(add(u2, u2), t1)
+    let t3 = add(add(u4, u4), t0)
+    var v4 = add(t1, t1)
+    v4 = add(add(v4, v4), t3)
+    var v2 = add(t0, t0)
+    v2 = add(add(v2, v2), t2)
+    let v1 = add(t3, v2)
+    let v3 = add(t2, v4)
+
+    let q_pos_by_scaling = mul(p[Q_POSEIDON2_EXTERNAL], pow)
+    evals[23] = add(evals[23], mul(q_pos_by_scaling, sub(v1, p[W_L_SHIFT])))
+    evals[24] = add(evals[24], mul(q_pos_by_scaling, sub(v2, p[W_R_SHIFT])))
+    evals[25] = add(evals[25], mul(q_pos_by_scaling, sub(v3, p[W_O_SHIFT])))
+    evals[26] = add(evals[26], mul(q_pos_by_scaling, sub(v4, p[W_4_SHIFT])))
+}
+
+/// `INTERNAL_MATRIX_DIAGONAL` of the reference: the factor `d_i` of the Poseidon2 internal
+/// matrix product `v_i = u_i * d_i + (u_1 + u_2 + u_3 + u_4)`.
+const INTERNAL_MATRIX_DIAGONAL: [u256; 4] = [
+    0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7,
+    0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b,
+    0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15,
+    0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b,
+]
+
+/// Poseidon2 internal round relation: slots 27 to 30. It adds to its slots, as the
+/// reference does.
+pub fn poseidon2_internal(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    // Only the first element gets a round constant and the S-box.
+    let u1 = pow5(add(p[W_L], p[Q_L]))
+    let u2 = p[W_R]
+    let u3 = p[W_O]
+    let u4 = p[W_4]
+
+    // v = M_I * u, the internal matrix.
+    let u_sum = add(add(add(u1, u2), u3), u4)
+    let v1 = add(mul(u1, INTERNAL_MATRIX_DIAGONAL[0]), u_sum)
+    let v2 = add(mul(u2, INTERNAL_MATRIX_DIAGONAL[1]), u_sum)
+    let v3 = add(mul(u3, INTERNAL_MATRIX_DIAGONAL[2]), u_sum)
+    let v4 = add(mul(u4, INTERNAL_MATRIX_DIAGONAL[3]), u_sum)
+
+    let q_pos_by_scaling = mul(p[Q_POSEIDON2_INTERNAL], pow)
+    evals[27] = add(evals[27], mul(q_pos_by_scaling, sub(v1, p[W_L_SHIFT])))
+    evals[28] = add(evals[28], mul(q_pos_by_scaling, sub(v2, p[W_R_SHIFT])))
+    evals[29] = add(evals[29], mul(q_pos_by_scaling, sub(v3, p[W_O_SHIFT])))
+    evals[30] = add(evals[30], mul(q_pos_by_scaling, sub(v4, p[W_4_SHIFT])))
+}
+
 fn proof_params() -> RelationParameters {
     RelationParameters {
         eta: PROOF_ETA,
@@ -594,4 +660,26 @@ fn test_memory_relation_matches_reference() {
         evals: mut proof,
     )
     assert!(proof_only(proof, first: 14, end: 20))
+}
+
+#[test]
+fn test_poseidon2_external_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    poseidon2_external(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 23, end: 27))
+
+    var proof: [u256; 31] = [0; 31]
+    poseidon2_external(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 23, end: 27))
+}
+
+#[test]
+fn test_poseidon2_internal_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    poseidon2_internal(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 27, end: 31))
+
+    var proof: [u256; 31] = [0; 31]
+    poseidon2_internal(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 27, end: 31))
 }
