@@ -207,6 +207,7 @@ and the verdict of `bb verify` (`vectors/garaga/README.md`).
 | Bundle | `LOG_N` | Public inputs | Shown by the tests of `lib/src/garaga_<bundle>.fe` |
 |---|---|---|---|
 | `hello` | 12 | 1 | The 23 challenges of the transcript equal the ones Garaga pins for this proof. The proof is accepted. It is not accepted with the low bit of any one of its 226 words flipped, nor with its public input changed |
+| `mutator_set` | 17 | 3 | The proof is accepted. It is not accepted with the low bit of any one of its 286 words flipped, nor with any one of its three public inputs changed |
 
 The flips and the changed input go through `KeyedVerifier`, a contract only the tests deploy,
 which runs `verifier::verify` with the key in the calldata. None of these tests goes through
@@ -240,7 +241,7 @@ runs these commands and the other checks at once; its two vector checks also nee
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # 192: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call, Garaga's proofs
+(cd lib && fe test)        # 195: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call, Garaga's proofs
 (cd relations && fe test)  # 2: the relations contract against the reference values
 (cd verifier && fe test)   # 19: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound
 (cd vault && fe test)      # 13: the vault against stand-in verifiers, and in front of HonkVerifier
