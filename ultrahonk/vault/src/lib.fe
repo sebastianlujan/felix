@@ -82,15 +82,16 @@ pub contract Vault {
     }
 }
 
-// Tests. The verifier is a stand-in declared below: the Fe `HonkVerifier` accepts no proof
-// yet. A Fe test cannot choose the caller of a call, so a caller is a `Claimer` contract
-// that forwards `claim`: two of them are two different callers.
+// Tests. Most use a stand-in verifier declared below; the last two put the vault in front of
+// the real `HonkVerifier`. A Fe test cannot choose the caller of a call, so a caller is a
+// `Claimer` contract that forwards `claim`: two of them are two different callers.
 use core::error::ErrorVariant
 use core::message::MsgVariant
 use core::ptr::MemBuffer
-use std::abi::Sol
+use std::abi::{Sol, bytes_from_words}
 use std::evm::{Evm, RawOps, encode_msg_calldata, revert_selector}
 use ultrahonk::errors::SumcheckFailed
+use ultrahonk::test_address_vectors::{TEST_ADDRESS_PROOF, TEST_ADDRESS_PUBLIC_INPUTS}
 use ultrahonk::vectors::{PUBLIC_INPUTS, proof, public_inputs}
 use ultrahonk_relations::HonkRelations
 use ultrahonk_verifier::HonkVerifier
@@ -420,9 +421,8 @@ fn test_a_test_claims_from_a_fixed_address() uses (evm: mut Evm) {
 // Asked directly with the public inputs the proof was made for, `[9, 0xc0ffe]`, the verifier
 // accepts the proof. Through the vault the second public input is the caller, and no caller
 // in a Fe test has the address 0xc0ffe, so the same proof is rejected in sumcheck, as the
-// reference did when that public input was changed (`expected::PUBLIC_INPUT_CHANGES`). A
-// claim that succeeds needs a second proof, made for the address of the caller:
-// `TEST_ADDRESS` if the test claims itself.
+// reference did when that public input was changed (`expected::PUBLIC_INPUT_CHANGES`). The
+// next test claims with a second proof, made for `TEST_ADDRESS`.
 #[test]
 fn test_the_real_verifier_accepts_the_proof_but_no_test_caller_can_claim()
 uses (evm: mut Evm)
@@ -460,4 +460,49 @@ uses (evm: mut Evm)
     )
     assert!(!claimed(vault))
     assert!(winner(vault) == Address::zero())
+}
+
+// The same vault and verifier with the second pinned proof, made for `[9, TEST_ADDRESS]`: the
+// test claims itself, and the claim is recorded. Then the replay rule holds with the real
+// verifier too: a second claim, by the winner or by another caller, returns `false` and
+// changes nothing.
+#[test]
+fn test_the_real_verifier_accepts_a_claim_from_the_address_the_proof_was_made_for()
+uses (evm: mut Evm)
+{
+    assert!(evm.address().word() == TEST_ADDRESS)
+    assert!(TEST_ADDRESS_PUBLIC_INPUTS[0] == PUBLIC_INPUTS[0])
+    assert!(TEST_ADDRESS_PUBLIC_INPUTS[1] == TEST_ADDRESS)
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+    let vault = evm.create2<Vault>(
+            value: Wei::zero(),
+            args: (TEST_ADDRESS_PUBLIC_INPUTS[0], verifier),
+            salt: 0,
+        )
+    assert!(!claimed(vault))
+
+    let made: bool = evm
+        .call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: bytes_from_words(TEST_ADDRESS_PROOF) },
+        )
+    assert!(made)
+    assert!(claimed(vault))
+    assert!(winner(vault).word() == TEST_ADDRESS)
+
+    let again: bool = evm
+        .call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: bytes_from_words(TEST_ADDRESS_PROOF) },
+        )
+    assert!(!again)
+    let bob = deploy_claimer(salt: 0)
+    assert!(!claim_from(claimer: bob, vault, proof: bytes_from_words(TEST_ADDRESS_PROOF)))
+    assert!(claimed(vault))
+    assert!(winner(vault).word() == TEST_ADDRESS)
 }
