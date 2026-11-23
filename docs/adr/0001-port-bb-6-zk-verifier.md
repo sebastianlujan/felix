@@ -34,7 +34,8 @@ The generated verifier is used as a local reference oracle and is not committed 
 - It accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 - The tests do not show that every proof the reference rejects is rejected.
 - The proof size, the values per sumcheck round and the evaluation counts this record gives for the ZK flavor match the generated verifier. The full layout is in `ultrahonk/docs/zk-verifier-reference.md`.
-- The three recorded differences from the reference are in ADR-0008.
+- The recorded differences from the reference are in ADR-0008.
+- The reasoning above rests on a vault that hides a secret. The vault that was built does not: its witness can be computed from the public `y` (ADR-0010). The decision stands for another reason given in the options, that an application with a private witness needs this flavor.
 
 ## Options Considered
 
