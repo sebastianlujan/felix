@@ -223,7 +223,7 @@ runs these commands and the other checks at once; its two vector checks also nee
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # 183: field arithmetic, proof checks, transcript, relations, sumcheck, opening
+(cd lib && fe test)        # 188: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call
 (cd relations && fe test)  # 2: the relations contract against the reference values
 (cd verifier && fe test)   # 19: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound
 (cd vault && fe test)      # 13: the vault against stand-in verifiers, and in front of HonkVerifier
@@ -236,8 +236,9 @@ The numbers are the tests that pass in each ingot, counted on 2026-11-23.
 `verifier/` and `fe build --contract Vault` in `vault/` write the bytecode to `out/` in each
 directory. Without `--contract`, the build in `verifier/` also writes `FixedRelations` and
 `FailingRelations`, two stand-ins for the relations contract that only its tests deploy, and the
-build in `vault/` the seven contracts its tests deploy. `lib/` and `../honk-toy/` are libraries and have
-no contract to build.
+build in `vault/` the seven contracts its tests deploy. `lib/` is a library: its one contract,
+`KeyedVerifier`, runs the library verifier with the key in the calldata and is deployed only by
+its tests. `../honk-toy/` has no contract to build.
 
 ## Layout
 
@@ -250,6 +251,7 @@ no contract to build.
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
 | `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--test-address` prints the second proof; `--check` compares them with `lib/src/vectors.fe` and `lib/src/test_address_vectors.fe` |
 | `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi` |
+| `lib/src/verifier.fe` | `verify(vk, proof, public_inputs)`: every step in one call, with the verification key as an argument and the relations evaluated in place. No contract of the project calls it; the tests use it for circuits other than the vault's |
 | `lib/src/std_assumptions.fe` | Tests only: they pin the behaviour of the std precompile wrappers and of Keccak hashing that the port depends on |
 | `lib/src/vectors.fe` | The pinned proof and the verification key, plus the challenges, delta, round targets and pow captured from the reference |
 | `lib/src/test_address_vectors.fe` | The second pinned proof and its public inputs, which the vault test claims with |
