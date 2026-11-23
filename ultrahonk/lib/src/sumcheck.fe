@@ -1,0 +1,606 @@
+// Sumcheck: port of `computePublicInputDelta`, `verifySumcheck` and `computeNextTargetSum`.
+//
+// `verifySumcheck` is split where it evaluates the relations, because a verifier contract
+// keeps them in a contract of their own: `rounds` runs the round checks, and `final_check`
+// compares the relation value with the target the rounds left. The two ways of getting that
+// value share both: `verify` evaluates the relations in place, `verify_with_relations_at`
+// asks a `HonkRelations` contract with a static call.
+use core::message::MsgVariant
+use std::abi::{Bytes32, Sol}
+use std::evm::packed::Packed
+use std::evm::{Ctx, staticcall_decode}
+use super::errors::SumcheckFailed
+use super::fr::{add, inv, mul, sub}
+use super::proof::{LIBRA_SUM, UNIVARIATES, UNIVARIATE_LENGTH, evaluations, word}
+use super::relations::{RelationParameters, RelationsMsg, accumulate}
+use super::types::{PAIRING_POINTS_SIZE, Transcript}
+use super::wire::NUMBER_OF_ENTITIES
+
+const PERMUTATION_ARGUMENT_VALUE_SEPARATOR: u256 = 1 << 28
+
+/// Row of the first public input: `NUM_DISABLED_ROWS_IN_SUMCHECK + NUM_ZERO_ROWS = 4 + 1`.
+const PUBLIC_INPUTS_OFFSET: u256 = 5
+
+/// `BARYCENTRIC_LAGRANGE_DENOMINATORS` of the reference, copied from it:
+/// entry `i` is the product of `i - j` over the other points `j` of `0..9`.
+const BARYCENTRIC_LAGRANGE_DENOMINATORS: [u256; 9] = [
+    0x0000000000000000000000000000000000000000000000000000000000009d80,
+    0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffec51,
+    0x00000000000000000000000000000000000000000000000000000000000005a0,
+    0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffd31,
+    0x0000000000000000000000000000000000000000000000000000000000000240,
+    0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffd31,
+    0x00000000000000000000000000000000000000000000000000000000000005a0,
+    0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffec51,
+    0x0000000000000000000000000000000000000000000000000000000000009d80,
+]
+
+/// What the round checks leave for the last step of sumcheck.
+pub struct Rounds {
+    /// The value the batched relations must take at the challenge point.
+    pub target: u256,
+    /// `powPartialEvaluation`: the pow polynomial of the gate challenges at that point.
+    pub pow: u256,
+}
+
+/// The factor by which the public inputs change the grand product of the permutation
+/// argument. The inputs are the ones the caller supplies (already checked to be below `P`,
+/// and to be as many as the circuit has) followed by the pairing-point limbs of the proof.
+pub fn public_input_delta(
+    _ proof: Bytes,
+    _ public_inputs: Vec<Bytes32>,
+    beta: u256,
+    gamma: u256,
+) -> u256 {
+    var numerator: u256 = 1
+    var denominator: u256 = 1
+    var numerator_acc = add(
+        gamma,
+        mul(
+            beta,
+            PERMUTATION_ARGUMENT_VALUE_SEPARATOR + PUBLIC_INPUTS_OFFSET,
+        ),
+    )
+    var denominator_acc = sub(gamma, mul(beta, PUBLIC_INPUTS_OFFSET + 1))
+
+    let supplied = public_inputs.len()
+    for i in 0 .. supplied + PAIRING_POINTS_SIZE {
+        let input = if i < supplied {
+            public_inputs[i].val
+        } else {
+            word(proof, i - supplied)
+        }
+        numerator = mul(numerator, add(numerator_acc, input))
+        denominator = mul(denominator, add(denominator_acc, input))
+        numerator_acc = add(numerator_acc, beta)
+        denominator_acc = sub(denominator_acc, beta)
+    }
+    mul(numerator, inv(denominator))
+}
+
+/// The value at `u` of the polynomial of degree 8 whose values at `0..9` are the proof words
+/// `start..start + 9`, in barycentric form: `B(u) * sum of S[i] / (d_i * (u - i))` with
+/// `B(u)` the product of all `u - i`. Reverts with `InvertOfZero` if `u` is one of `0..9`.
+fn next_target(_ proof: Bytes, start: usize, u: u256) -> u256 {
+    var numerator: u256 = 1
+    var sum: u256 = 0
+    for i in 0 .. UNIVARIATE_LENGTH {
+        let distance = sub(u, i as u256)
+        numerator = mul(numerator, distance)
+        let weight = inv(mul(BARYCENTRIC_LAGRANGE_DENOMINATORS[i], distance))
+        sum = add(sum, mul(word(proof, start + i), weight))
+    }
+    mul(sum, numerator)
+}
+
+/// Runs the `log_n` round checks: the first two values of each round univariate must add up
+/// to the current target, and the univariate at the round challenge gives the next target.
+/// Reverts with `SumcheckFailed` at the first round that does not hold.
+pub fn rounds(_ proof: Bytes, t: Transcript, log_n: usize) -> Rounds {
+    // ZK: the target starts at the claimed sum of the Libra masking polynomial, not at 0.
+    var target = mul(t.libra_challenge, word(proof, LIBRA_SUM))
+    var pow: u256 = 1
+    // gateChallenges[round]: each is the square of the one before.
+    var gate = t.gate_challenge
+    for round in 0 .. log_n {
+        let start = UNIVARIATES + UNIVARIATE_LENGTH * round
+        if add(word(proof, start), word(proof, start + 1)) != target {
+            revert_error(SumcheckFailed {})
+        }
+        let u = t.u[round]
+        target = next_target(proof, start, u)
+        pow = mul(pow, add(1, mul(u, sub(gate, 1))))
+        gate = mul(gate, gate)
+    }
+    Rounds { target, pow }
+}
+
+/// Word of the first evaluation the relations read. ZK: evaluation 0 belongs to the Gemini
+/// masking polynomial, which no relation reads.
+fn entity_evaluations(_ log_n: usize) -> usize {
+    evaluations(log_n) + 1
+}
+
+/// The message that asks for the batched relation value at the sumcheck point: the 41
+/// evaluations the relations read, the relation parameters, `alpha`, and the partial pow
+/// the rounds returned.
+pub fn relations_query(
+    _ proof: Bytes,
+    t: Transcript,
+    delta: u256,
+    pow: u256,
+    log_n: usize,
+) -> RelationsMsg::Accumulate {
+    let first = entity_evaluations(log_n)
+    var entities: [u256; NUMBER_OF_ENTITIES] = [0; NUMBER_OF_ENTITIES]
+    for entity in 0 .. NUMBER_OF_ENTITIES {
+        entities[entity] = word(proof, first + entity)
+    }
+    RelationsMsg::Accumulate {
+        evaluations: entities,
+        params: RelationParameters {
+            eta: t.eta,
+            rom_logup_gamma: t.rom_logup_gamma,
+            beta: t.beta,
+            gamma: t.gamma,
+            public_inputs_delta: delta,
+        },
+        alpha: t.alpha,
+        pow,
+    }
+}
+
+/// The calldata of the message `relations_query` returns, written without building the
+/// message: the selector, the 41 evaluations copied from the proof where they lie, and the
+/// last seven words. Sending the typed message instead made the verifier contract 2,103
+/// bytes larger and its call 13,708 gas dearer (measured at `-O 1`): a zeroed array of 41
+/// words in the code, and one copy per word into the message and again into its encoding.
+pub fn relations_calldata(
+    _ proof: Bytes,
+    t: Transcript,
+    delta: u256,
+    pow: u256,
+    log_n: usize,
+) -> Packed {
+    var data = Packed::with_capacity(bytes: 4 + (NUMBER_OF_ENTITIES + 7) * 32)
+    data.u32(<RelationsMsg::Accumulate as MsgVariant<Sol>>::SELECTOR)
+    data.append_span(
+        proof.span().slice(
+                offset: entity_evaluations(log_n) * 32,
+                len: NUMBER_OF_ENTITIES * 32,
+            ),
+    )
+    data.u256(t.eta)
+    data.u256(t.rom_logup_gamma)
+    data.u256(t.beta)
+    data.u256(t.gamma)
+    data.u256(delta)
+    data.u256(t.alpha)
+    data.u256(pow)
+    data
+}
+
+/// The last step of sumcheck: whether `relations`, the batched relation value at the
+/// sumcheck point, agrees with the target the rounds left.
+pub fn final_check(
+    _ proof: Bytes,
+    t: Transcript,
+    log_n: usize,
+    target: u256,
+    relations: u256,
+) -> bool {
+    // ZK: the relations are not enforced on the rows that hold the prover's masking values.
+    // `1 - evaluation` is the polynomial that disables those rows, at the sumcheck point.
+    var evaluation: u256 = 1
+    for round in 2 .. log_n {
+        evaluation = mul(evaluation, sub(1, t.u[round]))
+    }
+    // ZK: plus the claimed evaluation of the Libra masking polynomial.
+    let libra_evaluation = word(proof, entity_evaluations(log_n) + NUMBER_OF_ENTITIES)
+    let grand = add(
+        mul(relations, sub(1, evaluation)),
+        mul(libra_evaluation, t.libra_challenge),
+    )
+    grand == target
+}
+
+/// `verifySumcheck` of the reference, with the relations evaluated in place. A round that
+/// does not hold reverts with `SumcheckFailed`; the result of the last comparison is
+/// returned, and the caller reverts with the same error when it is false.
+pub fn verify(_ proof: Bytes, t: Transcript, delta: u256, log_n: usize) -> bool {
+    let reduced = rounds(proof, t, log_n)
+    let query = relations_query(proof, t, delta, pow: reduced.pow, log_n)
+    let relations = accumulate(
+        evaluations: query.evaluations,
+        params: query.params,
+        alpha: query.alpha,
+        pow: query.pow,
+    )
+    final_check(proof, t, log_n, target: reduced.target, relations)
+}
+
+/// `verify` with the relations asked from the `HonkRelations` contract at `relations`, in
+/// a static call that forwards all the gas. A revert of that contract reverts with the
+/// same data, and so does an answer that is not one word: a call to an address without
+/// code succeeds and returns nothing.
+pub fn verify_with_relations_at(
+    _ proof: Bytes,
+    t: Transcript,
+    delta: u256,
+    log_n: usize,
+    relations: Address,
+) -> bool
+uses (call: Call, ctx: Ctx)
+{
+    let reduced = rounds(proof, t, log_n)
+    let query = relations_calldata(proof, t, delta, pow: reduced.pow, log_n)
+    let value: u256 = staticcall_decode(addr: relations, gas: ctx.gas(), args: query.span())
+    final_check(proof, t, log_n, target: reduced.target, relations: value)
+}
+
+// Tests, against the values the reference verifier computed for the pinned proof.
+use std::abi::dyn_array_from
+use std::evm::crypto::keccak256
+use std::evm::encode_msg_calldata
+use super::expected::{
+    BIT_FLIPS,
+    LARGEST_VALUES,
+    PROOF_LENGTH,
+    PUBLIC_INPUT_CHANGES,
+    SUMCHECK_FAILED,
+    SUMCHECK_RETURNS_FALSE,
+    SUMCHECK_RETURNS_TRUE,
+    ZERO_PROOF_PASSES_SUMCHECK,
+    largest_values,
+}
+use super::fr::P
+use super::relations_vectors::{
+    PROOF_ALPHA,
+    PROOF_BATCHED,
+    PROOF_BATCHED_TAMPERED,
+    PROOF_BETA,
+    PROOF_ETA,
+    PROOF_EVALS,
+    PROOF_GAMMA,
+    PROOF_POW,
+    PROOF_PUBLIC_INPUTS_DELTA,
+    PROOF_ROM_LOGUP_GAMMA,
+}
+use super::transcript::generate
+use super::vectors::{
+    BETA,
+    GAMMA,
+    LIBRA_CHALLENGE,
+    LOG_N,
+    PARTIAL_POW,
+    PROOF,
+    PUBLIC_INPUTS,
+    PUBLIC_INPUT_DELTA,
+    ROUND_TARGETS,
+    U,
+    VK,
+    proof,
+    proof_with,
+    public_inputs,
+}
+
+// Entry `i` is the product of `i - j` over the other eight points `j`.
+#[test]
+fn test_barycentric_denominators_are_the_lagrange_denominators() {
+    for i in 0 .. UNIVARIATE_LENGTH {
+        var product: u256 = 1
+        for j in 0 .. UNIVARIATE_LENGTH {
+            if i != j {
+                product = mul(product, sub(i as u256, j as u256))
+            }
+        }
+        assert!(BARYCENTRIC_LAGRANGE_DENOMINATORS[i] == product)
+    }
+}
+
+#[test]
+fn test_public_input_delta_matches_reference() {
+    let delta = public_input_delta(proof(), public_inputs(), beta: BETA, gamma: GAMMA)
+    assert!(delta == PUBLIC_INPUT_DELTA)
+}
+
+#[test]
+fn test_first_round_target_is_libra_challenge_times_libra_sum() {
+    assert!(mul(LIBRA_CHALLENGE, PROOF[LIBRA_SUM]) == ROUND_TARGETS[0])
+}
+
+// The recorded target before round `i` is what the round check compares with the proof,
+// and the recorded target after it is the round univariate at `U[i]`.
+#[test]
+fn test_each_round_target_matches_reference() {
+    let pinned = proof()
+    for round in 0 .. LOG_N {
+        let start = UNIVARIATES + UNIVARIATE_LENGTH * round
+        assert!(
+            add(PROOF[start], PROOF[start + 1]) == ROUND_TARGETS[round],
+        )
+        assert!(
+            next_target(pinned, start, u: U[round]) == ROUND_TARGETS[round + 1],
+        )
+    }
+}
+
+#[test]
+fn test_rounds_return_the_reference_final_target() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    assert!(
+        rounds(pinned, t, log_n: LOG_N).target == ROUND_TARGETS[LOG_N],
+    )
+}
+
+#[test]
+fn test_rounds_return_the_reference_partial_pow() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    assert!(rounds(pinned, t, log_n: LOG_N).pow == PARTIAL_POW)
+}
+
+/// Runs the rounds on the pinned proof with the bit flip `BIT_FLIPS[case]`, which the
+/// reference verifier rejected with `SumcheckFailed`.
+fn rounds_with_bit_flip(case: usize) {
+    let flip = BIT_FLIPS[case]
+    assert!(flip.selector == SUMCHECK_FAILED)
+    let tampered = proof_with(word: flip.word, value: PROOF[flip.word] ^ 1)
+    let t = generate(vk: VK, tampered, public_inputs())
+    rounds(tampered, t, log_n: LOG_N)
+}
+
+// selector of SumcheckFailed()
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_rounds_reject_a_flipped_masking_commitment() {
+    assert!(BIT_FLIPS[0].word == 8)
+    rounds_with_bit_flip(case: 0)
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_rounds_reject_a_flipped_libra_sum() {
+    assert!(BIT_FLIPS[1].word == 28)
+    rounds_with_bit_flip(case: 1)
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_rounds_reject_a_flipped_first_univariate_value() {
+    assert!(BIT_FLIPS[2].word == 29)
+    rounds_with_bit_flip(case: 2)
+}
+
+// A univariate value changed with the challenges kept: only the round check can catch it.
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_rounds_reject_a_round_that_does_not_add_up() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    let last_round = UNIVARIATES + UNIVARIATE_LENGTH * (LOG_N - 1)
+    rounds(
+        proof_with(word: last_round, value: PROOF[last_round] ^ 1),
+        t,
+        log_n: LOG_N,
+    )
+}
+
+// The last step. `relations_vectors` holds what the reference handed to its relations for
+// the pinned proof, and what they returned.
+
+fn pinned_query() -> RelationsMsg::Accumulate {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    relations_query(
+        pinned,
+        t,
+        delta: PUBLIC_INPUT_DELTA,
+        pow: PARTIAL_POW,
+        log_n: LOG_N,
+    )
+}
+
+#[test]
+fn test_relations_query_is_what_the_reference_hands_to_its_relations() {
+    let query = pinned_query()
+    assert!(query.evaluations == PROOF_EVALS)
+    assert!(query.params.eta == PROOF_ETA)
+    assert!(query.params.rom_logup_gamma == PROOF_ROM_LOGUP_GAMMA)
+    assert!(query.params.beta == PROOF_BETA)
+    assert!(query.params.gamma == PROOF_GAMMA)
+    assert!(
+        query.params.public_inputs_delta == PROOF_PUBLIC_INPUTS_DELTA,
+    )
+    assert!(query.alpha == PROOF_ALPHA)
+    assert!(query.pow == PROOF_POW)
+}
+
+// The calldata the verifier contract sends is the encoding of the typed message.
+#[test]
+fn test_relations_calldata_is_the_encoded_relations_query() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    let raw = relations_calldata(
+        pinned,
+        t,
+        delta: PUBLIC_INPUT_DELTA,
+        pow: PARTIAL_POW,
+        log_n: LOG_N,
+    )
+    let typed = encode_msg_calldata(pinned_query())
+    assert!(raw.len() == 1540)
+    assert!(typed.len() == 1540)
+    assert!(raw.keccak256() == keccak256(typed.span()))
+}
+
+#[test]
+fn test_relations_query_skips_the_masking_evaluation() {
+    let query = pinned_query()
+    assert!(query.evaluations[0] == PROOF[75])
+    assert!(query.evaluations[40] == PROOF[115])
+}
+
+#[test]
+fn test_relation_value_of_the_pinned_proof_matches_reference() {
+    let query = pinned_query()
+    assert!(
+        accumulate(
+                evaluations: query.evaluations,
+                params: query.params,
+                alpha: query.alpha,
+                pow: query.pow,
+            )
+            == PROOF_BATCHED,
+    )
+}
+
+#[test]
+fn test_final_check_accepts_only_the_reference_relation_value() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    let target = ROUND_TARGETS[LOG_N]
+    assert!(
+        final_check(pinned, t, log_n: LOG_N, target, relations: PROOF_BATCHED),
+    )
+    assert!(
+        !final_check(
+            pinned,
+            t,
+            log_n: LOG_N,
+            target,
+            relations: PROOF_BATCHED_TAMPERED,
+        ),
+    )
+    assert!(
+        !final_check(pinned, t, log_n: LOG_N, target, relations: 0),
+    )
+}
+
+/// The whole sumcheck on `candidate` with the given public inputs.
+fn sumcheck_of(candidate: Bytes, y: u256, recipient: u256) -> bool {
+    let inputs = dyn_array_from([Bytes32 { val: y }, Bytes32 { val: recipient }])
+    let t = generate(vk: VK, candidate, inputs)
+    let delta = public_input_delta(candidate, inputs, beta: t.beta, gamma: t.gamma)
+    verify(candidate, t, delta, log_n: LOG_N)
+}
+
+fn sumcheck_with_bit_flip(word: usize) -> bool {
+    sumcheck_of(
+        candidate: proof_with(word, value: PROOF[word] ^ 1),
+        y: PUBLIC_INPUTS[0],
+        recipient: PUBLIC_INPUTS[1],
+    )
+}
+
+#[test]
+fn test_verify_accepts_the_pinned_proof() {
+    assert!(
+        sumcheck_of(
+            candidate: proof(),
+            y: PUBLIC_INPUTS[0],
+            recipient: PUBLIC_INPUTS[1],
+        ),
+    )
+}
+
+// The two flips below leave every round check intact (the evaluations enter the transcript
+// after the last round challenge), so only the last comparison can reject them. The
+// reference's `verifySumcheck` returned false for both.
+#[test]
+fn test_verify_rejects_a_flipped_relation_evaluation() {
+    assert!(SUMCHECK_RETURNS_FALSE[0] == 75)
+    assert!(!sumcheck_with_bit_flip(word: 75))
+}
+
+#[test]
+fn test_verify_rejects_a_flipped_libra_evaluation() {
+    assert!(SUMCHECK_RETURNS_FALSE[1] == 116)
+    assert!(!sumcheck_with_bit_flip(word: 116))
+}
+
+// Sumcheck does not read evaluation 0, the one of the masking polynomial, or anything
+// after the Libra evaluation: the reference's `verifySumcheck` returned true for these
+// flips, and the reference rejected them later.
+#[test]
+fn test_verify_passes_the_flips_the_reference_rejects_after_sumcheck() {
+    for word in SUMCHECK_RETURNS_TRUE {
+        assert!(sumcheck_with_bit_flip(word))
+    }
+}
+
+// Proofs built from a rule (`expected.fe`).
+
+// Sumcheck alone does not tie a proof to the circuit: with every word zero, each of its
+// checks compares 0 with 0. The reference's `verifySumcheck` returned true as well, and
+// the reference rejected the proof in its opening check.
+#[test]
+fn test_verify_passes_the_all_zero_proof() {
+    assert!(ZERO_PROOF_PASSES_SUMCHECK)
+    assert!(
+        sumcheck_of(
+            candidate: Bytes::zeroed(PROOF_LENGTH),
+            y: PUBLIC_INPUTS[0],
+            recipient: PUBLIC_INPUTS[1],
+        ),
+    )
+    assert!(
+        sumcheck_of(
+            candidate: Bytes::zeroed(PROOF_LENGTH),
+            y: 0,
+            recipient: 0,
+        ),
+    )
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_verify_rejects_the_largest_values() {
+    assert!(LARGEST_VALUES == SUMCHECK_FAILED)
+    sumcheck_of(
+        candidate: largest_values(limbs: true),
+        y: PUBLIC_INPUTS[0],
+        recipient: PUBLIC_INPUTS[1],
+    )
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_verify_rejects_the_largest_values_with_zero_limbs() {
+    assert!(LARGEST_VALUES == SUMCHECK_FAILED)
+    sumcheck_of(
+        candidate: largest_values(limbs: false),
+        y: PUBLIC_INPUTS[0],
+        recipient: PUBLIC_INPUTS[1],
+    )
+}
+
+// A changed public input changes the first challenge, so the first round already fails.
+fn sumcheck_with_changed_public_input(case: usize) -> bool {
+    let change = PUBLIC_INPUT_CHANGES[case]
+    assert!(change.selector == SUMCHECK_FAILED)
+    var inputs = PUBLIC_INPUTS
+    inputs[change.index] = change.value
+    sumcheck_of(candidate: proof(), y: inputs[0], recipient: inputs[1])
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_verify_rejects_a_changed_first_public_input() {
+    sumcheck_with_changed_public_input(case: 0)
+}
+
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_verify_rejects_a_changed_second_public_input() {
+    sumcheck_with_changed_public_input(case: 1)
+}
+
+// With the challenges kept, a public input reaches sumcheck only through the delta, which
+// only the last comparison reads.
+#[test]
+fn test_final_check_binds_the_public_input_delta() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    assert!(verify(pinned, t, delta: PUBLIC_INPUT_DELTA, log_n: LOG_N))
+    let change = PUBLIC_INPUT_CHANGES[0]
+    let changed = dyn_array_from(
+        [Bytes32 { val: change.value }, Bytes32 { val: PUBLIC_INPUTS[1] }],
+    )
+    let delta = public_input_delta(pinned, changed, beta: t.beta, gamma: t.gamma)
+    assert!(delta != PUBLIC_INPUT_DELTA)
+    assert!(!verify(pinned, t, delta, log_n: LOG_N))
+}

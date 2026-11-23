@@ -1,0 +1,89 @@
+// Arithmetic in F_17, the scalar field of the toy protocol.
+//
+// Elements are `u256` values. Results are always reduced; operands should be reduced too
+// (products of unreduced operands could overflow, and Fe arithmetic is checked).
+
+pub const P: u256 = 17
+
+pub fn add(_ a: u256, _ b: u256) -> u256 {
+    (a + b) % P
+}
+
+/// a - b. Never written as `a - b`: checked arithmetic reverts on underflow.
+pub fn sub(_ a: u256, _ b: u256) -> u256 {
+    (a + P - b % P) % P
+}
+
+pub fn mul(_ a: u256, _ b: u256) -> u256 {
+    (a * b) % P
+}
+
+pub fn neg(_ a: u256) -> u256 {
+    (P - a % P) % P
+}
+
+/// b^e by square and multiply (reference `pw`).
+pub fn pow(_ b: u256, _ e: u256) -> u256 {
+    var r: u256 = 1
+    var base = b % P
+    var k = e
+    while k > 0 {
+        if (k & 1) == 1 {
+            r = (r * base) % P
+        }
+        base = (base * base) % P
+        k = k >> 1
+    }
+    r
+}
+
+/// 1 / a. Reverts when a = 0, where the reference throws ("degenerate challenges").
+pub fn inv(_ a: u256) -> u256 {
+    assert!(a % P != 0, "division by zero in F_17")
+    pow(a, P - 2)
+}
+
+#[test]
+fn test_add_sub_neg() {
+    assert!(add(9, 8) == 0)
+    assert!(add(16, 16) == 15)
+    assert!(sub(3, 5) == 15)
+    assert!(sub(0, 16) == 1)
+    assert!(sub(5, 5) == 0)
+    assert!(neg(0) == 0)
+    assert!(neg(1) == 16)
+}
+
+#[test]
+fn test_mul_pow() {
+    assert!(mul(16, 16) == 1)
+    assert!(mul(4, 5) == 3)
+    assert!(pow(3, 0) == 1)
+    assert!(pow(0, 0) == 1)
+    assert!(pow(3, 5) == 5)
+    assert!(pow(2, 4) == 16)
+}
+
+#[test]
+fn test_every_nonzero_element_has_an_inverse() {
+    var a: u256 = 1
+    while a < P {
+        assert!(mul(a, inv(a)) == 1)
+        assert!(pow(a, P - 1) == 1)
+        assert!(add(a, neg(a)) == 0)
+        a += 1
+    }
+}
+
+#[test]
+fn test_unreduced_operands_are_reduced() {
+    assert!(sub(1, 35) == 0)
+    assert!(neg(18) == 16)
+    assert!(pow(19, 4) == 16)
+    assert!(inv(22) == 7)
+}
+
+#[test(should_revert)]
+fn test_inv_of_zero_reverts() {
+    let _ = inv(0)
+}

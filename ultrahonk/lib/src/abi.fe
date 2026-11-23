@@ -1,0 +1,7 @@
+use std::abi::Bytes32
+
+// Same ABI as `IVerifier.verify` in the generated Solidity verifier.
+pub msg VerifierMsg {
+    #[selector = sol("verify(bytes,bytes32[])")]
+    Verify { proof: Bytes, public_inputs: Vec<Bytes32> } -> bool,
+}

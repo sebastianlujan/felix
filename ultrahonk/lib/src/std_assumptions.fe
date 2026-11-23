@@ -1,0 +1,105 @@
+// Pins the std behaviour the verifier port depends on (BN254 precompile
+// wrappers and Keccak hashing), so a compiler or std upgrade that changes
+// any of it fails here first. Tests only; nothing in this module is exported.
+use std::abi::bytes_from_words
+use std::evm::crypto::{PrecompileError, ec_add, ec_mul, ec_pairing, keccak_words}
+use std::evm::packed::Packed
+use super::fr::Q
+use super::opening::G2_GENERATOR
+
+// 2 * (1, 2) on BN254 G1.
+const DOUBLE_X: u256 = 0x030644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd3
+const DOUBLE_Y: u256 = 0x15ed738c0e0a7c92e7845f96b2ae9c0a68a6a449e3538fc7ff3ebf7a5a18a2c4
+
+// keccak256 of one zero word, and of the words 1 and 2 (`cast keccak`).
+const KECCAK_OF_ZERO_WORD: u256 = 0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563
+const KECCAK_OF_ONE_TWO: u256 = 0xe90b7bceb6e7df5418fb78d8ee546e97c83a08bbccc01a0644d599ccd2a7c2e0
+
+// The `expect_*` helpers follow `crates/fe/tests/fixtures/fe_test/precompile_wrappers.fe`
+// in the Fe repository (Apache-2.0).
+fn expect_pair(_ result: Result<PrecompileError, (u256, u256)>) -> (u256, u256) {
+    match result {
+        Result::Ok(value) => value,
+        Result::Err(_) => {
+            assert!(false)
+            (0, 0)
+        },
+    }
+}
+
+fn expect_bool(_ result: Result<PrecompileError, bool>) -> bool {
+    match result {
+        Result::Ok(value) => value,
+        Result::Err(_) => {
+            assert!(false)
+            false
+        },
+    }
+}
+
+/// Pairing input `e((1, 2), G2) * e((1, y), G2)`.
+fn pairing_of_generator_with(y: u256) -> Result<PrecompileError, bool> {
+    var input = Packed::with_capacity(bytes: 384)
+    for g1_y in [2, y] {
+        input.u256(1)
+        input.u256(g1_y)
+        for limb in G2_GENERATOR {
+            input.u256(limb)
+        }
+    }
+    ec_pairing(input.span())
+}
+
+fn hash_word(_ word: u256) -> u256 {
+    var packed = Packed::with_capacity(bytes: 32)
+    packed.u256(word)
+    packed.keccak256()
+}
+
+#[test]
+fn test_ec_add_of_generator_equals_ec_mul_by_two() {
+    let sum = expect_pair(ec_add(ax: 1, ay: 2, bx: 1, by: 2))
+    let double = expect_pair(ec_mul(px: 1, py: 2, s: 2))
+    assert!(sum.0 == double.0)
+    assert!(sum.1 == double.1)
+    assert!(sum.0 == DOUBLE_X)
+    assert!(sum.1 == DOUBLE_Y)
+}
+
+#[test]
+fn test_ec_add_rejects_point_off_curve() {
+    match ec_add(ax: 1, ay: 3, bx: 1, by: 2) {
+        Result::Ok(_) => assert!(false),
+        Result::Err(_) => (),
+    }
+}
+
+#[test]
+fn test_pairing_of_generator_and_its_negation_is_one() {
+    assert!(expect_bool(pairing_of_generator_with(y: Q - 2)))
+}
+
+#[test]
+fn test_pairing_of_generator_twice_is_not_one() {
+    assert!(!expect_bool(pairing_of_generator_with(y: 2)))
+}
+
+#[test]
+fn test_packed_keccak_of_zero_word() {
+    assert!(hash_word(0) == KECCAK_OF_ZERO_WORD)
+}
+
+#[test]
+fn test_packed_append_span_matches_packed_words() {
+    var packed = Packed::with_capacity(bytes: 64)
+    packed.u256(1)
+    packed.append_span(bytes_from_words([2]).span())
+    assert!(packed.len() == 64)
+    assert!(packed.keccak256() == KECCAK_OF_ONE_TWO)
+}
+
+#[test]
+fn test_keccak_words() {
+    assert!(keccak_words([0]) == KECCAK_OF_ZERO_WORD)
+    assert!(keccak_words([1, 2]) == KECCAK_OF_ONE_TWO)
+}

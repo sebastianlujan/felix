@@ -1,0 +1,294 @@
+// The complete toy Honk verifier (reference `verify`): `verify` for a plain proof and
+// `verify_masked` for a proof with a masked sumcheck (the reference's `proof.libra` branch).
+use ingot::{Challenges, Libra, MaskedScenario, Proof, Scenario}
+use ingot::{libra, shplemini, sumcheck}
+use ingot::curve::G1
+use ingot::vectors
+
+/// The sumcheck half and the opening half. As in the reference, both are always evaluated,
+/// so degenerate challenges (a zero denominator, where the reference throws) revert even if
+/// the other half already rejects.
+fn verify_halves(
+    vk: [[u256; 2]; 15],
+    proof: Proof,
+    public_inputs: [u256; 1],
+    challenges: Challenges,
+    initial_target: u256,
+    libra_term: u256,
+) -> bool {
+    let delta = sumcheck::public_delta(
+        public_inputs,
+        beta: challenges.beta,
+        gamma: challenges.gamma,
+    )
+    let sc = sumcheck::verify(
+        univariates: proof.univariates,
+        evals: proof.evals,
+        ch: challenges,
+        delta,
+        initial_target,
+        libra_term,
+    )
+    let pcs = shplemini::verify(vk, proof, ch: challenges)
+    sc.ok && pcs.ok
+}
+
+/// Verifies `proof` for the circuit committed in `vk`, the public input and the challenges.
+/// Returns the verdict; reverts on degenerate challenges.
+pub fn verify(
+    vk: [[u256; 2]; 15],
+    proof: Proof,
+    public_inputs: [u256; 1],
+    challenges: Challenges,
+) -> bool {
+    verify_halves(
+        vk,
+        proof,
+        public_inputs,
+        challenges,
+        initial_target: 0,
+        libra_term: 0,
+    )
+}
+
+/// Verifies a proof whose sumcheck is masked: `libra` is the mask part of the proof and
+/// `rho_l` the extra challenge. The sumcheck starts at rho_L * sum instead of 0, its final
+/// check adds rho_L * (e0 + e1), and the two KZG openings of the mask must pass.
+pub fn verify_masked(
+    vk: [[u256; 2]; 15],
+    proof: Proof,
+    libra: Libra,
+    public_inputs: [u256; 1],
+    challenges: Challenges,
+    rho_l: u256,
+) -> bool {
+    let mask = libra::verify(libra, u: challenges.u, rho_l)
+    let halves = verify_halves(
+        vk,
+        proof,
+        public_inputs,
+        challenges,
+        initial_target: mask.target,
+        libra_term: mask.libra_term,
+    )
+    halves && mask.ok
+}
+
+/// The verdict on a reference scenario, asserted equal to the reference's.
+fn verdict(_ s: Scenario) -> bool {
+    let ok = verify(
+        vk: vectors::VK,
+        proof: s.proof,
+        public_inputs: s.public_inputs,
+        challenges: s.challenges,
+    )
+    assert!(ok == s.ok, "verdict differs from the reference")
+    ok
+}
+
+fn accepts(_ s: Scenario) -> bool {
+    verify(
+        vk: vectors::VK,
+        proof: s.proof,
+        public_inputs: s.public_inputs,
+        challenges: s.challenges,
+    )
+}
+
+#[test]
+fn test_verify_accepts_honest() {
+    assert!(verdict(vectors::HONEST))
+}
+
+#[test]
+fn test_verify_accepts_honest_alt() {
+    assert!(verdict(vectors::HONEST_ALT))
+}
+
+#[test]
+fn test_verify_accepts_honest_infinity() {
+    assert!(verdict(vectors::HONEST_INFINITY))
+}
+
+#[test]
+fn test_verify_rejects_broken_gate() {
+    assert!(!verdict(vectors::BROKEN_GATE))
+}
+
+#[test]
+fn test_verify_rejects_broken_lookup() {
+    assert!(!verdict(vectors::BROKEN_LOOKUP))
+}
+
+#[test]
+fn test_verify_rejects_broken_copy() {
+    assert!(!verdict(vectors::BROKEN_COPY))
+}
+
+#[test]
+fn test_verify_rejects_wrong_public_input() {
+    assert!(!verdict(vectors::WRONG_PUBLIC_INPUT))
+}
+
+#[test]
+fn test_verify_rejects_patched_univariates() {
+    assert!(!verdict(vectors::PATCHED_UNIVARIATES))
+}
+
+#[test]
+fn test_verify_accepts_lucky_dice_cheat() {
+    // Accepted by design: with u_1 = 1 the cheat survives. F_17 has a large soundness error.
+    assert!(verdict(vectors::LUCKY_DICE))
+}
+
+#[test]
+fn test_verify_rejects_false_evaluation() {
+    assert!(!verdict(vectors::FALSE_EVALUATION))
+}
+
+#[test]
+fn test_verify_rejects_tampered_honest_proof() {
+    // Not reference scenarios: each change breaks exactly one check of the honest proof.
+    var s = vectors::HONEST
+    assert!(accepts(s))
+    s.proof.comm_w = G1
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.proof.comm_q = G1
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.proof.comm[0] = G1
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.proof.gemini_a[0] = 3
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.proof.univariates[0][0] = 10
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.public_inputs = [5]
+    assert!(!accepts(s))
+}
+
+#[test]
+fn test_verify_rejects_wrong_verification_key() {
+    var vk = vectors::VK
+    vk[0] = G1
+    let s = vectors::HONEST
+    assert!(
+        !verify(
+            vk,
+            proof: s.proof,
+            public_inputs: s.public_inputs,
+            challenges: s.challenges,
+        ),
+    )
+}
+
+#[test(should_revert)]
+fn test_verify_reverts_on_degenerate_challenges() {
+    // z = -r. The sumcheck half already rejects this proof, and the call still reverts.
+    var s = vectors::BROKEN_GATE
+    s.challenges.z = 13
+    let _ = accepts(s)
+}
+
+/// The verdict on a masked reference scenario, asserted equal to the reference's.
+fn masked_verdict(_ s: MaskedScenario) -> bool {
+    let ok = accepts_masked(s)
+    assert!(ok == s.ok, "verdict differs from the reference")
+    ok
+}
+
+fn accepts_masked(_ s: MaskedScenario) -> bool {
+    verify_masked(
+        vk: vectors::VK,
+        proof: s.proof,
+        libra: s.libra,
+        public_inputs: s.public_inputs,
+        challenges: s.challenges,
+        rho_l: s.rho_l,
+    )
+}
+
+#[test]
+fn test_verify_masked_accepts_mask_a() {
+    assert!(masked_verdict(vectors::MASKED_A))
+}
+
+#[test]
+fn test_verify_masked_accepts_mask_b() {
+    assert!(masked_verdict(vectors::MASKED_B))
+}
+
+#[test]
+fn test_verify_masked_rejects_false_evaluation() {
+    assert!(!masked_verdict(vectors::MASKED_FALSE_EVALUATION))
+}
+
+#[test]
+fn test_verify_masked_rejects_wrong_sum() {
+    assert!(!masked_verdict(vectors::MASKED_WRONG_SUM))
+}
+
+#[test]
+fn test_verify_masked_rejects_broken_gate() {
+    assert!(!masked_verdict(vectors::MASKED_BROKEN_GATE))
+}
+
+#[test]
+fn test_verify_masked_rejects_tampered_mask() {
+    // Not reference scenarios: each change breaks the honest masked proof.
+    var s = vectors::MASKED_A
+    assert!(accepts_masked(s))
+    s.libra.e1 = 0
+    assert!(!accepts_masked(s))
+    s = vectors::MASKED_A
+    s.libra.w0 = G1
+    assert!(!accepts_masked(s))
+    s = vectors::MASKED_A
+    s.libra.comm_g1 = G1
+    assert!(!accepts_masked(s))
+    s = vectors::MASKED_A
+    s.rho_l = 4
+    assert!(!accepts_masked(s))
+}
+
+#[test]
+fn test_verify_rejects_masked_proof_without_its_mask() {
+    let s = vectors::MASKED_A
+    assert!(
+        !verify(
+            vk: vectors::VK,
+            proof: s.proof,
+            public_inputs: s.public_inputs,
+            challenges: s.challenges,
+        ),
+    )
+}
+
+#[test]
+fn test_verify_masked_with_the_zero_mask_is_verify() {
+    // The zero polynomial commits to the point at infinity, sums to 0 and opens to 0
+    // with the point at infinity as its proof: the plain proof is the zero-mask case.
+    let s = vectors::HONEST
+    let zero = Libra {
+        comm_g0: [0, 0],
+        comm_g1: [0, 0],
+        sum: 0,
+        e0: 0,
+        e1: 0,
+        w0: [0, 0],
+        w1: [0, 0],
+    }
+    assert!(
+        verify_masked(
+            vk: vectors::VK,
+            proof: s.proof,
+            libra: zero,
+            public_inputs: s.public_inputs,
+            challenges: s.challenges,
+            rho_l: 3,
+        ),
+    )
+}

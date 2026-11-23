@@ -1,0 +1,58 @@
+// Index of each entity in the array of evaluations the relations read, in the order
+// of the `WIRE` enum of the Solidity verifier that Barretenberg 6.0.0 generates
+// (which follows `UltraFlavor`'s entity order). In a ZK proof, entity `e` is
+// sumcheck evaluation `e + 1`: evaluation 0 belongs to the masking polynomial.
+
+/// Number of entities the relations read.
+pub const NUMBER_OF_ENTITIES: usize = 41
+
+// Precomputed: permutation polynomials.
+pub const SIGMA_1: usize = 0
+pub const SIGMA_2: usize = 1
+pub const SIGMA_3: usize = 2
+pub const SIGMA_4: usize = 3
+pub const ID_1: usize = 4
+pub const ID_2: usize = 5
+pub const ID_3: usize = 6
+pub const ID_4: usize = 7
+pub const LAGRANGE_FIRST: usize = 8
+pub const LAGRANGE_LAST: usize = 9
+
+// Precomputed: lookup selector and table columns.
+pub const Q_LOOKUP: usize = 10
+pub const TABLE_1: usize = 11
+pub const TABLE_2: usize = 12
+pub const TABLE_3: usize = 13
+pub const TABLE_4: usize = 14
+
+// Precomputed: gate selectors.
+pub const Q_M: usize = 15
+pub const Q_R: usize = 16
+pub const Q_O: usize = 17
+pub const Q_C: usize = 18
+pub const Q_L: usize = 19
+pub const Q_4: usize = 20
+pub const Q_ARITH: usize = 21
+pub const Q_RANGE: usize = 22
+pub const Q_ELLIPTIC: usize = 23
+pub const Q_MEMORY: usize = 24
+pub const Q_NNF: usize = 25
+pub const Q_POSEIDON2_EXTERNAL: usize = 26
+pub const Q_POSEIDON2_INTERNAL: usize = 27
+
+// Witness.
+pub const W_L: usize = 28
+pub const W_R: usize = 29
+pub const W_O: usize = 30
+pub const W_4: usize = 31
+pub const Z_PERM: usize = 32
+pub const LOOKUP_INVERSES: usize = 33
+pub const LOOKUP_READ_COUNTS: usize = 34
+pub const LOOKUP_READ_TAGS: usize = 35
+
+// Witness, shifted by one row.
+pub const W_L_SHIFT: usize = 36
+pub const W_R_SHIFT: usize = 37
+pub const W_O_SHIFT: usize = 38
+pub const W_4_SHIFT: usize = 39
+pub const Z_PERM_SHIFT: usize = 40

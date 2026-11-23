@@ -1,0 +1,83 @@
+// The sumcheck mask ("Libra") of the reference's ZK branch: `kzg_check` and the
+// `proof.libra` part of `verify`.
+//
+// Only the mask of the sumcheck univariates is here, as in the reference. The 23
+// evaluations still travel unmasked, and the two mask evaluations are checked with two
+// plain KZG openings.
+use ingot::{Libra, LibraTrace, MaskedScenario}
+use ingot::curve::{G1, G2, INFINITY, TAU_G2, f2_mul, g1_add, g1_mul, g1_neg, pairing}
+use ingot::f17::{add, mul, neg}
+use ingot::vectors
+
+/// Checks the KZG opening proof `w` of the claim f(x) = v for the commitment `c`:
+/// e(c - v * G1 + x * w, G2) * e(-w, [tau]_2) == 1.
+pub fn kzg_check(c: [u256; 2], x: u256, v: u256, w: [u256; 2]) -> bool {
+    let l = g1_add(g1_add(c, g1_mul(neg(v), G1)), g1_mul(x, w))
+    f2_mul(pairing(l, G2), pairing(g1_neg(w), TAU_G2)) == [1, 0]
+}
+
+/// Checks the two mask openings, g_0 at u_0 and g_1 at u_1, and computes what the mask
+/// contributes to the sumcheck: the initial target and the term of the final check.
+pub fn verify(libra: Libra, u: [u256; 2], rho_l: u256) -> LibraTrace {
+    let ok0 = kzg_check(c: libra.comm_g0, x: u[0], v: libra.e0, w: libra.w0)
+    let ok1 = kzg_check(c: libra.comm_g1, x: u[1], v: libra.e1, w: libra.w1)
+    LibraTrace {
+        ok: ok0 && ok1,
+        target: mul(rho_l, libra.sum),
+        libra_term: mul(rho_l, add(libra.e0, libra.e1)),
+        kzg_ok: [ok0, ok1],
+    }
+}
+
+/// Runs the mask checks on a reference scenario and asserts that every value equals the
+/// reference's.
+fn run(_ s: MaskedScenario) -> LibraTrace {
+    let t = verify(libra: s.libra, u: s.challenges.u, rho_l: s.rho_l)
+    assert!(t.target == s.mask.target, "initial target")
+    assert!(t.libra_term == s.mask.libra_term, "libra term")
+    assert!(t.kzg_ok == s.mask.kzg_ok, "KZG verdicts")
+    assert!(t.ok == s.mask.ok, "mask verdict")
+    t
+}
+
+#[test]
+fn test_kzg_check_by_hand() {
+    // f(X) = 3 + 4 X with tau = 2: [f] = (3 + 4 * 2) G1 = 11 G1. At x = 9, f(9) = 39 = 5
+    // and the quotient (f(X) - f(9)) / (X - 9) is the constant 4, so the proof is 4 G1.
+    let c = g1_mul(11, G1)
+    let w = g1_mul(4, G1)
+    assert!(kzg_check(c, x: 9, v: 5, w))
+    assert!(!kzg_check(c, x: 9, v: 6, w))
+    assert!(!kzg_check(c, x: 8, v: 5, w))
+    assert!(!kzg_check(c, x: 9, v: 5, w: g1_mul(5, G1)))
+    // A constant polynomial opens anywhere with the point at infinity as its proof.
+    assert!(kzg_check(c: g1_mul(7, G1), x: 3, v: 7, w: INFINITY))
+    assert!(!kzg_check(c: g1_mul(7, G1), x: 3, v: 8, w: INFINITY))
+}
+
+#[test]
+fn test_mask_a_values_by_hand() {
+    // The numbers of the page for mask A and rho_L = 3: sum = 10, g_0(9) = 10, g_1(7) = 16.
+    let t = run(vectors::MASKED_A)
+    assert!(t.ok && t.kzg_ok == [true, true])
+    assert!(t.target == 13 && t.libra_term == 10)
+}
+
+#[test]
+fn test_mask_b_opens() {
+    let t = run(vectors::MASKED_B)
+    assert!(t.ok && t.kzg_ok == [true, true])
+}
+
+#[test]
+fn test_false_mask_evaluation_fails_its_opening() {
+    let t = run(vectors::MASKED_FALSE_EVALUATION)
+    assert!(!t.ok && t.kzg_ok == [false, true])
+}
+
+#[test]
+fn test_wrong_mask_sum_and_broken_gate_still_open() {
+    // These fail in the sumcheck rounds: the openings of the mask are correct.
+    assert!(run(vectors::MASKED_WRONG_SUM).ok)
+    assert!(run(vectors::MASKED_BROKEN_GATE).ok)
+}

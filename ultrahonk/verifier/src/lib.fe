@@ -1,0 +1,489 @@
+// UltraHonk verifier contract for the vault circuit (ZK flavor).
+//
+// It has the ABI of the Solidity `HonkVerifier` and runs its checks, in its order and with
+// its errors: proof validation, the transcript, sumcheck, then the opening (Shplemini, the
+// consistency check, the multi-scalar multiplication, the pairing-point aggregation and the
+// pairing). It returns true only if the pairing holds, and reverts otherwise.
+//
+// The relations are in a contract of their own, `HonkRelations`, as the reference links
+// them as a separate library: one contract with everything exceeds the code size limit.
+// The address of that contract is fixed when this one is deployed.
+use std::abi::Bytes32
+use std::evm::Ctx
+use ultrahonk::abi::VerifierMsg
+use ultrahonk::errors::{PublicInputsLengthWrong, ShpleminiFailed, SumcheckFailed}
+use ultrahonk::opening::verify as verify_opening
+use ultrahonk::proof::validate
+use ultrahonk::sumcheck::{public_input_delta, verify_with_relations_at}
+use ultrahonk::transcript::generate
+use ultrahonk::types::PAIRING_POINTS_SIZE
+use ultrahonk::vectors::VK
+
+/// `relations` is the address of a `HonkRelations` contract.
+fn verify(_ proof: Bytes, _ public_inputs: Vec<Bytes32>, relations: Address) -> bool
+uses (call: Call, ctx: Ctx)
+{
+    validate(proof, log_n: VK.log_n)
+    if public_inputs.len() != VK.num_public_inputs - PAIRING_POINTS_SIZE {
+        revert_error(PublicInputsLengthWrong {})
+    }
+    let t = generate(vk: VK, proof, public_inputs)
+    let delta = public_input_delta(proof, public_inputs, beta: t.beta, gamma: t.gamma)
+    if !verify_with_relations_at(proof, t, delta, log_n: VK.log_n, relations) {
+        revert_error(SumcheckFailed {})
+    }
+    // The reference turns a pairing that does not hold into `ShpleminiFailed`.
+    if !verify_opening(vk: VK, proof, t) {
+        revert_error(ShpleminiFailed {})
+    }
+    true
+}
+
+pub contract HonkVerifier {
+    mut relations: Address,
+
+    init(relations_address: Address) uses (mut relations) { relations = relations_address }
+
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool uses (relations, call: Call, ctx: Ctx) {
+            verify(proof, public_inputs, relations)
+        }
+    }
+}
+
+// Tests. Each deploys both contracts and compares the revert data of one or more calls with
+// what the reference verifier returned for the same call, as recorded in
+// `ultrahonk::expected`. The exceptions say so: the valid proof, accepted here as by the
+// reference; the flip of one bit in every proof word, which the reference was not asked
+// about; proof word 138, where the reference reverts without data; and the tests of the call
+// between the two contracts, at the end.
+use core::error::ErrorVariant
+use std::abi::{DynArray, Sol, bytes_from_words, dyn_array_from}
+use std::evm::{Evm, revert_selector}
+use ultrahonk::expected
+use ultrahonk::fr::{P, Q}
+use ultrahonk::proof::evaluations
+use ultrahonk::relations::RelationsMsg
+use ultrahonk::relations_vectors::{PROOF_BATCHED, PROOF_BATCHED_TAMPERED}
+use ultrahonk::vectors::{LOG_N, PROOF, PUBLIC_INPUTS, proof, proof_with, public_inputs}
+use ultrahonk_relations::HonkRelations
+
+// The reference verifier was called with this much gas when the reverts were recorded.
+const GAS: u256 = 20000000
+
+/// Deploys the relations contract, then the verifier that calls it.
+fn deploy() -> Address uses (evm: mut Evm) {
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+}
+
+/// Calls `verify` and returns the selector it reverted with. The call must revert, with
+/// revert data that is the selector alone (true of every error but the proof-length one).
+fn revert_of(verifier: Address, proof: own Bytes, public_inputs: own Vec<Bytes32>) -> u32
+uses (evm: mut Evm)
+{
+    let outcome = evm
+        .try_call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof, public_inputs },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 4)
+    revert_selector(outcome.returndata()).unwrap()
+}
+
+/// Whether `verify` returned `true`. A revert or any other return data is `false`.
+fn accepts(verifier: Address, proof: own Bytes, public_inputs: own Vec<Bytes32>) -> bool
+uses (evm: mut Evm)
+{
+    let outcome = evm
+        .try_call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof, public_inputs },
+        )
+    if !outcome.success() || outcome.returndata_len() != 32 {
+        return false
+    }
+    Bytes::from_payload(source: outcome.returndata()).word_at(0) == 1
+}
+
+fn one_input(_ value: u256) -> Vec<Bytes32> {
+    dyn_array_from([Bytes32 { val: value }])
+}
+
+fn two_inputs(_ first: u256, _ second: u256) -> Vec<Bytes32> {
+    dyn_array_from([Bytes32 { val: first }, Bytes32 { val: second }])
+}
+
+// selector of ProofLengthWrongWithLogN(uint256,uint256,uint256)
+#[test(should_revert, selector = 0x59895a53)]
+fn test_wrong_proof_length_reverts() uses (evm: mut Evm) {
+    let verifier = deploy()
+    let _: bool = evm
+        .call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify {
+                proof: bytes_from_words([1, 2, 3]),
+                public_inputs: public_inputs(),
+            },
+        )
+}
+
+// The reference rejected the all-zero proof with `ShpleminiFailed` (`expected::ZERO_PROOF`):
+// it passes sumcheck there as it does here and fails in the opening.
+#[test]
+fn test_the_all_zero_proof_reverts_as_the_reference() uses (evm: mut Evm) {
+    let verifier = deploy()
+    assert!(expected::ZERO_PROOF == expected::SHPLEMINI_FAILED)
+    assert!(
+        revert_of(
+                verifier,
+                proof: Bytes::zeroed(expected::PROOF_LENGTH),
+                public_inputs: public_inputs(),
+            )
+            == expected::ZERO_PROOF,
+    )
+    assert!(
+        revert_of(
+                verifier,
+                proof: Bytes::zeroed(expected::PROOF_LENGTH),
+                public_inputs: two_inputs(0, 0),
+            )
+            == expected::ZERO_PROOF,
+    )
+}
+
+// Every word at the largest value its range check accepts, with and without the limbs.
+#[test]
+fn test_the_largest_values_revert_as_the_reference() uses (evm: mut Evm) {
+    let verifier = deploy()
+    for limbs in [true, false] {
+        assert!(
+            revert_of(
+                    verifier,
+                    proof: expected::largest_values(limbs),
+                    public_inputs: public_inputs(),
+                )
+                == expected::LARGEST_VALUES,
+        )
+    }
+}
+
+// The reference verifier returned true for this call, and so does this contract.
+#[test]
+fn test_the_valid_proof_is_accepted() uses (evm: mut Evm) {
+    let verifier = deploy()
+    assert!(
+        accepts(verifier, proof: proof(), public_inputs: public_inputs()),
+    )
+}
+
+// What matters once the contract can return true: no proof with one bit changed is
+// accepted. The low bit of each of the 142 words, one word at a time. The recorded flips
+// above pin the reference's selector for 12 of them; this covers every word.
+#[test]
+fn test_no_proof_with_one_bit_changed_is_accepted() uses (evm: mut Evm) {
+    let verifier = deploy()
+    var word: usize = 0
+    while word < PROOF.len() {
+        let tampered = proof_with(word, value: PROOF[word] ^ 1)
+        assert!(
+            !accepts(verifier, proof: tampered, public_inputs: public_inputs()),
+        )
+        word += 1
+    }
+}
+
+// The whole revert data, not only its selector, equals what the reference verifier
+// returned for a proof of the same length.
+#[test]
+fn test_wrong_proof_length_revert_data_matches_reference() uses (evm: mut Evm) {
+    let verifier = deploy()
+    for length in expected::WRONG_LENGTHS {
+        let outcome = evm
+            .try_call(
+                addr: verifier,
+                gas: GAS,
+                value: Wei::zero(),
+                message: VerifierMsg::Verify {
+                    proof: Bytes::zeroed(length),
+                    public_inputs: public_inputs(),
+                },
+            )
+        assert!(!outcome.success())
+        assert!(outcome.returndata_len() == 100)
+        assert!(
+            revert_selector(outcome.returndata()).unwrap()
+                == expected::PROOF_LENGTH_WRONG_WITH_LOG_N,
+        )
+        let data = Bytes::from_payload(source: outcome.returndata())
+        assert!(data.word_at(4) == expected::WRONG_LENGTH_LOG_N)
+        assert!(data.word_at(36) == length as u256)
+        assert!(data.word_at(68) == expected::PROOF_LENGTH as u256)
+    }
+}
+
+#[test]
+fn test_overwritten_proof_words_revert_as_the_reference() uses (evm: mut Evm) {
+    let verifier = deploy()
+    for overwrite in expected::OVERWRITES {
+        let tampered = proof_with(word: overwrite.word, value: overwrite.value)
+        assert!(
+            revert_of(verifier, proof: tampered, public_inputs: public_inputs())
+                == overwrite.selector,
+        )
+    }
+}
+
+// Every proof word set to Q, one at a time: the selector tells whether the contract reads
+// the word as a limb, a point coordinate or a scalar, for all 142 words.
+#[test]
+fn test_every_proof_word_is_range_checked_as_in_the_reference()
+uses (evm: mut Evm)
+{
+    let verifier = deploy()
+    var word: usize = 0
+    for run in expected::Q_OVERWRITE_RUNS {
+        while word < run.end {
+            let tampered = proof_with(word, value: Q)
+            assert!(
+                revert_of(verifier, proof: tampered, public_inputs: public_inputs())
+                    == run.selector,
+            )
+            word += 1
+        }
+    }
+    assert!(word == PROOF.len())
+}
+
+#[test]
+fn test_changed_public_inputs_revert_as_the_reference() uses (evm: mut Evm) {
+    let verifier = deploy()
+    for change in expected::PUBLIC_INPUT_CHANGES {
+        var inputs = PUBLIC_INPUTS
+        inputs[change.index] = change.value
+        assert!(
+            revert_of(
+                    verifier,
+                    proof: proof(),
+                    public_inputs: two_inputs(inputs[0], inputs[1]),
+                )
+                == change.selector,
+        )
+    }
+}
+
+#[test]
+fn test_wrong_public_input_counts_revert_as_the_reference()
+uses (evm: mut Evm)
+{
+    let verifier = deploy()
+    assert!(expected::WRONG_PUBLIC_INPUT_COUNTS == [0, 1, 3])
+    let none: Vec<Bytes32> = DynArray::empty()
+    assert!(
+        revert_of(verifier, proof: proof(), public_inputs: none)
+            == expected::PUBLIC_INPUTS_LENGTH_WRONG,
+    )
+    let one = one_input(PUBLIC_INPUTS[0])
+    let three = dyn_array_from(
+        [Bytes32 { val: PUBLIC_INPUTS[0] }, Bytes32 { val: PUBLIC_INPUTS[1] }, Bytes32 { val: 0 }],
+    )
+    assert!(
+        revert_of(verifier, proof: proof(), public_inputs: one)
+            == expected::PUBLIC_INPUTS_LENGTH_WRONG,
+    )
+    assert!(
+        revert_of(verifier, proof: proof(), public_inputs: three)
+            == expected::PUBLIC_INPUTS_LENGTH_WRONG,
+    )
+}
+
+// The four calls that break two rules at once (end of `expected.fe`): the reference
+// checks the proof words in order, then the number of public inputs, then their range.
+#[test]
+fn test_checks_run_in_the_order_of_the_reference() uses (evm: mut Evm) {
+    let verifier = deploy()
+
+    var words = PROOF
+    words[0] = 1 << 136
+    words[141] = Q
+    assert!(
+        revert_of(
+                verifier,
+                proof: bytes_from_words(words),
+                public_inputs: public_inputs(),
+            )
+            == expected::VALUE_GE_LIMB_MAX,
+    )
+
+    words = PROOF
+    words[8] = Q
+    words[28] = P
+    assert!(
+        revert_of(
+                verifier,
+                proof: bytes_from_words(words),
+                public_inputs: public_inputs(),
+            )
+            == expected::VALUE_GE_GROUP_ORDER,
+    )
+
+    assert!(
+        revert_of(
+                verifier,
+                proof: proof_with(word: 28, value: P),
+                public_inputs: one_input(PUBLIC_INPUTS[0]),
+            )
+            == expected::VALUE_GE_FIELD_ORDER,
+    )
+
+    assert!(
+        revert_of(verifier, proof: proof(), public_inputs: one_input(P))
+            == expected::PUBLIC_INPUTS_LENGTH_WRONG,
+    )
+}
+
+// Every recorded bit flip reverts with the selector the reference gave: sumcheck decides
+// five of them, the opening the others. The flip the reference rejected without revert
+// data, in its multi-scalar multiplication, reverts here with `ShpleminiFailed`.
+#[test]
+fn test_bit_flips_revert_as_the_reference() uses (evm: mut Evm) {
+    let verifier = deploy()
+    for flip in expected::BIT_FLIPS {
+        let tampered = proof_with(word: flip.word, value: PROOF[flip.word] ^ 1)
+        assert!(
+            revert_of(verifier, proof: tampered, public_inputs: public_inputs()) == flip.selector,
+        )
+    }
+    let word = expected::BIT_FLIP_WITHOUT_REVERT_DATA
+    let tampered = proof_with(word, value: PROOF[word] ^ 1)
+    assert!(
+        revert_of(verifier, proof: tampered, public_inputs: public_inputs())
+            == expected::SHPLEMINI_FAILED,
+    )
+}
+
+// The two flips only the last comparison of sumcheck can reject, named: the round checks
+// pass for both (`ultrahonk::sumcheck` tests), so `SumcheckFailed` comes from the relation
+// value the verifier got from `HonkRelations`.
+#[test]
+fn test_bit_flips_in_the_evaluations_fail_the_final_sumcheck_check()
+uses (evm: mut Evm)
+{
+    let verifier = deploy()
+    for word in [evaluations(LOG_N) + 1, evaluations(LOG_N) + 42] {
+        let tampered = proof_with(word, value: PROOF[word] ^ 1)
+        assert!(
+            revert_of(verifier, proof: tampered, public_inputs: public_inputs())
+                == expected::SUMCHECK_FAILED,
+        )
+    }
+}
+
+// The call between the two contracts. The stand-ins below answer `RelationsMsg::Accumulate`
+// in place of `HonkRelations`, to show that the verifier takes the relation value from the
+// contract it was deployed with, and what it does when that contract misbehaves.
+
+/// Answers every query with the value it was deployed with.
+contract FixedRelations {
+    mut answer: u256,
+
+    init(value: u256) uses (mut answer) { answer = value }
+
+    recv RelationsMsg {
+        Accumulate { evaluations, params, alpha, pow } -> u256
+        uses (answer)
+        {
+            answer
+        }
+    }
+}
+
+#[error]
+struct RelationsUnavailable { code: u256 }
+
+/// Reverts on every query.
+contract FailingRelations {
+    recv RelationsMsg {
+        Accumulate { evaluations, params, alpha, pow } -> u256 {
+            revert_error(RelationsUnavailable { code: 77 })
+        }
+    }
+}
+
+fn deploy_with_fixed_relations(answer: u256) -> Address uses (evm: mut Evm) {
+    let relations = evm.create2<FixedRelations>(value: Wei::zero(), args: (answer,), salt: 0)
+    evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+}
+
+#[test]
+fn test_the_relation_value_comes_from_the_relations_contract()
+uses (evm: mut Evm)
+{
+    // The reference's value for the pinned proof: sumcheck passes.
+    let right = deploy_with_fixed_relations(answer: PROOF_BATCHED)
+    assert!(
+        accepts(
+            verifier: right,
+            proof: proof(),
+            public_inputs: public_inputs(),
+        ),
+    )
+    // Any other value: the last comparison of sumcheck fails.
+    let wrong = deploy_with_fixed_relations(answer: PROOF_BATCHED_TAMPERED)
+    assert!(
+        revert_of(
+                verifier: wrong,
+                proof: proof(),
+                public_inputs: public_inputs(),
+            )
+            == expected::SUMCHECK_FAILED,
+    )
+}
+
+#[test]
+fn test_a_revert_of_the_relations_contract_reaches_the_caller_unchanged()
+uses (evm: mut Evm)
+{
+    let relations = evm.create2<FailingRelations>(value: Wei::zero(), args: (), salt: 0)
+    let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+    let outcome = evm
+        .try_call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof: proof(), public_inputs: public_inputs() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 36)
+    assert!(
+        revert_selector(outcome.returndata()).unwrap()
+            == <RelationsUnavailable as ErrorVariant<Sol>>::SELECTOR,
+    )
+    assert!(
+        Bytes::from_payload(source: outcome.returndata()).word_at(4) == 77,
+    )
+}
+
+// A call to an address without code succeeds and returns nothing. The verifier must not
+// read that as a relation value.
+#[test]
+fn test_a_relations_address_without_code_is_not_accepted() uses (evm: mut Evm) {
+    let verifier = evm
+        .create2<HonkVerifier>(value: Wei::zero(), args: (Address::new(0xdead),), salt: 0)
+    let outcome = evm
+        .try_call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof: proof(), public_inputs: public_inputs() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 0)
+}
