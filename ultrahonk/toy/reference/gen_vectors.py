@@ -16,7 +16,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True   # no reference/__pycache__ next to the committed sources
 import honk as H  # noqa: E402
 
-# The page's example challenges ("dados del ejemplo", `DEF` in its UI script).
+# The page's example challenges (`DEF` in its UI script).
 DEFAULT = {'beta': 2, 'gamma': 5, 'alpha': 3, 'g': 2, 'u': [9, 7], 'rho': 14, 'r': 4, 'nu': 5,
            'z': 12}
 # A second, non-degenerate set: u_0 < 6 takes the Lagrange shortcut, u_1 >= 6 does not.
@@ -37,26 +37,26 @@ def broken_copy():
     return w
 
 
-# name, page scenario, description, wires, prover options, verifier public input, challenges
+# name, from the page, description, wires, prover options, verifier public input, challenges
 SCENARIOS = [
-    ('HONEST', 'honesto', 'honest prover (x = 2, y = 4), example challenges',
+    ('HONEST', True, 'honest prover (x = 2, y = 4), example challenges',
      H.build_wires(X0, Y0), {}, Y0, DEFAULT),
-    ('BROKEN_GATE', 'compuerta', 'x = 3 is in the table, but 3 * 3 != 4',
+    ('BROKEN_GATE', True, 'x = 3 is in the table, but 3 * 3 != 4',
      H.build_wires(3, Y0), {}, Y0, DEFAULT),
-    ('BROKEN_LOOKUP', 'tabla', 'x = 15 is a root, but it is not in the table',
+    ('BROKEN_LOOKUP', True, 'x = 15 is a root, but it is not in the table',
      H.build_wires(15, Y0), {}, Y0, DEFAULT),
-    ('BROKEN_COPY', 'copia', '15 in the gate, 2 in the lookup', broken_copy(), {}, Y0, DEFAULT),
-    ('WRONG_PUBLIC_INPUT', 'pub', 'the proof is for y = 4, the verifier uses y = 5',
+    ('BROKEN_COPY', True, '15 in the gate, 2 in the lookup', broken_copy(), {}, Y0, DEFAULT),
+    ('WRONG_PUBLIC_INPUT', True, 'the proof is for y = 4, the verifier uses y = 5',
      H.build_wires(X0, Y0), {}, 5, DEFAULT),
-    ('PATCHED_UNIVARIATES', 'astuto', 'broken gate, the prover patches the univariates',
+    ('PATCHED_UNIVARIATES', True, 'broken gate, the prover patches the univariates',
      H.build_wires(3, Y0), {'patch': True}, Y0, DEFAULT),
-    ('LUCKY_DICE', 'suerte', 'same cheat, and the challenge u_1 comes out as 1',
+    ('LUCKY_DICE', True, 'same cheat, and the challenge u_1 comes out as 1',
      H.build_wires(3, Y0), {'patch': True}, Y0, with_u1(DEFAULT, 1)),
-    ('FALSE_EVALUATION', 'mentira', 'honest trace, but the prover lies in the evaluation of w_l',
+    ('FALSE_EVALUATION', True, 'honest trace, but the prover lies in the evaluation of w_l',
      H.build_wires(X0, Y0), {'lie': 'w_l'}, Y0, DEFAULT),
-    ('HONEST_ALT', None, 'honest prover, second set of challenges',
+    ('HONEST_ALT', False, 'honest prover, second set of challenges',
      H.build_wires(X0, Y0), {}, Y0, ALT),
-    ('HONEST_INFINITY', None, 'honest prover, challenges for which [W] is the point at infinity',
+    ('HONEST_INFINITY', False, 'honest prover, challenges for which [W] is the point at infinity',
      H.build_wires(X0, Y0), {}, Y0, INF),
 ]
 
@@ -203,10 +203,10 @@ def generate():
               [H.pairing(A, H.TAU_G2) for A in multiples]),
     ]
     summary = []
-    for name, page, desc, wires, opt, pub, ch in SCENARIOS:
+    for name, from_page, desc, wires, opt, pub, ch in SCENARIOS:
         proof, _ = H.prove(wires, ch, opt)
         v = H.verify(H.VK, proof, [pub], ch)
-        intro = f'Page scenario "{page}": ' if page else 'Extra scenario: '
+        intro = 'Page scenario: ' if from_page else 'Extra scenario: '
         out.append(konst([intro + desc + '.', 'Reference verdict: ' + verdict(v['ok']) + '.'],
                          name, 'Scenario', Struct('Scenario', [
                              ('proof', proof_lit(proof)), ('public_inputs', [pub]),

@@ -1,4 +1,4 @@
-"""Reference implementation: the math block of the teaching page "UltraHonk a mano",
+"""Reference implementation: the math block of the teaching page "UltraHonk by hand",
 https://claude.ai/artifact/TiC5eZeQs2U1Q9V3nAudPZ (first inline <script> block, no DOM),
 ported to Python (standard library only).
 
@@ -460,7 +460,7 @@ def kzg_check(C, x, v, W):
 VK = map_cols(FIXED, commit)
 
 
-# opt['patch']: patches the univariates (the page's opt.astuto) · opt['lie']: lies in one
+# opt['patch']: patches the univariates (the page's cheating prover) · opt['lie']: lies in one
 # evaluation · opt['masks']: sumcheck mask
 def prove(wires, ch, opt=None):
     opt = opt or {}

@@ -94,7 +94,7 @@ pub const PAIRINGS_TAU_G2: [[u256; 2]; 17] = [
     [97, 12],
 ]
 
-// Page scenario "honesto": honest prover (x = 2, y = 4), example challenges.
+// Page scenario: honest prover (x = 2, y = 4), example challenges.
 // Reference verdict: accept.
 pub const HONEST: Scenario = Scenario {
     proof: Proof {
@@ -154,7 +154,7 @@ pub const HONEST: Scenario = Scenario {
     ok: true,
 }
 
-// Page scenario "compuerta": x = 3 is in the table, but 3 * 3 != 4.
+// Page scenario: x = 3 is in the table, but 3 * 3 != 4.
 // Reference verdict: reject.
 pub const BROKEN_GATE: Scenario = Scenario {
     proof: Proof {
@@ -214,7 +214,7 @@ pub const BROKEN_GATE: Scenario = Scenario {
     ok: false,
 }
 
-// Page scenario "tabla": x = 15 is a root, but it is not in the table.
+// Page scenario: x = 15 is a root, but it is not in the table.
 // Reference verdict: reject.
 pub const BROKEN_LOOKUP: Scenario = Scenario {
     proof: Proof {
@@ -274,7 +274,7 @@ pub const BROKEN_LOOKUP: Scenario = Scenario {
     ok: false,
 }
 
-// Page scenario "copia": 15 in the gate, 2 in the lookup.
+// Page scenario: 15 in the gate, 2 in the lookup.
 // Reference verdict: reject.
 pub const BROKEN_COPY: Scenario = Scenario {
     proof: Proof {
@@ -334,7 +334,7 @@ pub const BROKEN_COPY: Scenario = Scenario {
     ok: false,
 }
 
-// Page scenario "pub": the proof is for y = 4, the verifier uses y = 5.
+// Page scenario: the proof is for y = 4, the verifier uses y = 5.
 // Reference verdict: reject.
 pub const WRONG_PUBLIC_INPUT: Scenario = Scenario {
     proof: Proof {
@@ -394,7 +394,7 @@ pub const WRONG_PUBLIC_INPUT: Scenario = Scenario {
     ok: false,
 }
 
-// Page scenario "astuto": broken gate, the prover patches the univariates.
+// Page scenario: broken gate, the prover patches the univariates.
 // Reference verdict: reject.
 pub const PATCHED_UNIVARIATES: Scenario = Scenario {
     proof: Proof {
@@ -454,7 +454,7 @@ pub const PATCHED_UNIVARIATES: Scenario = Scenario {
     ok: false,
 }
 
-// Page scenario "suerte": same cheat, and the challenge u_1 comes out as 1.
+// Page scenario: same cheat, and the challenge u_1 comes out as 1.
 // Reference verdict: accept.
 pub const LUCKY_DICE: Scenario = Scenario {
     proof: Proof {
@@ -514,7 +514,7 @@ pub const LUCKY_DICE: Scenario = Scenario {
     ok: true,
 }
 
-// Page scenario "mentira": honest trace, but the prover lies in the evaluation of w_l.
+// Page scenario: honest trace, but the prover lies in the evaluation of w_l.
 // Reference verdict: reject.
 pub const FALSE_EVALUATION: Scenario = Scenario {
     proof: Proof {

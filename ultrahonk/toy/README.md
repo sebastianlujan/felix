@@ -2,7 +2,7 @@
 
 A hand-sized Honk proof verifier written in Fe, as a pure library ingot.
 
-It is a port of the protocol of the teaching page "UltraHonk a mano"
+It is a port of the protocol of the teaching page "UltraHonk by hand"
 (<https://claude.ai/artifact/TiC5eZeQs2U1Q9V3nAudPZ>): Honk over the field F_17 with KZG
 commitments on the curve y² = x³ + 3 over F_101 (subgroup of order 17). The circuit has
 4 rows and 3 wires and proves "there is an x in the table {0, 1, 2, 3} with x² = y" for a
@@ -119,19 +119,19 @@ The generator lays its output out as `fe fmt` does (max width 100).
 
 ### Scenarios
 
-Example challenges (the page's "dados del ejemplo"): beta 2, gamma 5, alpha 3, g 2,
+Example challenges: beta 2, gamma 5, alpha 3, g 2,
 u (9, 7), rho 14, r 4, nu 5, z 12. The prover's witness is x = 2 for y = 4 unless noted.
 
-| Vector | Page scenario | What the prover does | Challenges | Verdict | Fails at |
+| Vector | From the page | What the prover does | Challenges | Verdict | Fails at |
 |---|---|---|---|---|---|
-| `HONEST` | `honesto` | follows the protocol | example | accept | — |
-| `BROKEN_GATE` | `compuerta` | x = 3: in the table, but 3·3 ≠ 4 | example | reject | sumcheck round 0 |
-| `BROKEN_LOOKUP` | `tabla` | x = 15: a root, but not in the table | example | reject | sumcheck round 0 |
-| `BROKEN_COPY` | `copia` | 15 in the gate, 2 in the lookup | example | reject | sumcheck round 0 |
-| `WRONG_PUBLIC_INPUT` | `pub` | proves y = 4, the verifier uses y = 5 | example | reject | sumcheck final check |
-| `PATCHED_UNIVARIATES` | `astuto` | x = 3 and patches the univariates | example | reject | sumcheck final check |
-| `LUCKY_DICE` | `suerte` | the same cheat | example with u₁ = 1 | **accept** | — |
-| `FALSE_EVALUATION` | `mentira` | honest trace, lies in the evaluation of w_l | example | reject | sumcheck final check and pairing check |
+| `HONEST` | yes | follows the protocol | example | accept | — |
+| `BROKEN_GATE` | yes | x = 3: in the table, but 3·3 ≠ 4 | example | reject | sumcheck round 0 |
+| `BROKEN_LOOKUP` | yes | x = 15: a root, but not in the table | example | reject | sumcheck round 0 |
+| `BROKEN_COPY` | yes | 15 in the gate, 2 in the lookup | example | reject | sumcheck round 0 |
+| `WRONG_PUBLIC_INPUT` | yes | proves y = 4, the verifier uses y = 5 | example | reject | sumcheck final check |
+| `PATCHED_UNIVARIATES` | yes | x = 3 and patches the univariates | example | reject | sumcheck final check |
+| `LUCKY_DICE` | yes | the same cheat | example with u₁ = 1 | **accept** | — |
+| `FALSE_EVALUATION` | yes | honest trace, lies in the evaluation of w_l | example | reject | sumcheck final check and pairing check |
 | `HONEST_ALT` | — | follows the protocol | beta 3, gamma 8, alpha 5, g 6, u (3, 12), rho 10, r 3, nu 7, z 5 | accept | — |
 | `HONEST_INFINITY` | — | follows the protocol | beta 5, gamma 3, alpha 7, g 11, u (3, 12), rho 10, r 3, nu 7, z 5 | accept | — |
 
