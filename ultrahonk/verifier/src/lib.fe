@@ -93,6 +93,23 @@ uses (evm: mut Evm)
     revert_selector(outcome.returndata()).unwrap()
 }
 
+/// Whether `verify` returned `true`. A revert or any other return data is `false`.
+fn accepts(verifier: Address, proof: own Bytes, public_inputs: own Vec<Bytes32>) -> bool
+uses (evm: mut Evm)
+{
+    let outcome = evm
+        .try_call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof, public_inputs },
+        )
+    if !outcome.success() || outcome.returndata_len() != 32 {
+        return false
+    }
+    Bytes::from_payload(source: outcome.returndata()).word_at(0) == 1
+}
+
 fn one_input(_ value: u256) -> Vec<Bytes32> {
     dyn_array_from([Bytes32 { val: value }])
 }
@@ -161,14 +178,21 @@ fn test_the_largest_values_revert_as_the_reference() uses (evm: mut Evm) {
 #[test]
 fn test_the_valid_proof_is_accepted() uses (evm: mut Evm) {
     let verifier = deploy()
-    let accepted: bool = evm
-        .call(
-            addr: verifier,
-            gas: GAS,
-            value: Wei::zero(),
-            message: VerifierMsg::Verify { proof: proof(), public_inputs: public_inputs() },
-        )
-    assert!(accepted)
+    assert!(accepts(verifier, proof: proof(), public_inputs: public_inputs()))
+}
+
+// What matters once the contract can return true: no proof with one bit changed is
+// accepted. The low bit of each of the 142 words, one word at a time. The recorded flips
+// above pin the reference's selector for 12 of them; this covers every word.
+#[test]
+fn test_no_proof_with_one_bit_changed_is_accepted() uses (evm: mut Evm) {
+    let verifier = deploy()
+    var word: usize = 0
+    while word < PROOF.len() {
+        let tampered = proof_with(word, value: PROOF[word] ^ 1)
+        assert!(!accepts(verifier, proof: tampered, public_inputs: public_inputs()))
+        word += 1
+    }
 }
 
 // The whole revert data, not only its selector, equals what the reference verifier
@@ -399,14 +423,7 @@ uses (evm: mut Evm)
 {
     // The reference's value for the pinned proof: sumcheck passes.
     let right = deploy_with_fixed_relations(answer: PROOF_BATCHED)
-    let accepted: bool = evm
-        .call(
-            addr: right,
-            gas: GAS,
-            value: Wei::zero(),
-            message: VerifierMsg::Verify { proof: proof(), public_inputs: public_inputs() },
-        )
-    assert!(accepted)
+    assert!(accepts(verifier: right, proof: proof(), public_inputs: public_inputs()))
     // Any other value: the last comparison of sumcheck fails.
     let wrong = deploy_with_fixed_relations(answer: PROOF_BATCHED_TAMPERED)
     assert!(
