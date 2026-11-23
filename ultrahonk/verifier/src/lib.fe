@@ -7,10 +7,11 @@
 //
 // The relations are in a contract of their own, `HonkRelations`, as the reference links
 // them as a separate library: one contract with everything exceeds the code size limit.
-// The address of that contract is fixed when this one is deployed.
+// The address of that contract is fixed when this one is deployed, and `relations()`
+// returns it: the one function this contract has and the Solidity verifier has not.
 use std::abi::Bytes32
 use std::evm::Ctx
-use ultrahonk::abi::VerifierMsg
+use ultrahonk::abi::{VerifierInfoMsg, VerifierMsg}
 use ultrahonk::errors::{PublicInputsLengthWrong, ShpleminiFailed, SumcheckFailed}
 use ultrahonk::opening::verify as verify_opening
 use ultrahonk::proof::validate
@@ -40,13 +41,20 @@ uses (call: Call, ctx: Ctx)
 }
 
 pub contract HonkVerifier {
-    mut relations: Address,
+    // Immutable: set once in `init` and kept in the contract's code, not in storage.
+    relations: Address,
 
     init(relations_address: Address) uses (mut relations) { relations = relations_address }
 
     recv VerifierMsg {
         Verify { proof, public_inputs } -> bool uses (relations, call: Call, ctx: Ctx) {
             verify(proof, public_inputs, relations)
+        }
+    }
+
+    recv VerifierInfoMsg {
+        Relations -> Address uses (relations) {
+            relations
         }
     }
 }
@@ -58,6 +66,7 @@ pub contract HonkVerifier {
 // about; proof word 138, where the reference reverts without data; and the tests of the call
 // between the two contracts, at the end.
 use core::error::ErrorVariant
+use core::message::MsgVariant
 use std::abi::{DynArray, Sol, bytes_from_words, dyn_array_from}
 use std::evm::{Evm, revert_selector}
 use ultrahonk::expected
@@ -486,4 +495,32 @@ fn test_a_relations_address_without_code_is_not_accepted() uses (evm: mut Evm) {
         )
     assert!(!outcome.success())
     assert!(outcome.returndata_len() == 0)
+}
+
+// `relations()` answers with the address the verifier was deployed with, whatever it is.
+#[test]
+fn test_relations_returns_the_address_given_at_deployment()
+uses (evm: mut Evm)
+{
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    for expected_address in [relations, Address::new(0xdead)] {
+        let verifier = evm
+            .create2<HonkVerifier>(value: Wei::zero(), args: (expected_address,), salt: 0)
+        let answer: Address = evm
+            .call(
+                addr: verifier,
+                gas: GAS,
+                value: Wei::zero(),
+                message: VerifierInfoMsg::Relations {},
+            )
+        assert!(answer == expected_address)
+    }
+}
+
+// selector of relations(), from `cast sig` (cast 1.5.1)
+#[test]
+fn test_the_selector_of_relations() {
+    assert!(
+        <VerifierInfoMsg::Relations as MsgVariant<Sol>>::SELECTOR == 0xb3a480f2,
+    )
 }
