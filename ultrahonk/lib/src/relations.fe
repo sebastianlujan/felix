@@ -11,24 +11,8 @@
 // Where the reference repeats a product or writes `x * MINUS_ONE + ONE`, this port
 // computes it once or writes `1 - x`; the values are the same field elements.
 use super::fr::{add, mul, sub}
-use super::relations_vectors as vectors
-use super::wire::{
-    Q_4,
-    Q_C,
-    Q_L,
-    Q_M,
-    Q_MEMORY,
-    Q_O,
-    Q_R,
-    W_4,
-    W_4_SHIFT,
-    W_L,
-    W_L_SHIFT,
-    W_O,
-    W_O_SHIFT,
-    W_R,
-    W_R_SHIFT,
-}
+use super::relations_vectors::*
+use super::wire::*
 
 pub const NUMBER_OF_SUBRELATIONS: usize = 31
 
@@ -40,6 +24,79 @@ pub struct RelationParameters {
     pub beta: u256,
     pub gamma: u256,
     pub public_inputs_delta: u256,
+}
+
+/// `-1/2` in the scalar field: `NEG_HALF_MODULO_P` of the reference.
+const NEG_HALF_MODULO_P: u256 = 0x183227397098d014dc2822db40c0ac2e9419f4243cdcb848a1f0fac9f8000000
+
+/// Arithmetic relation: slots 6 and 7.
+pub fn arithmetic(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_SUBRELATIONS]) {
+    let q_arith = p[Q_ARITH]
+    let q_arith_by_scaling = mul(q_arith, pow)
+
+    // (q_arith - 3) * q_m * w_r * w_l * (-1/2) + q_l w_l + q_r w_r + q_o w_o + q_4 w_4 + q_c
+    //     + (q_arith - 1) * w_4_shift
+    var accum = mul(
+        mul(sub(q_arith, 3), mul(mul(p[Q_M], p[W_R]), p[W_L])),
+        NEG_HALF_MODULO_P,
+    )
+    accum = add(accum, mul(p[Q_L], p[W_L]))
+    accum = add(accum, mul(p[Q_R], p[W_R]))
+    accum = add(accum, mul(p[Q_O], p[W_O]))
+    accum = add(accum, mul(p[Q_4], p[W_4]))
+    accum = add(accum, p[Q_C])
+    accum = add(accum, mul(sub(q_arith, 1), p[W_4_SHIFT]))
+    evals[6] = mul(accum, q_arith_by_scaling)
+
+    // (w_l + w_4 - w_l_shift + q_m) * (q_arith - 2) * (q_arith - 1)
+    var accum_two = add(sub(add(p[W_L], p[W_4]), p[W_L_SHIFT]), p[Q_M])
+    accum_two = mul(accum_two, sub(q_arith, 2))
+    accum_two = mul(accum_two, sub(q_arith, 1))
+    evals[7] = mul(accum_two, q_arith_by_scaling)
+}
+
+/// (w_1 + s_1 beta + gamma) ... (w_4 + s_4 beta + gamma), where `s_1..s_4` are the four
+/// consecutive entities starting at `first`: the identity or the sigma polynomials.
+fn grand_product(p: [u256; 41], first: usize, rp: RelationParameters) -> u256 {
+    var product: u256 = 1
+    var i: usize = 0
+    while i < 4 {
+        product = mul(
+            product,
+            add(add(p[W_L + i], mul(p[first + i], rp.beta)), rp.gamma),
+        )
+        i += 1
+    }
+    product
+}
+
+/// Permutation relation: slots 0 to 2.
+pub fn permutation(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+    evals: mut [u256; NUMBER_OF_SUBRELATIONS],
+) {
+    let grand_product_numerator = grand_product(p, first: ID_1, rp)
+    let grand_product_denominator = grand_product(p, first: SIGMA_1, rp)
+
+    let acc = sub(
+        mul(
+            add(p[Z_PERM], p[LAGRANGE_FIRST]),
+            grand_product_numerator,
+        ),
+        mul(
+            add(
+                p[Z_PERM_SHIFT],
+                mul(p[LAGRANGE_LAST], rp.public_inputs_delta),
+            ),
+            grand_product_denominator,
+        ),
+    )
+    evals[0] = mul(acc, pow)
+    evals[1] = mul(mul(p[LAGRANGE_LAST], p[Z_PERM_SHIFT]), pow)
+    // z_perm initialization check: lagrange_first * z_perm = 0
+    evals[2] = mul(mul(p[LAGRANGE_FIRST], p[Z_PERM]), pow)
 }
 
 /// RAM/ROM memory relation: slots 14 to 19.
@@ -137,21 +194,21 @@ pub fn memory(
 
 fn proof_params() -> RelationParameters {
     RelationParameters {
-        eta: vectors::PROOF_ETA,
-        rom_logup_gamma: vectors::PROOF_ROM_LOGUP_GAMMA,
-        beta: vectors::PROOF_BETA,
-        gamma: vectors::PROOF_GAMMA,
-        public_inputs_delta: vectors::PROOF_PUBLIC_INPUTS_DELTA,
+        eta: PROOF_ETA,
+        rom_logup_gamma: PROOF_ROM_LOGUP_GAMMA,
+        beta: PROOF_BETA,
+        gamma: PROOF_GAMMA,
+        public_inputs_delta: PROOF_PUBLIC_INPUTS_DELTA,
     }
 }
 
 fn synth_params() -> RelationParameters {
     RelationParameters {
-        eta: vectors::SYNTH_ETA,
-        rom_logup_gamma: vectors::SYNTH_ROM_LOGUP_GAMMA,
-        beta: vectors::SYNTH_BETA,
-        gamma: vectors::SYNTH_GAMMA,
-        public_inputs_delta: vectors::SYNTH_PUBLIC_INPUTS_DELTA,
+        eta: SYNTH_ETA,
+        rom_logup_gamma: SYNTH_ROM_LOGUP_GAMMA,
+        beta: SYNTH_BETA,
+        gamma: SYNTH_GAMMA,
+        public_inputs_delta: SYNTH_PUBLIC_INPUTS_DELTA,
     }
 }
 
@@ -173,37 +230,67 @@ fn only_slots(_ evals: [u256; 31], expected: [u256; 31], first: usize, end: usiz
     true
 }
 
+fn proof_only(_ evals: [u256; 31], first: usize, end: usize) -> bool {
+    only_slots(evals, expected: PROOF_SUBRELATIONS, first, end)
+}
+
+fn synth_only(_ evals: [u256; 31], first: usize, end: usize) -> bool {
+    only_slots(evals, expected: SYNTH_SUBRELATIONS, first, end)
+}
+
+// One test per relation: run alone on a zeroed array, it leaves the reference's values
+// in its own slots and nothing elsewhere, for the synthetic inputs (every slot non-zero)
+// and for the pinned proof (slots 8 to 30 are zero).
+
+#[test]
+fn test_arithmetic_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    arithmetic(p: SYNTH_EVALS, pow: SYNTH_POW, evals: mut synth)
+    assert!(synth_only(synth, first: 6, end: 8))
+
+    var proof: [u256; 31] = [0; 31]
+    arithmetic(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
+    assert!(proof_only(proof, first: 6, end: 8))
+}
+
+#[test]
+fn test_permutation_relation_matches_reference() {
+    var synth: [u256; 31] = [0; 31]
+    permutation(
+        p: SYNTH_EVALS,
+        rp: synth_params(),
+        pow: SYNTH_POW,
+        evals: mut synth,
+    )
+    assert!(synth_only(synth, first: 0, end: 3))
+
+    var proof: [u256; 31] = [0; 31]
+    permutation(
+        p: PROOF_EVALS,
+        rp: proof_params(),
+        pow: PROOF_POW,
+        evals: mut proof,
+    )
+    assert!(proof_only(proof, first: 0, end: 3))
+}
+
 #[test]
 fn test_memory_relation_matches_reference() {
-    var evals: [u256; 31] = [0; 31]
+    var synth: [u256; 31] = [0; 31]
     memory(
-        p: vectors::SYNTH_EVALS,
+        p: SYNTH_EVALS,
         rp: synth_params(),
-        pow: vectors::SYNTH_POW,
-        evals: mut evals,
+        pow: SYNTH_POW,
+        evals: mut synth,
     )
-    assert!(
-        only_slots(
-            evals,
-            expected: vectors::SYNTH_SUBRELATIONS,
-            first: 14,
-            end: 20,
-        ),
-    )
+    assert!(synth_only(synth, first: 14, end: 20))
 
-    var proof_evals: [u256; 31] = [0; 31]
+    var proof: [u256; 31] = [0; 31]
     memory(
-        p: vectors::PROOF_EVALS,
+        p: PROOF_EVALS,
         rp: proof_params(),
-        pow: vectors::PROOF_POW,
-        evals: mut proof_evals,
+        pow: PROOF_POW,
+        evals: mut proof,
     )
-    assert!(
-        only_slots(
-            proof_evals,
-            expected: vectors::PROOF_SUBRELATIONS,
-            first: 14,
-            end: 20,
-        ),
-    )
+    assert!(proof_only(proof, first: 14, end: 20))
 }
