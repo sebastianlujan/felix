@@ -117,19 +117,17 @@ fn carried_points(_ proof: Bytes) -> PairingPoints {
 /// ones are added (`generateRecursionSeparator`): the hash of the carried points followed
 /// by `computed`, reduced.
 fn recursion_separator(carried: PairingPoints, computed: PairingPoints) -> u256 {
-    keccak_words(
-            [
-                carried.p0_x,
-                carried.p0_y,
-                carried.p1_x,
-                carried.p1_y,
-                computed.p0_x,
-                computed.p0_y,
-                computed.p1_x,
-                computed.p1_y,
-            ],
-        )
-        % P
+    let words = [
+        carried.p0_x,
+        carried.p0_y,
+        carried.p1_x,
+        carried.p1_y,
+        computed.p0_x,
+        computed.p0_y,
+        computed.p1_x,
+        computed.p1_y,
+    ]
+    keccak_words(words) % P
 }
 
 /// `s * (x, y) + (other_x, other_y)` (`mulWithSeperator`).
@@ -138,10 +136,10 @@ fn mul_add(x: u256, y: u256, s: u256, other_x: u256, other_y: u256) -> (u256, u2
     add_points(ax: px, ay: py, bx: other_x, by: other_y)
 }
 
-/// Aggregates the pairing points the proof carries into the verifier's own:
-/// `separator * computed + carried` for each of the two. Reverts with `ValueGeGroupOrder` if a
-/// carried coordinate is not below `Q`, then with `PointAtInfinity` if a carried point is
-/// `(0, 0)`, and with `ShpleminiFailed` if a carried point is not on the curve; the
+/// Aggregates the pairing points the proof carries into the ones the verifier computed:
+/// `separator * computed + carried` for each of the two. Reverts with `ValueGeGroupOrder`
+/// if a carried coordinate is not below `Q`, then with `PointAtInfinity` if a carried point
+/// is `(0, 0)`, and with `ShpleminiFailed` if a carried point is not on the curve; the
 /// reference reverts without data in that last case.
 fn aggregate(_ proof: Bytes, computed: PairingPoints) -> PairingPoints {
     let carried = carried_points(proof)

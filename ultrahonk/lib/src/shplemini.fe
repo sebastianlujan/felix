@@ -134,9 +134,10 @@ fn libra_denominators(z: u256, r: u256, first: u256) -> [u256; 5] {
     [first, inv(sub(z, mul(SUBGROUP_GENERATOR, r))), first, inv(sub(z, 1)), first]
 }
 
-/// Fills `out[0 .. slots(log_n))` with the scalars of the multi-scalar multiplication,
-/// the constant term at `40 + log_n` included; `out` must come in zeroed. Reverts with
-/// `InvertOfZero` where the reference does: a challenge that makes a denominator zero.
+/// Writes the scalars of the multi-scalar multiplication to `out[0 .. slots(log_n))`, the
+/// constant term at `40 + log_n` included, and leaves the entries after them as they are.
+/// Reverts with `InvertOfZero` where the reference does: a challenge that makes a
+/// denominator zero.
 pub fn scalars(_ proof: Bytes, t: Transcript, log_n: usize, out: mut [u256; MAX_SLOTS]) {
     let z = t.shplonk_z
     let nu = t.shplonk_nu
