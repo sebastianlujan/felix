@@ -30,6 +30,7 @@ The toolchain, as recorded in `noir_artifacts.json` of that directory:
 |---|---|---|---|---|
 | `hello` | 12 | 1 | All zero | 7232 bytes |
 | `mutator_set` | 17 | 3 | All zero | 9152 bytes |
+| `recursive` | 20 | 1 | All eight non-zero: the circuit verifies another proof (`std::verify_proof_with_type` in its `main.nr`), so this proof carries pairing points | 10304 bytes |
 
 Each file is 32-byte big-endian words, as `bb` writes them. The sha256 of each equals the one
 `noir_artifacts.json` records for it.
@@ -44,6 +45,10 @@ Each file is 32-byte big-endian words, as `bb` writes them. The sha256 of each e
 | `mutator_set/public_inputs` | `mutator_set/public_inputs.bin` | `d437be64fd04cc426363354a58720c6e87f00d21cdaaa0a93e3814e893483654` |
 | `mutator_set/vk` | `mutator_set/vk.bin` | `07b9940d010c10be31114bac7c460b4c7541e25a4051c00014ba87755ffd37f8` |
 | `mutator_set/vk_hash` | `mutator_set/vk_hash.bin` | `5d6799a209806b342564b2d23dd48a20c8a951c528c2ac10c3163f39f3321443` |
+| `recursive/proof` | `recursive/proof.bin` | `689230ecb9711bec05576480c3c093c483a84d9a979c3d0962194077bb88db75` |
+| `recursive/public_inputs` | `recursive/public_inputs.bin` | `9267d3dbed802941483f1afa2a6bc68de5f653128aca9bf1461c5d0a3ad36ed2` |
+| `recursive/vk` | `recursive/vk.bin` | `26349fea23eb7768f407670df67e79f13d719095bcecb3706c563caacb47951d` |
+| `recursive/vk_hash` | `recursive/vk_hash.bin` | `6c98377e71d8dd5907c717f99bdcb41d027bfc95941b42bdf30778120cd486ad` |
 
 ## Checked with `bb`
 
@@ -57,6 +62,7 @@ bb verify -k <bundle>/vk -p <bundle>/proof -i <bundle>/public_inputs -t evm
 |---|---|
 | `hello` | `Proof verified successfully` |
 | `mutator_set` | `Proof verified successfully` |
+| `recursive` | `Proof verified successfully` |
 
 ## In the Fe tests
 

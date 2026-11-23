@@ -264,7 +264,7 @@ its tests. `../honk-toy/` has no contract to build.
 |---|---|
 | `circuit/` | Noir package `vault`: `x * x == y`, with `y` and `recipient` public. Prover inputs: `Prover.toml` (recipient `0xc0ffe`) and `Prover_test_address.toml` (the Fe test address) |
 | `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output. `test_address/`: the second proof and its public inputs, for the same `vk` |
-| `vectors/garaga/` | Proof bundles of other circuits, copied from Garaga (MIT) with its licence text: raw `bb` 6.0.0 output. `hello` (`LOG_N = 12`) and `mutator_set` (17). See `vectors/garaga/README.md` |
+| `vectors/garaga/` | Proof bundles of other circuits, copied from Garaga (MIT) with its licence text: raw `bb` 6.0.0 output. `hello` (`LOG_N = 12`), `mutator_set` (17) and `recursive` (20). See `vectors/garaga/README.md` |
 | `scripts/check.sh` | Builds and tests everything in one command, and checks the code size of the three contracts |
 | `scripts/demo_anvil.sh` | Deploys the built contracts on a local `anvil` node, verifies the pinned proof and claims through the vault |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
