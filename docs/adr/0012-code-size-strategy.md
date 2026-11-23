@@ -42,7 +42,7 @@ Measured with `fe` 26.6.0 (`fe build --contract <Name> -O <level>`; the size is 
 - The reference is a 16,946-byte contract plus two linked libraries of 8,211 and 6,008 bytes.
 - The split was made when the relations were ported, on 2026-11-22. The repository records no size for a single Fe contract holding everything, and no use of the × ~4.5 projection. The sums in the last row only indicate what a single contract would weigh: above the limit at `-O 1`, below it at `-O 2` and `-O s`.
 - The call between the two contracts sends hand-built calldata. The typed message made the verifier 2,103 bytes larger at `-O 1`, measured before the opening was ported (`ultrahonk/README.md`).
-- No script enforces the limit. Sizes are read from the build by hand.
+- Since 2026-11-23 `scripts/check.sh` builds the three contracts at the three optimisation levels and fails if a runtime exceeds the limit. Before that, sizes were read from the build by hand.
 
 ## Options Considered
 
@@ -89,7 +89,7 @@ The spike costs little and moves the answer to the point where it can still chan
 ## Consequences
 
 - Easier: the single-contract-or-split decision was meant to rest on a measured number. As built, the split came first and the measurements after (see Outcome).
-- Not reached: mechanical enforcement of the limit by a script.
+- Reached on 2026-11-23: `scripts/check.sh` enforces the limit.
 - Harder: the verifier has a second deployment and a static call. `HonkRelations` is deployed first, and its address is the constructor argument of `HonkVerifier`.
 - Revisit: a single contract at `-O 2` or `-O s`, which the sums suggest might fit. The repository has no such build.
 
@@ -97,5 +97,5 @@ The spike costs little and moves the answer to the point where it can still chan
 
 1. [x] Stage 3: port `accumulateMemoryRelation` and check that it compiles and that its slots match the reference. The memory relation was the first one ported. No size of it alone is recorded.
 2. [x] After stage 3: decide single contract or split, and record the measured sizes in this ADR. The split was made; the sizes are in Outcome.
-3. [ ] Stage 7: add the script that checks `.runtime.bin` against 24,576 bytes. Not done.
-4. [ ] Stage 8: run that script from `scripts/check.sh`. Not done: neither script was written.
+3. [x] Stage 7: add the script that checks `.runtime.bin` against 24,576 bytes. Done on 2026-11-23, as a step of `scripts/check.sh`.
+4. [x] Stage 8: run that check from `scripts/check.sh`. Done on 2026-11-23.

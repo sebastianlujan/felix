@@ -8,9 +8,9 @@
 
 One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is done.
 
-- [ ] #1 Add an OSI-approved licence (M3)
-- [ ] #2 Track the root .gitignore with explicit rules (M4)
-- [ ] #3 One command that builds and tests everything (M5)
+- [x] #1 Add an OSI-approved licence (M3): MIT, chosen by the owner
+- [x] #2 Track the root .gitignore with explicit rules (M4)
+- [x] #3 One command that builds and tests everything (M5): `ultrahonk/scripts/check.sh`
 - [x] #4 fr::inv must reject a wrong answer from the modexp precompile (H1)
 - [x] #5 Immutable relations address and vault parameters, with a getter (H2)
 - [x] #6 Consistency check with fewer inversions, measured again (H3)
@@ -50,7 +50,7 @@ The rules as read on the contest page on 2026-11-23. Read them again before quot
 
 | Decision | Recommendation |
 |---|---|
-| Licence | Apache-2.0. It is OSI-approved and it is the licence of the Fe test helper that `ultrahonk/lib/src/std_assumptions.fe` follows |
+| Licence | Decided on 2026-11-23: MIT, the owner's choice. The plan had recommended Apache-2.0; both are OSI-approved and compatible with every source reused |
 | The three uncommitted edits at the root (`README.md`, `fe.toml`, `src/lib.fe`) | Commit or drop them before the release. The README edit is superseded by M9 |
 | Rewrite the root `README.md` as the entry page | Yes. It reverses "do not modify the root README": the contest reads the README |
 | Use the consistency check with fewer inversions (H3) | Yes. It reverses "Gas optimisation" in [Out of scope](ultrahonk.md#out-of-scope) |

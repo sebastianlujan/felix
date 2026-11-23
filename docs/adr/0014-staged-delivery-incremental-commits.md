@@ -36,7 +36,7 @@
 - The status table in `ultrahonk/README.md` was updated as stages landed.
 - The stage estimates were not re-cut after the switch to the ZK flavor. The stages were carried out in the plan's order, with the ZK-specific steps inside stages 3–5 and 6.
 - The relations went into a second contract as they were ported. The repository records no pause for that decision (ADR-0012).
-- Two items of stage 8 were not written: `scripts/check.sh` and the code-size script.
+- The two items of stage 8 left unwritten at the time, `scripts/check.sh` and the code-size check inside it, were added on 2026-11-23.
 
 ## Options Considered
 

@@ -7,7 +7,7 @@ This project verifies UltraHonk proofs natively in Fe, in packages under `ultrah
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
 > - The tests do not show that every proof the reference rejects is rejected.
-> - Two planned items were not written: `scripts/check.sh` and a script that enforces the code-size limit. Sizes were measured by hand (see [Measured results](#measured-results)).
+> - `ultrahonk/scripts/check.sh` runs the tests, the builds, the code-size check and the vector checks in one command. It was added on 2026-11-23, after the stages.
 >
 > **How to read this document.** It was written as the plan and now also records the outcome. Where a planned detail changed, the text states what was built. The exact proof layout, transcript, formulas and error selectors are in [`ultrahonk/docs/zk-verifier-reference.md`](../ultrahonk/docs/zk-verifier-reference.md). Test coverage and measurements are in [`ultrahonk/README.md`](../ultrahonk/README.md).
 
@@ -25,6 +25,8 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
    (cd vault && fe test)      # 11
    (cd ../honk-toy && fe test) # 70
    ```
+
+   `ultrahonk/scripts/check.sh` runs these five and the other checks in one command. Its two vector checks also need `xxd`, `shasum` and `python3`.
 
 2. Read the result. In `verifier`, `test_the_valid_proof_is_accepted` shows the Fe verifier accepting the pinned proof. In `vault`, `test_the_real_verifier_accepts_a_claim_from_the_address_the_proof_was_made_for` shows a claim through the vault in front of it.
 
@@ -403,8 +405,8 @@ All stages are done. The table keeps the plan's stage numbers and states what ea
 | 2 | `fr`, `types`, `proof`, `transcript`. Ports: `FrLib`, the checks of `loadProof`, the transcript | Done. Every challenge equals the oracle's value. A scalar ≥ P and a coordinate ≥ Q revert as in the reference. |
 | 3–5 | Sumcheck: public-input delta, round checks, the ten relations, the last comparison. Ports: `computePublicInputDelta`, `verifySumcheck`, `computeNextTargetSum`, the ten relations, `scaleAndBatchSubrelations` | Done. The delta, every round target and the partial pow match. The 31 subrelations match one by one, for the pinned proof and for a synthetic input that makes all 31 non-zero. The relations are the contract `HonkRelations`. |
 | 6 | The opening: Shplemini scalars, Libra consistency check, multi-scalar multiplication, pairing-point aggregation, pairing. Ports: `computeSquares`, `computeFoldPosEvaluations`, `checkEvalsConsistency`, `batchMul`, the aggregation, `pairing` | Done. The scalars match slot by slot, and the two pairing points match. The aggregation matches the reference on limbs put in place of the zeros, because no proof of this circuit carries pairing points. |
-| 7 | `HonkVerifier` accepting proofs, negative tests over the recorded invalid calls, the vault in front of the Fe verifier, size and gas | Done, except the code-size script: size and gas were measured by hand. |
-| 8 | README, reproduce steps, `scripts/check.sh` | README and reproduce steps are done. `scripts/check.sh` was not written. |
+| 7 | `HonkVerifier` accepting proofs, negative tests over the recorded invalid calls, the vault in front of the Fe verifier, size and gas | Done. Size and gas were measured by hand; since 2026-11-23 `scripts/check.sh` checks the sizes. |
+| 8 | README, reproduce steps, `scripts/check.sh` | Done. `scripts/check.sh` was written on 2026-11-23, after the stages. |
 
 The plan gave each stage an estimate and a cut line, so that a run stopped by the deadline would still leave a coherent result ([ADR-0014](adr/0014-staged-delivery-incremental-commits.md)). Every stage was reached, so they are not repeated here.
 
@@ -511,7 +513,7 @@ A reader needs only `fe`.
 | Regeneration (proofs, key, oracle source) | `scripts/vectors.sh`. Proving is randomized, so it writes different valid proofs; the README pins the committed ones. Needs the [project-local tools](#project-local-tooling). |
 | Regeneration (captured values) | Not possible from the repository alone: it needs the local Foundry tests to be recreated. Their documented provenance stands in for it. |
 | Regeneration (toy) | `python3 honk-toy/reference/gen_vectors.py` reproduces `honk-toy/src/vectors.fe`; `--check` compares without writing. Needs Python 3. |
-| End-to-end script | Not written. Run the five `fe test` commands of the [Quick path](#quick-path). |
+| End-to-end script | `ultrahonk/scripts/check.sh`: the tests and the formatting of the five ingots, the three contracts built at the three optimisation levels with each runtime checked against 24,576 bytes, and the two vector checks. |
 
 What the Fe tests show:
 
@@ -557,8 +559,6 @@ Code size is within EIP-170 for each contract by measurement, not by a test.
 
 ### Not done
 
-- `scripts/check.sh`, the end-to-end script.
-- A script that checks each `.runtime.bin` against 24,576 bytes.
 - A re-cut of the stage estimates for the ZK verifier. The stages were carried out in the plan's order instead.
 
 What is missing to submit the entry and to rely on the code outside its tests is listed, in order, in [Gaps before shipping and before real use](ultrahonk-gaps.md).
