@@ -1,10 +1,10 @@
 // The toy curve y^2 = x^3 + 3 over F_101 and its subgroup of order 17
-// (reference `ecAdd`, `ecMul`, `ecNeg`, `f2*`, `g2Double`, `line`, `pairing`).
+// (reference `ec_add`, `ec_mul`, `ec_neg`, `f2_*`, `g2_double`, `line`, `pairing`).
 //
 // - F_101 elements are reduced `u256` values.
 // - F_101^2 = F_101[i]/(i^2 + 2); a + b*i is `[a, b]`.
 // - A G1 point is `[x, y]` over F_101, a G2 point is `[x, y]` over F_101^2. The point at
-//   infinity is all zeros, which is not on the curve (the reference uses `null`).
+//   infinity is all zeros, which is not on the curve (the reference uses `None`).
 //
 // Points are not validated: like the reference, the functions assume points of the
 // order-17 subgroup.
@@ -146,7 +146,7 @@ pub fn g1_mul(_ k: u256, _ a: [u256; 2]) -> [u256; 2] {
 }
 
 // ----- G2 -----
-// The verifier only needs the constants G2 and TAU_G2. The reference has `g2Double` alone;
+// The verifier only needs the constants G2 and TAU_G2. The reference has `g2_double` alone;
 // addition, negation and multiplication are provided for completeness and for the tests.
 
 pub fn g2_is_infinity(_ a: [[u256; 2]; 2]) -> bool {

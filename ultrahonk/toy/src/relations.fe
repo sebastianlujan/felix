@@ -1,5 +1,5 @@
 // The seven subrelations of the toy circuit and their batching with alpha
-// (reference `subrelations`, `permFactors`, `splitBatch`).
+// (reference `subrelations`, `perm_factors`, `split_batch`).
 use ingot::Scenario
 use ingot::f17::{P, add, mul, pow, sub}
 use ingot::vectors

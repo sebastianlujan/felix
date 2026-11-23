@@ -1,5 +1,5 @@
 // The sumcheck half of the verifier
-// (reference `publicDelta`, `lagrangeEval`, `sumcheckVerify`).
+// (reference `public_delta`, `lagrange_eval`, `sumcheck_verify`).
 use ingot::{Challenges, MaskedScenario, Scenario, SumcheckTrace}
 use ingot::f17::{P, add, inv, mul, sub}
 use ingot::relations::{split_batch, subrelations}

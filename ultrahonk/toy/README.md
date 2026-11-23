@@ -16,7 +16,8 @@ UltraHonk verifier. **It is a teaching model, not a secure verifier** (see [Limi
 
 ## Run
 
-Requires `fe` 26.6.0. Node is needed only to regenerate the test vectors.
+Requires `fe` 26.6.0. Python 3 (standard library only) is needed only to regenerate the
+test vectors.
 
 ```sh
 cd ultrahonk/toy
@@ -91,27 +92,27 @@ with the reference.
 | `src/libra.fe` | the sumcheck mask: KZG check of the two mask openings, initial target, final term |
 | `src/verifier.fe` | `verify`, `verify_masked` |
 | `src/vectors.fe` | generated reference vectors |
-| `reference/honk.js` | the reference implementation |
-| `reference/gen_vectors.js` | the vector generator |
+| `reference/honk.py` | the reference implementation |
+| `reference/gen_vectors.py` | the vector generator |
 
 ## Reference and vectors
 
-`reference/honk.js` is the math `<script>` block of the page (no DOM), extracted
-unmodified apart from a three-line header. It is the source of truth: the Fe code is a
-port of its `verify`, `sumcheckVerify`, `subrelations`, `splitBatch`, `publicDelta`,
-`lagrangeEval`, `shpleminiVerify`, `foldPosEvaluations`, `kzgCheck`, `ecAdd`, `ecMul`,
-`ecNeg`, `line`, `pairing` and the `f2*` helpers.
+`reference/honk.py` is a Python port of the math `<script>` block of the page (no DOM),
+function by function, with the page's names in snake_case (`sumcheckVerify` is
+`sumcheck_verify`) and its objects as dicts. It is the source of truth: the Fe code is a
+port of its `verify`, `sumcheck_verify`, `subrelations`, `split_batch`, `public_delta`,
+`lagrange_eval`, `shplemini_verify`, `fold_pos_evaluations`, `kzg_check`, `ec_add`,
+`ec_mul`, `ec_neg`, `line`, `pairing` and the `f2_*` helpers.
 
-`reference/gen_vectors.js` runs the reference prover and verifier on the scenarios below
+`reference/gen_vectors.py` runs the reference prover and verifier on the scenarios below
 and writes `src/vectors.fe`: for each scenario the proof, the public input, the
 challenges, the verdict and every intermediate value of both halves, plus the
 verification key, the multiples of G1 and their pairings. The file is committed, so
-`fe test` needs no Node. The reference does not export `kzgCheck`, so the generator
-evaluates the same source a second time in a function scope to call it.
+`fe test` needs no Python.
 
 ```sh
-node reference/gen_vectors.js   # reproduces src/vectors.fe byte for byte
-git diff --exit-code src/vectors.fe
+python3 reference/gen_vectors.py           # reproduces src/vectors.fe byte for byte
+python3 reference/gen_vectors.py --check   # exits 1, without writing, if it is out of date
 ```
 
 The generator lays its output out as `fe fmt` does (max width 100).
@@ -157,7 +158,7 @@ verifier draws one more challenge, ρ_L, and the sumcheck runs over "relations +
 | Extra checks | — | KZG openings of g₀ at u₀ and of g₁ at u₁ |
 
 `verify_masked` is the port of the reference's `verify` for a proof that carries `libra`,
-and `libra::kzg_check` the port of `kzgCheck`. A plain proof is the case of the zero mask.
+and `libra::kzg_check` the port of `kzg_check`. A plain proof is the case of the zero mask.
 
 **Covered:** the mask of the sumcheck univariates, and nothing else.
 

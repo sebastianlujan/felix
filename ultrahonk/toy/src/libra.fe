@@ -1,4 +1,4 @@
-// The sumcheck mask ("Libra") of the reference's ZK branch: `kzgCheck` and the
+// The sumcheck mask ("Libra") of the reference's ZK branch: `kzg_check` and the
 // `proof.libra` part of `verify`.
 //
 // Only the mask of the sumcheck univariates is here, as in the reference. The 23

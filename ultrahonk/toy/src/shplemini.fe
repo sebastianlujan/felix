@@ -1,5 +1,5 @@
 // The opening half of the verifier: Gemini, Shplonk and KZG folded into one pairing check
-// (reference `foldPosEvaluations`, `shpleminiVerify`).
+// (reference `fold_pos_evaluations`, `shplemini_verify`).
 use ingot::{Challenges, OpeningTrace, Proof, Scenario}
 use ingot::curve::{G1, G2, TAU_G2, f2_mul, g1_add, g1_mul, g1_neg, is_infinity, pairing}
 use ingot::f17::{P, add, inv, mul, neg, sub}

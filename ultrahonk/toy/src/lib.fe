@@ -45,7 +45,7 @@ pub struct Proof {
     pub comm_w: [u256; 2],
 }
 
-/// Result of the sumcheck half, with every intermediate value (reference `sumcheckVerify`).
+/// Result of the sumcheck half, with every intermediate value (reference `sumcheck_verify`).
 /// The reference stops at the first failing round: rounds that did not run hold zeros.
 /// The final check is always evaluated, with the state at the point where the rounds stopped.
 pub struct SumcheckTrace {
@@ -73,7 +73,7 @@ pub struct SumcheckTrace {
     pub target: u256,
 }
 
-/// Result of the opening half, with every intermediate value (reference `shpleminiVerify`).
+/// Result of the opening half, with every intermediate value (reference `shplemini_verify`).
 pub struct OpeningTrace {
     /// e(P0, G2) * e(P1, [tau]_2) == 1.
     pub ok: bool,
@@ -125,7 +125,7 @@ pub struct Libra {
 
 /// Result of the mask checks, with what the mask contributes to the sumcheck.
 pub struct LibraTrace {
-    /// Both KZG openings pass (reference `okLibra`).
+    /// Both KZG openings pass (reference `ok_libra`).
     pub ok: bool,
     /// The initial sumcheck target: rho_L * sum.
     pub target: u256,
@@ -142,7 +142,7 @@ pub struct MaskedScenario {
     pub libra: Libra,
     pub public_inputs: [u256; 1],
     pub challenges: Challenges,
-    /// The extra challenge of the mask (reference `ch.rhoL`).
+    /// The extra challenge of the mask (reference `ch['rho_l']`).
     pub rho_l: u256,
     pub delta: u256,
     pub mask: LibraTrace,
