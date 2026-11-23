@@ -39,12 +39,12 @@ No discordance was found in the test vectors themselves: every Fe constant equal
 
 The rules as read on the contest page on 2026-11-23. Read them again before quoting them.
 
-- [ ] A public GitHub repository with an OSI-approved licence. Today: no `LICENSE` file; the visibility of the repository was not checked.
-- [ ] The full commit SHA, the project manifest and the exact Fe version. Today: Fe 26.6.0 is documented; nothing is pushed, `main` holds none of the work, there is no tag.
-- [ ] Reproducible build instructions and automated tests. Today: in `ultrahonk/README.md`, as five commands; no single command.
-- [ ] A README covering the approach, the architecture and the limitations. Today: only `ultrahonk/README.md`; the root `README.md` describes a placeholder library with one function.
-- [ ] A short pitch, a Fe-specific highlight, and a demo or reproducible example. Today: no pitch and no highlight; the tests are the example.
-- [ ] A declaration of pre-existing work, reused code and AI assistance. Today: a reuse table in the plan ([Reuse and licences](ultrahonk.md#reuse-and-licences)); no declaration.
+- [ ] A public GitHub repository with an OSI-approved licence. Today: `LICENSE` is MIT (#1); the repository is private until #14.
+- [ ] The full commit SHA, the project manifest and the exact Fe version. Today: Fe 26.6.0 is in the root README; `develop` is pushed, but `main` holds none of the work and there is no tag. Both, and the SHA, are #14.
+- [x] Reproducible build instructions and automated tests: `ultrahonk/scripts/check.sh` (#3), one command, under "Run it" in the root README.
+- [x] A README covering the approach, the architecture and the limitations: the root README is the entry page (#11).
+- [x] A short pitch, a Fe-specific highlight, and a demo or reproducible example: the pitch and "What Fe brings" in the root README (#11), and `ultrahonk/scripts/demo_anvil.sh` (#8).
+- [ ] A declaration of pre-existing work, reused code and AI assistance. Today: written under "Declarations" in the root README (#11); it waits for the owner's confirmation.
 
 ## Decisions for the owner
 
@@ -94,7 +94,7 @@ The rule: the test is written before the fix and run red where the gap is real. 
 | H1 | `fr::inv` | `inv(P)` reverts with `ModExpFailed`; `mul(a, inv(a)) == 1` for 1, 2, `P - 1` and external operands | Was red: `inv(P)` returned 0. Green since #4 |
 | H3 | `consistency::evaluate_sparse` | Equal to `evaluate` on synthetic proofs for `LOG_N` 1, 5 and 25: both must agree whatever the proof. A committed upper bound on the gas of `verify` | Green at `LOG_N` 1, 5 and 25 (#6). The bound is 1,270,000 gas; it was red with every denominator inverted |
 | M6 | `opening_vectors` | Assert `NUMERATOR`, `DENOMINATOR_0` and `DENOMINATOR_255` | Green expected: recomputed by hand |
-| M6 | `Vault::claim` | A verifier that answers the word 2, and one that answers 64 bytes: the claim reverts without data | Unknown: only the address without code is tested |
+| M6 | `Vault::claim` | A verifier that answers the word 2, and one that answers 64 bytes: the claim reverts without data | Green since #9 for the word 2. The 64 bytes do not revert: only their first word is read, so the word 1 twice makes the claim. The vault README now says so (see [Documentation corrections](#documentation-corrections)) |
 | H2 | `HonkVerifier` | The getter returns the constructor argument | Was red: no `relations()` to answer. Green since #5 |
 | E1 | `transcript`, `sumcheck`, `relations`, `shplemini`, `consistency`, `opening` | Garaga's sets: pinned challenges, acceptance, bit flips, at `LOG_N` 12, 17 and 20 | Green for `hello` (`LOG_N` 12), `mutator_set` (17) and `recursive` (20) since #7: no difference found |
 | Soundness | Barycentric evaluation in `sumcheck` | A known polynomial of degree 8 at 10, against its direct evaluation. A challenge inside the domain 0..8: record what happens and compare with the reference | Unknown: no test has a challenge in 0..8 |
@@ -105,7 +105,7 @@ The rule: the test is written before the fix and run red where the gap is real. 
 | Environment | `std_assumptions` | External precompile vectors for point addition, scalar multiplication, pairing and `modexp`, with failing cases | Green expected |
 | Field | `fr` | `mul`, `add` and the square on Barretenberg's fixed operands | Green expected |
 | Constants | `fr`, `consistency` | `P` and `Q` against arkworks; the subgroup generator equals `5^((P - 1) / 256)`, with `g^256 == 1` and `g^128 != 1` | Green expected |
-| H6 | `scripts/proof_to_fe.sh` | `--check` fails on a key whose third header word is not 5 | Red: the word is ignored |
+| H6 | `scripts/proof_to_fe.sh` | `--check` fails on a key whose third header word is not 5 | Was red: with the word set to 6 the old script printed the key (exit 0). Since #13 `--vk` and `--check` refuse it (exit 1), as the Garaga mode already did. Checked by hand on a throwaway copy; no committed test |
 
 ### Independent vectors from public repositories
 
