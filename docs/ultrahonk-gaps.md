@@ -1,8 +1,27 @@
 # UltraHonk verification in Fe: gaps before shipping and before real use
 
-> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 275 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. Nothing listed here is fixed yet. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
+> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 278 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
 
 > **How to read this document.** It does not repeat the limits already written down: [Limits](../ultrahonk/README.md#limits) in the verifier README, [Not done](ultrahonk.md#not-done) and [Out of scope](ultrahonk.md#out-of-scope) in the plan, [Not implemented](../ultrahonk/vault/README.md#not-implemented) in the vault README. It adds what those sections do not say, and orders the work.
+
+## Progress
+
+One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is done.
+
+- [ ] #1 Add an OSI-approved licence (M3)
+- [ ] #2 Track the root .gitignore with explicit rules (M4)
+- [ ] #3 One command that builds and tests everything (M5)
+- [x] #4 fr::inv must reject a wrong answer from the modexp precompile (H1)
+- [ ] #5 Immutable relations address and vault parameters, with a getter (H2)
+- [ ] #6 Consistency check with fewer inversions, measured again (H3)
+- [ ] #7 Garaga's bb 6.0.0 fixtures at other circuit sizes (E1)
+- [ ] #8 Run the built contracts on anvil and state the chain requirements (H4, M8)
+- [ ] #9 Correct the documents where the data does not support them (M6)
+- [ ] #10 Say plainly that the vault protects nothing (M7)
+- [ ] #11 Root README as the entry page (M2, M9)
+- [ ] #12 vectors.sh end to end (H5)
+- [ ] #13 Verification key module and key-only generator mode (H6)
+- [ ] #14 Release (M10)
 
 ## Quick path
 
@@ -72,7 +91,7 @@ The rule: the test is written before the fix and run red where the gap is real. 
 
 | Gap | Function | Test | Expected today |
 |---|---|---|---|
-| H1 | `fr::inv` | `inv(P)` reverts with `ModExpFailed`; `mul(a, inv(a)) == 1` for 1, 2, `P - 1` and external operands | Red: `inv(P)` returns 0 |
+| H1 | `fr::inv` | `inv(P)` reverts with `ModExpFailed`; `mul(a, inv(a)) == 1` for 1, 2, `P - 1` and external operands | Was red: `inv(P)` returned 0. Green since #4 |
 | H3 | `consistency::evaluate_sparse` | Equal to `evaluate` on synthetic proofs for `LOG_N` 1, 5 and 25: both must agree whatever the proof. A committed upper bound on the gas of `verify` | Unknown outside `LOG_N = 5` |
 | M6 | `opening_vectors` | Assert `NUMERATOR`, `DENOMINATOR_0` and `DENOMINATOR_255` | Green expected: recomputed by hand |
 | M6 | `Vault::claim` | A verifier that answers the word 2, and one that answers 64 bytes: the claim reverts without data | Unknown: only the address without code is tested |

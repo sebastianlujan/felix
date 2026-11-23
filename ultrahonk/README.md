@@ -84,7 +84,10 @@ verifier.
 
 One more difference from the reference is recorded in `lib/src/errors.fe` and reached by no
 test: if the modexp precompile call itself fails, the reference reverts with four raw bytes
-(`0xf8d61709`) and `fr::inv` reverts with `ModExpFailed()`.
+(`0xf8d61709`) and `fr::inv` reverts with `ModExpFailed()`. `fr::inv` also checks the answer of a
+call that succeeds, where the reference uses whatever the precompile returns: unless
+`a * answer == 1` it reverts with `ModExpFailed()` (tested with `inv(P)`, for which the precompile
+answers 0).
 
 `HonkVerifier` takes the address of `HonkRelations` as its constructor argument and keeps it in
 storage, so `HonkRelations` is deployed first. The calldata it sends is the encoding of
@@ -164,7 +167,7 @@ Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo`, Python or Foundry.
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # 176: field arithmetic, proof checks, transcript, relations, sumcheck, opening
+(cd lib && fe test)        # 179: field arithmetic, proof checks, transcript, relations, sumcheck, opening
 (cd relations && fe test)  # 2: the relations contract against the reference values
 (cd verifier && fe test)   # 16: both contracts against the recorded reference reverts
 (cd vault && fe test)      # 11: the vault against stand-in verifiers, and in front of HonkVerifier

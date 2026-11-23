@@ -31,7 +31,7 @@ The check order must match the reference, or a given bad input reverts with a di
 
 Carried out, with these details.
 
-- **Precompiles.** No `unwrap_or` exists in the verifier code. Each call is matched where it is made: a failed `ec_mul` or `ec_add` reverts with `ShpleminiFailed` (`lib/src/opening.fe`), a failed `modexp` with `ModExpFailed` (`lib/src/fr.fe`). A failed pairing call counts as a pairing that does not hold, as in the reference, and the contract reverts with `ShpleminiFailed`. The `expect_*` helpers appear only in the tests of `lib/src/std_assumptions.fe`.
+- **Precompiles.** No `unwrap_or` exists in the verifier code. Each call is matched where it is made: a failed `ec_mul` or `ec_add` reverts with `ShpleminiFailed` (`lib/src/opening.fe`), a failed `modexp`, or one whose answer is not the inverse, with `ModExpFailed` (`lib/src/fr.fe`). A failed pairing call counts as a pairing that does not hold, as in the reference, and the contract reverts with `ShpleminiFailed`. The `expect_*` helpers appear only in the tests of `lib/src/std_assumptions.fe`.
 - **Where the revert is raised.** The library reverts for the range checks, a sumcheck round that does not hold, the consistency check and a failed curve operation. It returns a `bool` for the last sumcheck comparison and for the pairing. `HonkVerifier` turns `false` into `SumcheckFailed` or `ShpleminiFailed` and never returns `false`.
 - **Selectors.** A test asserts that each of the 13 errors in `lib/src/errors.fe` has the selector of the reference's declaration. `NotPowerOfTwo` is declared and never raised: the port computes `r^256` by eight squarings.
 - **Check order.** The order of the checks before any algebra was confirmed on the reference with calls that break two rules at once, and the Fe contract is tested with the same calls. The later steps follow the order of the reference's code. One recorded case shows it: a flipped fold commitment fails both the consistency check and the multi-scalar multiplication, and reverts with `ConsistencyCheckFailed` in both verifiers.
@@ -44,6 +44,7 @@ Recorded differences from the reference:
 | Proof word 138 with its low bit flipped: `shplonkQ` is off the curve, so the first multiplication of the multi-scalar multiplication fails | Goes on after the failed precompile call, which takes all the gas it was given, runs out of gas and reverts without data | Reverts with `ShpleminiFailed()` at the first failed call | Yes |
 | A carried pairing point off the curve | Reverts without data, according to the comment in `lib/src/opening.fe` | Reverts with `ShpleminiFailed()` | The Fe side only |
 | The `modexp` precompile call itself fails | Reverts with the four raw bytes `0xf8d61709` | Reverts with `ModExpFailed()` (`0x1f7ec5f0`) | No test triggers it |
+| The `modexp` precompile call succeeds and its answer is not the inverse | Uses the answer as returned | `fr::inv` reverts with `ModExpFailed()` unless `a * answer == 1` | The Fe side only: `inv(P)`, where the precompile answers 0. A chain with no code at 0x05 was read from the code, not run |
 
 ## Options Considered
 
