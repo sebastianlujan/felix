@@ -29,7 +29,7 @@ Barretenberg's Solidity verifier is the reference oracle, but it is not committe
 
 ## Outcome (2026-11-23)
 
-Carried out, except the code-size script.
+Carried out. The code-size check was added on 2026-11-23, as a step of `scripts/check.sh`.
 
 | Aspect | What exists |
 |---|---|
@@ -40,7 +40,7 @@ Carried out, except the code-size script.
 | Added coverage | One test flips the low bit of each of the 142 proof words. These flips were not all recorded from the reference, so the test asserts only that none is accepted. |
 | Provenance | Stated at the top of each of those files, and in `ultrahonk/README.md`, section "The reference oracle". |
 | Verification key | `scripts/proof_to_fe.sh` prints it, with the proof and the public inputs, from the raw `bb` output in `vectors/`. `--check` compares the committed constants with that output. |
-| Size and gas | Measured by hand and reported next to the reference's figures in `ultrahonk/README.md`. No script checks the 24,576-byte limit. |
+| Size and gas | Measured by hand and reported next to the reference's figures in `ultrahonk/README.md`. Since 2026-11-23 `scripts/check.sh` checks the 24,576-byte limit. |
 
 The tests do not show that every proof the reference rejects is rejected.
 
@@ -106,5 +106,5 @@ The owner's requirement removes option B. Option C satisfies it but gives up the
 2. [x] Stage 0: capture the expected values and the selectors of the invalid calls for the ZK proof and commit them as Fe constants, with tool, version and capture method stated next to them.
 3. [x] Stage 0: fix the list of invalid calls. It is `lib/src/expected.fe`.
 4. [x] Stages 2–6: Fe tests compare the result of each step with the committed constant.
-5. [ ] Stage 7: negative Fe tests assert the reference selector for every recorded invalid call (done); add the code-size script for `.runtime.bin` (not done: sizes are measured by hand).
-6. [ ] Stage 8: document the provenance in `ultrahonk/README.md` (done), and make `scripts/check.sh` pass on a fresh clone with only `fe` (not done: the script was not written).
+5. [x] Stage 7: negative Fe tests assert the reference selector for every recorded invalid call (done); add the code-size check for `.runtime.bin` (done on 2026-11-23, as a step of `scripts/check.sh`).
+6. [x] Stage 8: document the provenance in `ultrahonk/README.md` (done), and make `scripts/check.sh` pass with only `fe` (done on 2026-11-23: it passes in a clean worktree; its two vector checks also need `xxd`, `shasum` and `python3`).

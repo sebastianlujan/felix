@@ -30,7 +30,7 @@ Sibling ingots under `ultrahonk/`, joined by relative path dependencies. No work
 - Five ingots exist, each with its own `fe.toml`. `fe test` passes in each.
 - The toy ingot was moved from `ultrahonk/toy` to the top-level `honk-toy/` on 2026-11-23. It depends on no other ingot and none depends on it, so only its path changed.
 - There is no per-circuit `vk.fe` in the verifier ingot. The verification key is the constant `VK` in `lib/src/vectors.fe`.
-- `scripts/check.sh` was not written. `ultrahonk/README.md` lists one `fe test` command per ingot.
+- `scripts/check.sh` was written on 2026-11-23, after the stages. It runs the checks in every ingot; `ultrahonk/README.md` also lists one `fe test` command per ingot.
 
 ## Options Considered
 
@@ -75,4 +75,4 @@ With about 48 hours available, the plan prefers the pattern that already exists 
 1. [x] Stage 0: keep one `fe.toml` per ingot, with relative path dependencies.
 2. [x] Stage 1: add `lib/src/abi.fe` with the shared `VerifierMsg`.
 3. [x] Stage T1: create `ultrahonk/toy` as its own ingot on the toy line. It is merged into `feature/ultrahonk-verifier`.
-4. [ ] Stage 8: make `scripts/check.sh` run the checks in every ingot. Not done: the script was not written.
+4. [x] Stage 8: make `scripts/check.sh` run the checks in every ingot. Done on 2026-11-23.

@@ -54,8 +54,9 @@ for the valid proof in `lib/src/vectors.fe`, `lib/src/relations_vectors.fe` and
 | 7 | Verifier contract accepting proofs | Done: accepts both pinned proofs and rejects every recorded invalid call |
 | Toy | Honk over F_17 with KZG over F_101, with the sumcheck mask (`../honk-toy/README.md`) | Done |
 
-Not written: an end-to-end script and a script that checks the code size. The sizes below were
-measured by hand.
+`scripts/check.sh` runs everything in one command: the tests and the formatting of the five ingots,
+the three contracts built at the three optimisation levels with each runtime checked against the
+code-size limit, and the two vector checks.
 
 ### What the contract checks
 
@@ -183,7 +184,9 @@ in [`../docs/ultrahonk-gaps.md`](../docs/ultrahonk-gaps.md).
 
 ## Run the tests
 
-Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo`, Python or Foundry.
+Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo`, Python or Foundry. `scripts/check.sh`
+runs these commands and the other checks at once; its two vector checks also need `xxd`,
+`shasum` and `python3`.
 
 ```sh
 cd ultrahonk
