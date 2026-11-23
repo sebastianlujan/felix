@@ -121,10 +121,10 @@ use super::vectors::{
     PUBLIC_INPUT_DELTA,
     ROUND_TARGETS,
     U,
+    VK,
     proof,
     proof_with,
     public_inputs,
-    vk,
 }
 
 // Entry `i` is the product of `i - j` over the other eight points `j`.
@@ -171,7 +171,7 @@ fn test_each_round_target_matches_reference() {
 #[test]
 fn test_rounds_return_the_reference_final_target() {
     let pinned = proof()
-    let t = generate(vk: vk(), pinned, public_inputs())
+    let t = generate(vk: VK, pinned, public_inputs())
     assert!(
         rounds(pinned, t, log_n: LOG_N).target == ROUND_TARGETS[LOG_N],
     )
@@ -180,7 +180,7 @@ fn test_rounds_return_the_reference_final_target() {
 #[test]
 fn test_rounds_return_the_reference_partial_pow() {
     let pinned = proof()
-    let t = generate(vk: vk(), pinned, public_inputs())
+    let t = generate(vk: VK, pinned, public_inputs())
     assert!(rounds(pinned, t, log_n: LOG_N).pow == PARTIAL_POW)
 }
 
@@ -190,7 +190,7 @@ fn rounds_with_bit_flip(case: usize) {
     let flip = BIT_FLIPS[case]
     assert!(flip.selector == SUMCHECK_FAILED)
     let tampered = proof_with(word: flip.word, value: PROOF[flip.word] ^ 1)
-    let t = generate(vk: vk(), tampered, public_inputs())
+    let t = generate(vk: VK, tampered, public_inputs())
     rounds(tampered, t, log_n: LOG_N)
 }
 
@@ -211,7 +211,7 @@ fn test_rounds_reject_a_flipped_first_univariate_value() {
 #[test(should_revert, selector = 0x9fc3a218)]
 fn test_rounds_reject_a_round_that_does_not_add_up() {
     let pinned = proof()
-    let t = generate(vk: vk(), pinned, public_inputs())
+    let t = generate(vk: VK, pinned, public_inputs())
     let last_round = UNIVARIATES + UNIVARIATE_LENGTH * (LOG_N - 1)
     rounds(
         proof_with(word: last_round, value: PROOF[last_round] ^ 1),

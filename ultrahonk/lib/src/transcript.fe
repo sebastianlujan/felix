@@ -128,13 +128,13 @@ use super::vectors::{
     SHPLONK_NU,
     SHPLONK_Z,
     U,
+    VK,
     proof,
     public_inputs,
-    vk,
 }
 
 fn pinned() -> Transcript {
-    generate(vk: vk(), proof(), public_inputs())
+    generate(vk: VK, proof(), public_inputs())
 }
 
 // keccak256 of 32 zero bytes is 0x290decd9...e563, which is above P.
@@ -245,5 +245,5 @@ fn test_transcript_shplonk_z() {
 #[test(should_revert, selector = 0x20a33589)]
 fn test_transcript_rejects_a_public_input_at_p() {
     let inputs = dyn_array_from([Bytes32 { val: P }, Bytes32 { val: PUBLIC_INPUTS[1] }])
-    generate(vk: vk(), proof(), inputs)
+    generate(vk: VK, proof(), inputs)
 }

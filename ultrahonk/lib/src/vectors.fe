@@ -238,14 +238,14 @@ pub const PROOF: [u256; 142] = [
 use std::abi::{Bytes32, bytes_from_words, dyn_array_from}
 use super::types::VerificationKey
 
-/// Verification key of the vault circuit.
-pub fn vk() -> VerificationKey {
-    VerificationKey {
-        log_n: LOG_N,
-        num_public_inputs: NUM_PUBLIC_INPUTS,
-        vk_hash: VK_HASH,
-        points: VK_POINTS,
-    }
+/// Verification key of the vault circuit. A constant, not a function returning the struct:
+/// passed by reference, it is embedded once in a contract that uses it, where the function
+/// form embedded the 56 point words three times (measured, `fe build --emit sizes`).
+pub const VK: VerificationKey = VerificationKey {
+    log_n: LOG_N,
+    num_public_inputs: NUM_PUBLIC_INPUTS,
+    vk_hash: VK_HASH,
+    points: VK_POINTS,
 }
 
 /// The pinned proof as the caller sends it.
