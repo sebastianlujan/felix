@@ -55,5 +55,17 @@ bb verify -k <bundle>/vk -p <bundle>/proof -i <bundle>/public_inputs -t evm
 ## In the Fe tests
 
 `scripts/proof_to_fe.sh --garaga <bundle>` prints the proof and its public inputs as the Fe
-constants of `lib/src/garaga_<bundle>_proof.fe`, and `scripts/proof_to_fe.sh --check` fails if a
-committed file differs from what it prints.
+constants of `lib/src/garaga_<bundle>_proof.fe`, and `--garaga-key <bundle>` prints the key as the
+first part of `lib/src/garaga_<bundle>.fe`. `scripts/proof_to_fe.sh --check` fails if a committed
+file differs from what they print.
+
+The tests are in the second part of `lib/src/garaga_<bundle>.fe`; what they show is listed under
+"Other circuits" in [`../../README.md`](../../README.md#other-circuits).
+
+For `hello`, Garaga also pins the challenges it expects: `get_expected_transcript` in
+`src/src/apps/noir/test_fixtures.cairo` of the same commit, where its own test compares them with
+the transcript of its Cairo verifier. That file holds this proof and this key: its proof literals
+are the 226 words of `hello/proof` and the public input, its key points are those of `hello/vk`
+in the same order, and its `vk_hash` is `hello/vk_hash` (compared on 2026-11-23). Each challenge
+is one Cairo `u256` literal holding the whole value, the Keccak digest reduced modulo the scalar
+field, so it is compared as it is with the `u256` this port computes: all 23 are equal.

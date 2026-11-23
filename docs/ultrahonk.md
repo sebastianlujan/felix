@@ -2,7 +2,7 @@
 
 This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 188 tests in `lib`, 2 in `relations`, 19 in `verifier`, 13 in `vault`, 70 in `toy`.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 192 tests in `lib`, 2 in `relations`, 19 in `verifier`, 13 in `vault`, 70 in `toy`.
 >
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
@@ -19,7 +19,7 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
 
    ```sh
    cd ultrahonk
-   (cd lib && fe test)        # 188 tests
+   (cd lib && fe test)        # 192 tests
    (cd relations && fe test)  # 2
    (cd verifier && fe test)   # 19
    (cd vault && fe test)      # 13
@@ -257,7 +257,7 @@ This table is the project's record of what was reused and what was only read.
 | Fe repository fixtures | Apache-2.0 | The `expect_*` test helpers in `lib/src/std_assumptions.fe` follow `precompile_wrappers.fe`, with the attribution in the file. |
 | `fe-lang/rosetta` | No licence | Learn from it, copy nothing. |
 | Upstream negative test base (`NegativeTestBase.sol`) | Marked `UNLICENSED` | Nothing is copied from it. The invalid calls the tests use are listed in `lib/src/expected.fe`, with how each was captured. |
-| Garaga (`keep-starknet-strange/garaga` at commit `86b6025`) | MIT | The `hello` proof bundle (proof, public input, key, key hash: raw `bb` 6.0.0 output) is copied unchanged into `ultrahonk/vectors/garaga/`, with the licence text and the provenance next to it. |
+| Garaga (`keep-starknet-strange/garaga` at commit `86b6025`) | MIT | The `hello` proof bundle (proof, public input, key, key hash: raw `bb` 6.0.0 output) is copied unchanged into `ultrahonk/vectors/garaga/`, with the licence text and the provenance next to it. The 23 challenges Garaga expects for that proof (`src/src/apps/noir/test_fixtures.cairo`) are transcribed into `lib/src/garaga_hello.fe`. |
 | Other contest entries | — | Nothing is taken from them. |
 
 ## Design: real verifier
@@ -526,6 +526,7 @@ What the Fe tests show:
 - [x] The Fe verifier reverts with the reference's selector on each recorded invalid call. For proof word 138 the reference returned no data, and the Fe verifier reverts with `ShpleminiFailed()`.
 - [x] No proof with the low bit of one word flipped is accepted.
 - [x] A vault claim succeeds in front of the Fe verifier, and a replay is refused.
+- [x] The library verifier accepts proofs of other circuits, made by another project with `bb` 6.0.0, and none of them with the low bit of one word flipped. Which proofs: [Other circuits](../ultrahonk/README.md#other-circuits).
 - [ ] Every proof the reference rejects is rejected. The tests do not show this.
 
 Code size is within EIP-170 for each contract by measurement, not by a test.
@@ -536,7 +537,7 @@ Code size is within EIP-170 for each contract by measurement, not by a test.
 
 - The project owner is registered for the contest (registration closed Nov 17).
 - The pinned proofs exercise only the branch that skips pairing-point aggregation. The aggregation is tested at library level only.
-- One circuit, with `LOG_N = 5`. No other circuit size is exercised.
+- The contracts are tested on one circuit, with `LOG_N = 5`. Other circuit sizes are tested in the library only, on proofs made by Garaga ([Other circuits](../ultrahonk/README.md#other-circuits)).
 - Committed expected values are trusted on their documented provenance, because the oracle and the local Foundry tests are not in the repository.
 - The port is not audited.
 

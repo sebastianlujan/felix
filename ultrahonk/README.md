@@ -196,14 +196,31 @@ What a chain needs:
 
 The contracts were not run on a public test network.
 
+## Other circuits
+
+`HonkVerifier` is built for the vault circuit. The library function `verifier::verify`
+(`lib/src/verifier.fe`) runs the same steps with the verification key as an argument and the
+relations evaluated in place. With it the library tests verify proofs that another project made
+with `bb` 6.0.0: the bundles Garaga commits, copied into `vectors/garaga/` with their provenance
+and the verdict of `bb verify` (`vectors/garaga/README.md`).
+
+| Bundle | `LOG_N` | Public inputs | Shown by the tests of `lib/src/garaga_<bundle>.fe` |
+|---|---|---|---|
+| `hello` | 12 | 1 | The 23 challenges of the transcript equal the ones Garaga pins for this proof. The proof is accepted. It is not accepted with the low bit of any one of its 226 words flipped, nor with its public input changed |
+
+The flips and the changed input go through `KeyedVerifier`, a contract only the tests deploy,
+which runs `verifier::verify` with the key in the calldata. None of these tests goes through
+`HonkVerifier` and `HonkRelations`.
+
 ## Limits
 
 - The tests do not show that every proof the reference rejects is rejected. The evidence is the
   recorded invalid calls and the 142 low-bit flips above.
-- Acceptance is tested on two pinned proofs. Ten fresh proofs of the same circuit were also
-  accepted, by hand, on a local node (see [Regenerate the vector](#regenerate-the-vector)).
-- One circuit, with `LOG_N = 5`. No other circuit or size is exercised. The verification key is
-  the constant `VK` in `lib/src/vectors.fe`.
+- The contracts accept two pinned proofs in the tests. Ten fresh proofs of the same circuit were
+  also accepted, by hand, on a local node (see [Regenerate the vector](#regenerate-the-vector)).
+- The contracts are built and tested for one circuit, with `LOG_N = 5`: the verification key is
+  the constant `VK` in `lib/src/vectors.fe`. Other circuits and sizes are verified in the library
+  only, on proofs this project did not make ([Other circuits](#other-circuits)).
 - No pinned proof carries pairing points: the eight limbs are zero, so the contract tests run
   only the branch that skips the aggregation. The aggregation is tested in the library, against
   values the reference computed with limbs put in place of the zeros.
@@ -223,7 +240,7 @@ runs these commands and the other checks at once; its two vector checks also nee
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # 188: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call
+(cd lib && fe test)        # 192: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call, Garaga's proofs
 (cd relations && fe test)  # 2: the relations contract against the reference values
 (cd verifier && fe test)   # 19: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound
 (cd vault && fe test)      # 13: the vault against stand-in verifiers, and in front of HonkVerifier
@@ -250,13 +267,14 @@ its tests. `../honk-toy/` has no contract to build.
 | `scripts/check.sh` | Builds and tests everything in one command, and checks the code size of the three contracts |
 | `scripts/demo_anvil.sh` | Deploys the built contracts on a local `anvil` node, verifies the pinned proof and claims through the vault |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
-| `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--test-address` prints the second proof; `--garaga <bundle>` prints a proof of `vectors/garaga/`; `--check` compares them with `lib/src/vectors.fe`, `lib/src/test_address_vectors.fe` and every `lib/src/garaga_*_proof.fe` |
+| `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--test-address` prints the second proof; `--garaga <bundle>` and `--garaga-key <bundle>` print a proof of `vectors/garaga/` and its key; `--check` compares them with `lib/src/vectors.fe`, `lib/src/test_address_vectors.fe` and every `lib/src/garaga_*.fe` |
 | `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi` |
 | `lib/src/verifier.fe` | `verify(vk, proof, public_inputs)`: every step in one call, with the verification key as an argument and the relations evaluated in place. No contract of the project calls it; the tests use it for circuits other than the vault's |
 | `lib/src/std_assumptions.fe` | Tests only: they pin the behaviour of the std precompile wrappers and of Keccak hashing that the port depends on |
 | `lib/src/vectors.fe` | The pinned proof and the verification key, plus the challenges, delta, round targets and pow captured from the reference |
 | `lib/src/test_address_vectors.fe` | The second pinned proof and its public inputs, which the vault test claims with |
-| `lib/src/garaga_hello_proof.fe` | Garaga's `hello` proof and its public input, generated from `vectors/garaga/hello/`. No test reads it yet |
+| `lib/src/garaga_<bundle>_proof.fe` | A proof of `vectors/garaga/` and its public inputs, generated |
+| `lib/src/garaga_<bundle>.fe` | The verification key of that bundle, generated, then the tests that verify its proof with `verifier::verify`. For `hello`, also the challenges Garaga pins |
 | `lib/src/relations_vectors.fe` | Inputs and outputs of the reference's relations, for the pinned proof and for a synthetic input that makes all 31 subrelations non-zero |
 | `lib/src/opening_vectors.fe` | What the reference computes after sumcheck for the pinned proof: Shplemini scalars, terms of the consistency check, pairing points, and the aggregation on limbs put in place of the zeros |
 | `lib/src/expected.fe` | The reverts of the reference verifier on invalid calls, and what its sumcheck alone does with them |
