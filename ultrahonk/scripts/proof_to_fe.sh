@@ -5,8 +5,11 @@
 #   scripts/proof_to_fe.sh                  print the generated part
 #   scripts/proof_to_fe.sh --test-address   print lib/src/test_address_vectors.fe, the second
 #                                           proof, from vectors/test_address/
+#   scripts/proof_to_fe.sh --garaga NAME    print lib/src/garaga_NAME_proof.fe, a proof of another
+#                                           circuit and its public inputs, from vectors/garaga/NAME/
 #   scripts/proof_to_fe.sh --check          fail unless lib/src/vectors.fe starts with exactly the
-#                                           first and lib/src/test_address_vectors.fe is the second
+#                                           first, lib/src/test_address_vectors.fe is the second and
+#                                           every lib/src/garaga_*_proof.fe is the third
 #
 # The values captured from the reference oracle follow the generated part in vectors.fe and are
 # maintained by hand; a new proof needs both.
@@ -16,6 +19,7 @@ cd "$(dirname "$0")/.."
 
 TARGET=lib/src/vectors.fe
 TEST_ADDRESS_TARGET=lib/src/test_address_vectors.fe
+GARAGA_COMMIT=86b6025567c5e2395947f9c6d40262c9ead2a54c # the commit vectors/garaga/ was copied from
 
 # One 32-byte word per line, as 64 hex digits.
 words() { xxd -c 32 -p "$1"; }
@@ -115,13 +119,59 @@ EOF
     array TEST_ADDRESS_PROOF "${proof[@]}"
 }
 
+# A proof bundle copied from Garaga (vectors/garaga/README.md): the proof of another circuit
+# and its public inputs. The key of the bundle gives the lengths both must have.
+generate_garaga() {
+    local name=$1
+    local dir=vectors/garaga/$name
+    local proof=($(words "$dir/proof"))
+    local inputs=($(words "$dir/public_inputs"))
+    local vk=($(words "$dir/vk"))
+    local log_n public_inputs
+    log_n=$(small "${vk[0]}")
+    public_inputs=$(small "${vk[1]}")
+
+    [ "${#vk[@]}" -eq 59 ] || { echo "$dir/vk: expected 59 words, got ${#vk[@]}" >&2; exit 1; }
+    [ "${#proof[@]}" -eq $((82 + 12 * log_n)) ] || { echo "$dir/proof: wrong length" >&2; exit 1; }
+    [ "${#inputs[@]}" -eq $((public_inputs - 8)) ] || { echo "$dir/public_inputs: wrong length" >&2; exit 1; }
+
+    cat <<EOF
+// The \`$name\` proof bundle of Garaga: a proof of a circuit with \`LOG_N = $log_n\`, and its public
+// inputs. Its verification key is in \`garaga_$name.fe\`.
+//
+// Source: https://github.com/keep-starknet-strange/garaga at commit
+// $GARAGA_COMMIT, directory
+// \`hydra/garaga/starknet/honk_contract_generator/examples/\`. Licence: MIT, Copyright (c) 2023
+// Keep StarkNet Strange (\`vectors/garaga/LICENSE\`). Made with \`bb\` 6.0.0, flavor
+// \`ultra_keccak_zk\`, target \`evm\`, and accepted by \`bb verify\` (\`vectors/garaga/README.md\`).
+//
+// GENERATED FILE. \`scripts/proof_to_fe.sh --garaga $name\` prints it from \`$dir/\`,
+// and \`scripts/proof_to_fe.sh --check\` fails if this file is anything else. Words are 32 bytes,
+// big-endian.
+//
+EOF
+    shasum -a 256 "$dir/proof" "$dir/public_inputs" |
+        while read -r line; do printf '//   %s\n' "$line"; done
+    printf '\n/// The public inputs the caller supplies.\n'
+    array PUBLIC_INPUTS "${inputs[@]}"
+    printf '\n/// `%s/proof`.\n' "$dir"
+    array PROOF "${proof[@]}"
+}
+
 case "${1:-}" in
 --check)
     diff <(generate) <(head -n "$(generate | wc -l)" "$TARGET")
     echo "OK: $TARGET starts with the output of scripts/proof_to_fe.sh"
     diff <(generate_test_address) "$TEST_ADDRESS_TARGET"
     echo "OK: $TEST_ADDRESS_TARGET is the output of scripts/proof_to_fe.sh --test-address"
+    for target in lib/src/garaga_*_proof.fe; do
+        name=${target#lib/src/garaga_}
+        name=${name%_proof.fe}
+        diff <(generate_garaga "$name") "$target"
+        echo "OK: $target is the output of scripts/proof_to_fe.sh --garaga $name"
+    done
     ;;
 --test-address) generate_test_address ;;
+--garaga) generate_garaga "${2:?usage: proof_to_fe.sh --garaga NAME}" ;;
 *) generate ;;
 esac

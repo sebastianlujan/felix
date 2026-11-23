@@ -246,15 +246,17 @@ its tests. `../honk-toy/` has no contract to build.
 |---|---|
 | `circuit/` | Noir package `vault`: `x * x == y`, with `y` and `recipient` public. Prover inputs: `Prover.toml` (recipient `0xc0ffe`) and `Prover_test_address.toml` (the Fe test address) |
 | `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output. `test_address/`: the second proof and its public inputs, for the same `vk` |
+| `vectors/garaga/` | Proof bundles of other circuits, copied from Garaga (MIT) with its licence text: raw `bb` 6.0.0 output. `hello` (`LOG_N = 12`). See `vectors/garaga/README.md` |
 | `scripts/check.sh` | Builds and tests everything in one command, and checks the code size of the three contracts |
 | `scripts/demo_anvil.sh` | Deploys the built contracts on a local `anvil` node, verifies the pinned proof and claims through the vault |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
-| `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--test-address` prints the second proof; `--check` compares them with `lib/src/vectors.fe` and `lib/src/test_address_vectors.fe` |
+| `scripts/proof_to_fe.sh` | Prints the proof, public inputs and verification key of `vectors/` as Fe constants; `--test-address` prints the second proof; `--garaga <bundle>` prints a proof of `vectors/garaga/`; `--check` compares them with `lib/src/vectors.fe`, `lib/src/test_address_vectors.fe` and every `lib/src/garaga_*_proof.fe` |
 | `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi` |
 | `lib/src/verifier.fe` | `verify(vk, proof, public_inputs)`: every step in one call, with the verification key as an argument and the relations evaluated in place. No contract of the project calls it; the tests use it for circuits other than the vault's |
 | `lib/src/std_assumptions.fe` | Tests only: they pin the behaviour of the std precompile wrappers and of Keccak hashing that the port depends on |
 | `lib/src/vectors.fe` | The pinned proof and the verification key, plus the challenges, delta, round targets and pow captured from the reference |
 | `lib/src/test_address_vectors.fe` | The second pinned proof and its public inputs, which the vault test claims with |
+| `lib/src/garaga_hello_proof.fe` | Garaga's `hello` proof and its public input, generated from `vectors/garaga/hello/`. No test reads it yet |
 | `lib/src/relations_vectors.fe` | Inputs and outputs of the reference's relations, for the pinned proof and for a synthetic input that makes all 31 subrelations non-zero |
 | `lib/src/opening_vectors.fe` | What the reference computes after sumcheck for the pinned proof: Shplemini scalars, terms of the consistency check, pairing points, and the aggregation on limbs put in place of the zeros |
 | `lib/src/expected.fe` | The reverts of the reference verifier on invalid calls, and what its sumcheck alone does with them |
