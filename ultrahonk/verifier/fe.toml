@@ -4,3 +4,5 @@ version = "0.1.0"
 
 [dependencies]
 ultrahonk = { path = "../lib" }
+# Tests only: they deploy `HonkRelations` next to the verifier.
+ultrahonk_relations = { path = "../relations" }

@@ -1,10 +1,14 @@
 // Sumcheck: port of `computePublicInputDelta`, `verifySumcheck` and `computeNextTargetSum`.
 //
 // `verifySumcheck` is split where it evaluates the relations, because a verifier contract
-// keeps them in a contract of their own: `rounds` runs the round checks, `relations_query`
-// is what the relations are asked, and `final_check` compares their answer with the target
-// the rounds left. `verify` joins the three with the relations evaluated in place.
-use std::abi::Bytes32
+// keeps them in a contract of their own: `rounds` runs the round checks, and `final_check`
+// compares the relation value with the target the rounds left. The two ways of getting that
+// value share both: `verify` evaluates the relations in place, `verify_with_relations_at`
+// asks a `HonkRelations` contract with a static call.
+use core::message::MsgVariant
+use std::abi::{Bytes32, Sol}
+use std::evm::packed::Packed
+use std::evm::{Ctx, staticcall_decode}
 use super::errors::SumcheckFailed
 use super::fr::{add, inv, mul, sub}
 use super::proof::{LIBRA_SUM, UNIVARIATES, UNIVARIATE_LENGTH, evaluations, word}
@@ -111,6 +115,12 @@ pub fn rounds(_ proof: Bytes, t: Transcript, log_n: usize) -> Rounds {
     Rounds { target, pow }
 }
 
+/// Word of the first evaluation the relations read. ZK: evaluation 0 belongs to the Gemini
+/// masking polynomial, which no relation reads.
+fn entity_evaluations(_ log_n: usize) -> usize {
+    evaluations(log_n) + 1
+}
+
 /// The message that asks for the batched relation value at the sumcheck point: the 41
 /// evaluations the relations read, the relation parameters, `alpha`, and the partial pow
 /// the rounds returned.
@@ -121,8 +131,7 @@ pub fn relations_query(
     pow: u256,
     log_n: usize,
 ) -> RelationsMsg::Accumulate {
-    // ZK: evaluation 0 belongs to the Gemini masking polynomial, which no relation reads.
-    let first = evaluations(log_n) + 1
+    let first = entity_evaluations(log_n)
     var entities: [u256; NUMBER_OF_ENTITIES] = [0; NUMBER_OF_ENTITIES]
     for entity in 0 .. NUMBER_OF_ENTITIES {
         entities[entity] = word(proof, first + entity)
@@ -141,6 +150,36 @@ pub fn relations_query(
     }
 }
 
+/// The calldata of the message `relations_query` returns, written without building the
+/// message: the selector, the 41 evaluations copied from the proof where they lie, and the
+/// last seven words. A contract that sends the typed message carries about 3,100 bytes
+/// more code (measured, `fe build --emit sizes`): a zeroed array of 41 words, and one copy
+/// per word into the message and again into its encoding.
+pub fn relations_calldata(
+    _ proof: Bytes,
+    t: Transcript,
+    delta: u256,
+    pow: u256,
+    log_n: usize,
+) -> Packed {
+    var data = Packed::with_capacity(bytes: 4 + (NUMBER_OF_ENTITIES + 7) * 32)
+    data.u32(<RelationsMsg::Accumulate as MsgVariant<Sol>>::SELECTOR)
+    data.append_span(
+        proof.span().slice(
+                offset: entity_evaluations(log_n) * 32,
+                len: NUMBER_OF_ENTITIES * 32,
+            ),
+    )
+    data.u256(t.eta)
+    data.u256(t.rom_logup_gamma)
+    data.u256(t.beta)
+    data.u256(t.gamma)
+    data.u256(delta)
+    data.u256(t.alpha)
+    data.u256(pow)
+    data
+}
+
 /// The last step of sumcheck: whether `relations`, the batched relation value at the
 /// sumcheck point, agrees with the target the rounds left.
 pub fn final_check(
@@ -157,7 +196,7 @@ pub fn final_check(
         evaluation = mul(evaluation, sub(1, t.u[round]))
     }
     // ZK: plus the claimed evaluation of the Libra masking polynomial.
-    let libra_evaluation = word(proof, evaluations(log_n) + 1 + NUMBER_OF_ENTITIES)
+    let libra_evaluation = word(proof, entity_evaluations(log_n) + NUMBER_OF_ENTITIES)
     let grand = add(
         mul(relations, sub(1, evaluation)),
         mul(libra_evaluation, t.libra_challenge),
@@ -180,8 +219,29 @@ pub fn verify(_ proof: Bytes, t: Transcript, delta: u256, log_n: usize) -> bool 
     final_check(proof, t, log_n, target: reduced.target, relations)
 }
 
+/// `verify` with the relations asked from the `HonkRelations` contract at `relations`, in
+/// a static call that forwards all the gas. A revert of that contract reverts with the
+/// same data, and so does an answer that is not one word: a call to an address without
+/// code succeeds and returns nothing.
+pub fn verify_with_relations_at(
+    _ proof: Bytes,
+    t: Transcript,
+    delta: u256,
+    log_n: usize,
+    relations: Address,
+) -> bool
+uses (call: Call, ctx: Ctx)
+{
+    let reduced = rounds(proof, t, log_n)
+    let query = relations_calldata(proof, t, delta, pow: reduced.pow, log_n)
+    let value: u256 = staticcall_decode(addr: relations, gas: ctx.gas(), args: query.span())
+    final_check(proof, t, log_n, target: reduced.target, relations: value)
+}
+
 // Tests, against the values the reference verifier computed for the pinned proof.
 use std::abi::dyn_array_from
+use std::evm::crypto::keccak256
+use std::evm::encode_msg_calldata
 use super::expected::{BIT_FLIPS, CONSISTENCY_CHECK_FAILED, PUBLIC_INPUT_CHANGES, SUMCHECK_FAILED}
 use super::fr::P
 use super::relations_vectors::{
@@ -335,6 +395,24 @@ fn test_relations_query_is_what_the_reference_hands_to_its_relations() {
     )
     assert!(query.alpha == PROOF_ALPHA)
     assert!(query.pow == PROOF_POW)
+}
+
+// The calldata the verifier contract sends is the encoding of the typed message.
+#[test]
+fn test_relations_calldata_is_the_encoded_relations_query() {
+    let pinned = proof()
+    let t = generate(vk: VK, pinned, public_inputs())
+    let raw = relations_calldata(
+        pinned,
+        t,
+        delta: PUBLIC_INPUT_DELTA,
+        pow: PARTIAL_POW,
+        log_n: LOG_N,
+    )
+    let typed = encode_msg_calldata(pinned_query())
+    assert!(raw.len() == 1540)
+    assert!(typed.len() == 1540)
+    assert!(raw.keccak256() == keccak256(typed.span()))
 }
 
 #[test]
