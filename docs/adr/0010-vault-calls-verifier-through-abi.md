@@ -40,6 +40,7 @@ fn main(x: Field, y: pub Field, recipient: pub Field) {
 - A Fe test cannot choose the caller of a call. A caller is a `Claimer` contract that forwards `claim`, or the test contract itself, whose address is fixed with `fe` 26.6.0.
 - Nine tests put a stand-in behind the vault (in one of them, an address without code). Two put `HonkVerifier` there.
 - The decision named a storage of `{ y, verifier, claimed }` and one entry point. `winner` and the two read functions were added.
+- Since issue #5, `y` and `verifier` are immutable fields: set once in `init` and kept in the contract's code. Only `claimed` and `winner` are storage.
 
 ## Options Considered
 

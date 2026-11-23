@@ -90,7 +90,10 @@ call that succeeds, where the reference uses whatever the precompile returns: un
 answers 0).
 
 `HonkVerifier` takes the address of `HonkRelations` as its constructor argument and keeps it in
-storage, so `HonkRelations` is deployed first. The calldata it sends is the encoding of
+an immutable field (in its code, not in storage), so `HonkRelations` is deployed first.
+`relations()` (selector `0xb3a480f2`) returns that address, so a deployed verifier can be checked
+against the contract it calls. It is a message of its own, `VerifierInfoMsg`: `VerifierMsg` stays
+the ABI of the Solidity verifier. The calldata the verifier sends is the encoding of
 `RelationsMsg::Accumulate` (`lib/src/relations.fe`), written from the proof bytes instead of through
 the typed message: sending the typed message made the runtime 2,103 bytes larger and the call
 13,708 gas dearer (9,712 bytes and 326,250 gas against 7,609 and 312,542, at `-O 1`, measured
@@ -169,7 +172,7 @@ Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo`, Python or Foundry.
 cd ultrahonk
 (cd lib && fe test)        # 179: field arithmetic, proof checks, transcript, relations, sumcheck, opening
 (cd relations && fe test)  # 2: the relations contract against the reference values
-(cd verifier && fe test)   # 16: both contracts against the recorded reference reverts
+(cd verifier && fe test)   # 18: both contracts against the recorded reference reverts, and the `relations()` getter
 (cd vault && fe test)      # 11: the vault against stand-in verifiers, and in front of HonkVerifier
 (cd ../honk-toy && fe test) # 70: the toy verifier against its Python reference's vectors
 ```
