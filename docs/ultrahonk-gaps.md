@@ -18,7 +18,7 @@ One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is 
 - [x] #8 Run the built contracts on anvil and state the chain requirements (H4, M8): `ultrahonk/scripts/demo_anvil.sh`
 - [x] #9 Correct the documents where the data does not support them (M6)
 - [x] #10 Say plainly that the vault protects nothing (M7)
-- [ ] #11 Root README as the entry page (M2, M9)
+- [x] #11 Root README as the entry page (M9). The owner's three uncommitted edits (M2) stay with the owner
 - [x] #12 vectors.sh end to end (H5): run in a clone; ten fresh proofs accepted on anvil
 - [ ] #13 Verification key module and key-only generator mode (H6)
 - [ ] #14 Release (M10)

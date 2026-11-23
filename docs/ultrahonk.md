@@ -133,7 +133,7 @@ Each row links to the Architecture Decision Record that holds the context, the o
 
 ## Package layout
 
-The work lives under `ultrahonk/`, `honk-toy/` and `docs/`. Its commits do not change the root library or `calculator/`. The toy was first built inside `ultrahonk/`; it was moved to the top level on 2026-11-23, because it shares no code with the real verifier.
+The work lives under `ultrahonk/`, `honk-toy/` and `docs/`. Its commits do not change the root library or `calculator/`. The root `README.md` was rewritten on 2026-11-23 as the entry page of the repository. The toy was first built inside `ultrahonk/`; it was moved to the top level on 2026-11-23, because it shares no code with the real verifier.
 
 ```
 docs/

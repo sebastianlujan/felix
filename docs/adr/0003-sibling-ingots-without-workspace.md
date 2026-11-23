@@ -28,6 +28,7 @@ Sibling ingots under `ultrahonk/`, joined by relative path dependencies. No work
 ## Outcome (2026-11-23)
 
 - Five ingots exist, each with its own `fe.toml`. `fe test` passes in each.
+- The root `README.md` was rewritten on 2026-11-23 as the entry page, on the owner's decision: the contest reads it. The root library and `calculator/` are unchanged.
 - The toy ingot was moved from `ultrahonk/toy` to the top-level `honk-toy/` on 2026-11-23. It depends on no other ingot and none depends on it, so only its path changed.
 - There is no per-circuit `vk.fe` in the verifier ingot. The verification key is the constant `VK` in `lib/src/vectors.fe`.
 - `scripts/check.sh` was written on 2026-11-23, after the stages. It runs the checks in every ingot; `ultrahonk/README.md` also lists one `fe test` command per ingot.
