@@ -1,0 +1,314 @@
+// Values the reference verifier computes after sumcheck (Shplemini opening verification, the
+// small-subgroup consistency check, the multi-scalar multiplication and the pairing) for the
+// pinned proof and public inputs of `vectors.fe`.
+//
+// Provenance: the Solidity verifier that `bb` 6.0.0 generates for `vectors/vk` with
+// `write_solidity_verifier -t evm` (sha256 5609d13d...8bfe), compiled with solc 0.8.34
+// (optimizer_runs = 1, evm_version = osaka) and run under forge 1.5.1 on 2026-11-22, with
+// `vectors/proof` (sha256 7ff3d7402d792648e68b8aa359b27a16322859b5d1c44eb45ff36d135ad96553) and
+// `vectors/public_inputs`. That verifier is not part of this repository; `scripts/vectors.sh`
+// regenerates it under `.oracle/`.
+//
+// How: a local Foundry test deployed a contract inheriting from that verifier. The contract
+// holds a copy of the verifier's `verifyShplemini` and `checkEvalsConsistency` whose only added
+// statements store intermediate values; every helper the copies call (`computeSquares`,
+// `computeFoldPosEvaluations`, `batchMul`, `negateInplace`, `pairing`, the field arithmetic) is
+// the verifier's own. The test logged the stored values, and asserted that the copies agree
+// with the verifier's own functions: `verify` and `verifyShplemini` accept the proof, the copy
+// of `verifyShplemini` returns true for it, and the copy of `checkEvalsConsistency` gives the
+// verdict of the original for the pinned proof and for each tampered proof below.
+//
+// These values belong to the committed proof (ZK proving is randomized).
+
+/// `geminiR^(2^i)` for `i < LOG_N` (`computeSquares`).
+pub const SQUARES: [u256; 5] = [
+    0x00d1e4dc846c1f5b20f0d5306aa79fe3feaf2cbda7ae775cee26c21643e5f956,
+    0x0777e3943216af0678f64e40a3e3d04513bdf2fcfe924cc875447c9f710c3b46,
+    0x042c583e63dc1cf60d0133c2ee0df627925a732e28f7e758de7ad832db1800f2,
+    0x01264a6adeac910e194e3b74faace791d39fd5b6b686ae9daedcdd657794903c,
+    0x16f5cb3f2bda758958d319b12eec15763f0d35d5156b4f9b1a11f1ef058b9e00,
+]
+
+// First pair of inverted denominators: `1 / (z - r)` and `1 / (z + r)`.
+pub const POS_INV: u256 = 0x1d8e8bf38ac52be3dde0ebcf64b8fd87836dd0fd832cca59f83bb7cd82265cd9
+pub const NEG_INV: u256 = 0x2d16aaf9c7eb79bcf700d5d2b5617e2850727577304502204be1444188e22302
+
+/// `POS_INV + nu * NEG_INV`.
+pub const UNSHIFTED: u256 = 0x1ffe23ea7413318ce4552c8dd40210c657a1024ba40b7a7bc030454ff9729c35
+/// `(POS_INV - nu * NEG_INV) / r`.
+pub const SHIFTED: u256 = 0x08f7ea6ce7c956887b3de2d678bbf7bb4dd09e58bdbe501df07eb82d3862a0e7
+
+/// The 42 evaluations batched with the powers `rho^0 .. rho^41`.
+pub const BATCHED_EVAL: u256 = 0x2bdca780453071bb86465da6811ae33c59047d55070c3437cf1d0f1c4ab029f2
+
+/// `foldPosEvaluations[i]` for `i < LOG_N` (`computeFoldPosEvaluations`).
+pub const FOLD_POS: [u256; 5] = [
+    0x11f2473a2093e23683941dec8290635157c8a4b5524411a3230ea127bba68fdd,
+    0x153f55a504002f8a31cf1f8559867f9224be16324fc1727214d1ba0d6714c637,
+    0x29db48fce6624fe74ce363241ff792a48030c7fbff2244519cad17d83cf23e6f,
+    0x04cfbbe9ea1c43d3d2c607f4e1805b89aabc4dd1a8277c72ae05017216fb7b4b,
+    0x027391ff40c36169cf8667ad064a16107e2c708b611633b74f6e1e9f6cf29eee,
+]
+
+/// `1 / (z - r^(2^(i + 1)))` for the fold commitment `i`.
+pub const FOLD_POS_INV: [u256; 4] = [
+    0x26d35561523a5dbab062489a07cd36ca64b8dbc278fa70edd599e0298561d275,
+    0x249cf73bed855669bf4ef12daba0a37397ed93ce1fcc2d58077fe050a980da00,
+    0x098008f3cd845ea49be4e76838bc90a90a7120da9dcbfac66dacc3f211197f61,
+    0x2910a607d2ead98941c1ba771648192b6a4e0c1c275202878252083d25b69594,
+]
+
+/// `1 / (z + r^(2^(i + 1)))` for the fold commitment `i`.
+pub const FOLD_NEG_INV: [u256; 4] = [
+    0x014199777c22335d49d8a8efbaaafee8eff22cc9ae181e03b3ee4f489ec4c3c8,
+    0x23699ad49fc93d76ce0f0f633e158809b64414e5263ee8fefa0287bef1daeecf,
+    0x20ad6d5c8b398f729c2a34c7d10140c31266444adf7c7dcebf48de0b78981a1d,
+    0x0aecdee47613eb4c5c67906d12044fba9b8a030ba5864ca5075cdd554fd5797b,
+]
+
+/// `1 / (z - point)` for the Libra opening points `r, g * r, r, 1, r`.
+pub const LIBRA_DENOMINATORS: [u256; 5] = [
+    0x1d8e8bf38ac52be3dde0ebcf64b8fd87836dd0fd832cca59f83bb7cd82265cd9,
+    0x14406973048640e8ff62b5528ecdc5df97bc2062e7f5777af56785628c14f6eb,
+    0x1d8e8bf38ac52be3dde0ebcf64b8fd87836dd0fd832cca59f83bb7cd82265cd9,
+    0x2ab4946baef28b4ac522248ae56de99051ecf2e26d655cfdb070606925082d3d,
+    0x1d8e8bf38ac52be3dde0ebcf64b8fd87836dd0fd832cca59f83bb7cd82265cd9,
+]
+
+/// `LIBRA_DENOMINATORS[k] * nu^(2 * LOG_N + k)`; the batching scalar of claim `k` is its
+/// negation.
+pub const LIBRA_SCALING_FACTORS: [u256; 5] = [
+    0x23767d7ad0f7a20b9b57def2ed8ab2fe299394e8dfd4a198d2661dad54aca923,
+    0x3048bd9960908fca6eb63e4390c28b8398b128737353565963aeb6fd404a9138,
+    0x2a99c81d7b2d747fb144e11c5e43281a912e0f25f639e68ade9b22813aa7d608,
+    0x12d4a4af9c3630715f45e92736ad9df9972b47c66122e65c8f631c9e072602dc,
+    0x0b5bd36aad91eb98e21eabe66c443d87e3b6f3ae29d23629bc85ab8edd79a079,
+]
+
+/// The scalar of every slot of the multi-scalar multiplication, `42 + LOG_N` of them.
+pub const SCALARS: [u256; 47] = [
+    0x0000000000000000000000000000000000000000000000000000000000000001,
+    0x10662a886d1e6e9cd3fb1928ad7f4796d092e5fcd5adf61583b1b043f68d63cc,
+    0x0210a6be38429cec6a4f67232d352f6a23e3e831b71d8418ab5e820cc1ce5089,
+    0x03fb6495343571f860a714420c8db9d5833fe536b95da43fc62b126bcfa4b0c9,
+    0x22de337747fa5e77039ebcf0acb618654c73d6ffee75a0ed99294d50fa6c5574,
+    0x220c3d24b0c5a1c1ddcc81cb4ee8f7cbb03721abd3ffa7f90d11a6d8a7435fdc,
+    0x1744be355c6e00093cf0ad7f6b38b0482c02dd9b2133d088e4e5add2c47f41c8,
+    0x20484fa4199c2490c0655523f447b841a8f58f8001361c21ec70ee497b359f1d,
+    0x0453d6104783787540112633946a863dc5b964161d3eebd8c1cda7c90dbdbd96,
+    0x06a28f5c05bdfe945d9ea0093d0fea311f90fc0ed526683185cc443f6cf543b8,
+    0x28c569a665a6ab24a0e3cb5dca2eca7934f0d2193fa7308601286eaaeeb2dc67,
+    0x22afe1c84e27c621e26274defc2d21b38c86a785fb9c25517de3ea731940ef1d,
+    0x0dc3f5e19dfe344eb56b8800db7017ce2f6c138a2f90720165cfc07175a93303,
+    0x13338eae73df7f61764ad85e0a7eea355cc5e2e89dbdeb012feb2e22c98564d0,
+    0x24fb3c58887e62f73f37bbce69995f907401183bb5c001fe196abe41ad6a8ab1,
+    0x2527bac26b5f659a424dd12b6a605ee4b2363a1a04d28c6fd253a0072879d34a,
+    0x217b0be84614f956add0157d07822acbd8771e411041428e25d5baa37ad3177d,
+    0x1db6dfa731ee814154597f4fcf66b646a2c47307133536d17dc7e90153eeb8a1,
+    0x1f7a4041f55cc2c63a7006d739e7a7f9541f816b8389c8b10ad3c4dcab0c8527,
+    0x1f4b367d07ef0c5cc596a048e11a00f2a270bd21b1a9b437f27c506950ec4fa4,
+    0x1b13fc73f68eaa270666dcc14414ffae4633dd53b96c02771585d68ed9d1253c,
+    0x173ba42fcb7a7efd3f773f5c04c401e3251ead408cd52f357945429e1e30d531,
+    0x240a18c6d902b9d681a6fddcc0ccc26d23a1ab6d9ba6e22b996141eedb1dceb1,
+    0x179fda37eb78cff6875e1fa01abeccd7f35fcc3a0a4881c08c97248e1a4cbd39,
+    0x2fb53654feb7ae19dd8585acb43d3da8f845a41cde05ec500908d968b22044fd,
+    0x262c29d518b6936c41a0edfad39c499c4f765baf08a68d2e4cb3306c71a47d9f,
+    0x088302d9b5206e1101cdb3f0ca7b6b9ab1737f694e53b27b3a330a91d57b9e32,
+    0x230dfd93c7c208201d1e7bf7703eb7e95ce692212e5c6df37298a1a1b1ba3ffa,
+    0x1858370a094b77cd6aa478dd4599ea7ee419fde10b6c516b973cfe48d791fcd9,
+    0x13a27ae16ec60a195a8fd5bc8568103e8eb73de624f240d71291d0169b87fae4,
+    0x249ce9ee0dbcd88c4f071cd0b7df32e95c0f3580c88642dc5ca7282c8f902637,
+    0x20a4105634d70a212d08e0bded03ec5e3dec4fd5b5b4a10f71c32c3d55a36067,
+    0x268b2568ae363aa28af26603488d0ecc0cb971c5105822693eadeaea3966cc5c,
+    0x2ecad24a9b04b3b97ad857e526f56cf4df2301a236e312259075f7f809b60719,
+    0x1b098940f1d80d1eab5db7d1e5a07d6a3e82399494a4b8dbfdc9c7302b8d53f5,
+    0x19645cd2b2e33bd172ee7a61701a1a35a1fcb7da3f7c7e894bdf014e195c04ed,
+    0x1c5e198ca54783afb1a5fb5e2fb84af5c3f7fdc0d937fedfdcacdae045e2454e,
+    0x040f2cbd6bc1d254322dbfd351cacd69c27480ddac15ba4af88e809e64e33cc2,
+    0x0285492aeb5062051f63251619ea98afcf2937f5dd91f197b3790b8be7e9ac77,
+    0x0be16a774186ede3db8cdf4d1e4434d568a9ade52f5471b4af78c5895ca73f3d,
+    0x191dff44a8f11ecdf2760a5092dac0b4331d46da02cf471e68dace57fcf7d318,
+    0x26ca0f7eb37aaca2dcdb38dc40ea59a373677720046255208cb87fb343655a17,
+    0x0cedd0f81039fe1e1cf866c393f6a55efea0535f99e4cef8717bd7e69b5356de,
+    0x2375c0f22ba0abc1a9afc89c5ed0b77fb7913979a27c2e72f9f8ea9f4de795e7,
+    0x25087b08339fb490d63199d0153d1ad5447cf49a4fe73a67875c4a0512865f88,
+    0x038ee0bc64d8babcb3d0bc9ca76faa318b2b45fdfb91f1f63053e9142195e4c2,
+    0x1d32296b333e2ae4abc031764fecd1ae3d51bd754d5c9830a2c69416e8af4328,
+]
+
+/// The constant-term accumulator: `SCALARS[40 + LOG_N]`, the scalar of `(1, 2)`.
+pub const CONSTANT_TERM: u256 = 0x038ee0bc64d8babcb3d0bc9ca76faa318b2b45fdfb91f1f63053e9142195e4c2
+
+/// The commitment of every slot as `x, y`, in slot order.
+pub const COMMITMENTS: [u256; 94] = [
+    0x03da300db22d8cbcb9943e6a8ae8f2f25b3ba3ce221f8fa07bd91fb9ed5e3058,
+    0x297245eb888c8c1a09054da4b39c305fc59f5acf8b825296ea7b2f7d9233d1b9,
+    0x269193f80c452e5c75b1ed1694ab93fc901feabe3bbbb724cbac4623fb73bdb3,
+    0x04842efcb23341f656bdf0b91d4a285db29f2b70fab3ff5bad351f4ea1ee00fa,
+    0x1c952c65eef726cec0b3e1bd40cbeea3722d7a0f410773bb50c252787d8ea910,
+    0x0563525ef05104f4ccadff1ea180ff35bbf8a01afd99bfefd44ea9038df1898d,
+    0x1ec9626c797408afcdf6777e137a31d9298229ac3cf1cc591227a0924222998f,
+    0x11157a9ecf6c2549762ea485ac98893e58a293daa6184ae2833008507799e819,
+    0x14bf4f0b5309453816d4cc2ad7c636fe7b06224de01918d012f006d4b61603e5,
+    0x28dd2a4c76cc02b9d384634d682dcda1f34c9cd7a605d2a0470a2b3b233ca7be,
+    0x00fada8334b42961bf5d501400355c79803ccfd8823ef56b1a30461f6254e091,
+    0x160a76803bc51f947fb2277da5d8d1368c3c0f03fef6cc323f5c9ac0df021839,
+    0x04b902d0ea4dfb885575eb7838c2bfccbe57dc40bcab9d117d3e2092edb02ca7,
+    0x204243a85314191822cee4110b6f5e907a6547972fe347d4ab953638473c8e91,
+    0x2116c6b5a187aedfbf2facbab8e62ee87affa00e16fa04ae7b0d873f9b0a4e68,
+    0x11cfbf5f8670889cbd5447048edd7f6cd799f2bb70fc09f8ffe0aeebd884322e,
+    0x0e1f6dffe5d518137bf5ced36714518b6f47213a1c9dd5a7050d10a0c0c4eaa4,
+    0x035aa0e34099e83ee07de192d37ea208d723b83a7b3860195941f8814a10337e,
+    0x039ad6c25d05484be91e2b92b398c00b6780bc24f19d0f5c6e1a52518310dd4d,
+    0x0f18e8e06a1e62c65b88ff9096574fea091c7d66049a8fef7ebf2b416d05441a,
+    0x2a56ce41f6b0be13b9c26747621b821eee81b23a887f299049b14c11e98460d6,
+    0x1aa98f2de3ddda547d8f6de4e725ded5827d6338c78656c0d12ca1aea6ef2c7c,
+    0x2531a51ad54f124d58094b219818d2c9f189f2a91aeb664ce376d8b157ba98f8,
+    0x272da4396fb2a7ee0638b9140e523def1e6db71809307f677677e62b4163f556,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x1dd04a8b68480307aebfa87e81eb08f45b112ec313618ac61a190b1313984c41,
+    0x246a2b5e4a48922abc23f807bbc3ae334494a7def076d517537a97baa29dc9b5,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0524c8e7146a41551c673b3139893fa365285bca50c9a1b5a476834f5f518c05,
+    0x222ec4ffc52d32d1e4a1e4e25327fae9cb22dc0e24ef68cf8adbc2792ddd1bbc,
+    0x0ca0bc4b1cd9eadbbf49eae56a99a4502ef13d965226a634d0981555e4a4da56,
+    0x15d9cce474cfa99cc8ad1bc386c4c2958cac003ddaec9b174e783329be1b90d3,
+    0x299b563f2690ecb30803d9df3bbe0e362f5dc33c55ba78aa9851866c46a94e81,
+    0x0c60079d68b00a72abb190bec66d2c67a9c4b6f806c6d1e51ef3ed2c4cdc59c3,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x275520043954fb62d702c80ecd91efc3ac1fa781df1f9d44072e2eb41bbb4014,
+    0x0732aa73582a6f46a219a8c80b5e5cb01f1a4e705245c745915180fdd6a121f8,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x16117e3d55c90331564819f42b27b4f6c5afab7a6c89f61af012a2b634d94c87,
+    0x11978dec7b04dad5a23c2685780f1343df78289053015bc29433fc69ad304faf,
+    0x2335a925d61fb82a6211e2e2ce43dfd936576a073e380df8192bfd6156e04109,
+    0x20d3bdab81aa57887bc5f24914bb27caca3c0cebe6f5a9cd4f521486dc08da67,
+    0x26a04f03a0cacd948a05e562e1b27c8cf18622ea68d155c1bb6d20d9e42f56f7,
+    0x070c03c553b3641573e38694c16689f2e7f918fbce61c75bda03642a469f6b4f,
+    0x23b235aa51950f0281f9452890a88bb87b69d23872bbd826a3874a2794f10921,
+    0x2831bb9e2c04564e79623296e0c67e73d0a857778110285d7858309b484c1899,
+    0x17736cb357e6fcf34ab1b2b86e76daf87f0a1f0175797dc00cf516b31e49f9cc,
+    0x23d81d959e03568ecb41bc0438ba8a325b88d8f744a624e87f6770d59b7d7d6e,
+    0x1ce1059d95d429bed205b44b1f92673d9de3e0a3e219a5e26aa26349ff454399,
+    0x2954060694120036a70d93df19cf466a4962da675f0f215afb64dafda35ec1dd,
+    0x225c81eeecd4afe242c3ed24b634004c3c2f3f3368f7231b2f289aeeb1db4064,
+    0x21a6a50fc8b42b4d8d38651b63839dc3aebb6f8216f1bc3f1754d5a140e6fae8,
+    0x0edc938c9997e7ae2d130a50b84e8e84c3a14fa03c7318f3a1d43882ed5ccd2f,
+    0x0eaba9c22c7f01d142a55133b29bfea3abb5fd68595ee34411b7b4c421dfc345,
+    0x041485b9845e6c7d7d812a8a413f34fe9bc1ba00229e80d2048c6b25ebdb7a0f,
+    0x181e6a4743f86e87681e5962a3fd6904cd5c2411a3c6bc47c34ff3aff583ac8f,
+    0x2787e0fac799c8e7ebd7b8cb5a995ea107024cbff5681a4af873e5b6217cdb99,
+    0x2a2d2a4b7eb789569fb628dc0137dabb5cc8e1d35124f1318870bd8bab098d5f,
+    0x258d304d02aaeede8bcf9ddf05b21d209b99317eb64c39b4dfb3b4787e9345ed,
+    0x2a99d7495c92700caae184a71fbb1d5033959181c0a6a4381fa5e883a7a968f8,
+    0x301b313f2e3bbc7974ac98b612acfc6122a426564a0227884f879026ecc307e4,
+    0x2c8a0b4d26ab5233ad291f78ae6d92d0f2b0e56d8d783c27d55a19982d31ca68,
+    0x075db2e7fd068c4d13ba39b4396856324e36b38cc794d022ee9adfc2d2c2c63d,
+    0x2261b461b90f392acc2b5caf0d2764af6254534781667378362ddf0fa220ec3e,
+    0x16591d5dd7b1887b58985800c07ea548fd0769a48e94753a2639eb2860af32b1,
+    0x27171da861aafd6acd2e26dd650a456a90f597597b12f5e89b5e287aac544e98,
+    0x01063a2c8484e632867a60855e01008fc51d9db3aeac18e1654c5f75361842c2,
+    0x1a2a77029b8c87fcc6a88992e0dd04dd5a5ae21860d229cec8807c7dd2262634,
+    0x0000000000000000000000000000000000000000000000000000000000000001,
+    0x0000000000000000000000000000000000000000000000000000000000000002,
+    0x16244ecc9adc6e81fb8b1dfc01c937cba5f03c2aa56dc652222ae88105874b1e,
+    0x2c99a3b4fe8893c964748462f32184195ff13fb6a05665ecec8b7f458507a00e,
+]
+
+// Result of the multi-scalar multiplication, and the negated KZG quotient. With all pairing
+// limbs zero these are the two points given to the pairing.
+pub const P0_X: u256 = 0x264d4550171414ee5b93f3623f3a50c86998e918268fb7468fc8e18c8f4bff12
+pub const P0_Y: u256 = 0x0baee020fc0b0765e096eac36ad82cf4a7f50ba228bcea4bde2e570ae2e21d54
+pub const P1_X: u256 = 0x16244ecc9adc6e81fb8b1dfc01c937cba5f03c2aa56dc652222ae88105874b1e
+pub const P1_Y: u256 = 0x03caaabde2a90c6053dbc1538e5fd44437902adac81b64a04f950cd153755d39
+
+// Small-subgroup consistency check (`checkEvalsConsistency`).
+
+/// `Z = r^256 - 1`.
+pub const VANISHING: u256 = 0x0bb736a0f6659d507666bb764da65f306eb266991a21e19b0fc4da8738a9bbee
+/// `Z / 256`.
+pub const NUMERATOR: u256 = 0x0372c4bab4cbe2e03f6c0ba24b68be95bd4258bbb1a92bcbd1d5a81eee18a9bc
+/// `c`: the challenge polynomial at `r`.
+pub const CHALLENGE_EVAL: u256 = 0x0c624266ee009e75e02f774238332f2997466b089e042baf609c0103c3561101
+/// `NUMERATOR * DENOMINATOR_0`.
+pub const LAGRANGE_FIRST: u256 = 0x04d9afbb8502c5280b462840fa9109087d6861497899e4152f0ed47223739352
+/// `NUMERATOR * DENOMINATOR_255`.
+pub const LAGRANGE_LAST: u256 = 0x0559f4ddffd75ab50818e82cd1e047fc900aa1e257b5ce4f7279adf4e0911751
+/// `1 / (r - 1)`.
+pub const DENOMINATOR_0: u256 = 0x25494dc27d0afdaa335371d880c98fc90c5860df2ceecd99d00b49cafb8ae0d7
+/// `1 / (g^(-255) * r - 1)`.
+pub const DENOMINATOR_255: u256 = 0x04436148a2c1b9aa6c162d5c22797c111e89e3f8a76f0087d4108a80fb2feda6
+/// The value the check requires to be zero.
+pub const DIFF: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000
+
+/// Proof words whose lowest bit was flipped, one at a time, with the challenges generated again
+/// from the tampered proof: the masking polynomial evaluation, the x coordinate of the first
+/// fold commitment, and the first and last Libra polynomial evaluation.
+pub const CONSISTENCY_FLIPS: [usize; 4] = [74, 121, 134, 137]
+
+/// `DIFF` for the proof with the bit flip `CONSISTENCY_FLIPS[i]`: not zero.
+pub const DIFF_FLIPPED: [u256; 4] = [
+    0x1b9662295ead88ed9ed650e652e0986f8382f2b2df6c743c2a42c2eba8df892c,
+    0x21ee4740c92a60d98d0953c21db63e66d0612b95c85df51c3545e58a64ba90f0,
+    0x2acc7caa278fd5fa8fce44f5d30b9609fd35fb38e09b7be998eed437b355a1d8,
+    0x24ad17d1eacc02d941e98a4033daf92cb98181af5f978ef6341d1b0cb7564413,
+]
+
+// What `verifyShplemini` alone did with the lowest bit of one proof word flipped and the
+// challenges generated again from the tampered proof, called with 20,000,000 gas. The whole
+// verifier (`expected::BIT_FLIPS`) turns a returned `false` into `ShpleminiFailed`.
+//
+//   74, 121, 134, 137 -> reverted with ConsistencyCheckFailed (0xa2a2ac83)
+//   129               -> returned false: the pairing does not hold
+//   140               -> reverted with ShpleminiFailed (0xa5d82e8a) in `batchMul`: the KZG
+//                        quotient is off the curve and the precompile call fails
+//   138               -> reverted with no data: `shplonkQ` is off the curve, the failed
+//                        precompile call takes the gas and `batchMul` runs out of it
+
+use super::fr::Q
+use super::vectors::{GEMINI_R, LOG_N, PROOF, SHPLONK_Z}
+
+// The captured values belong to the proof and the challenges of `vectors.fe`.
+#[test]
+fn test_opening_vectors_follow_the_circuit() {
+    assert!(SQUARES.len() == LOG_N)
+    assert!(FOLD_POS.len() == LOG_N)
+    assert!(FOLD_POS_INV.len() == LOG_N - 1)
+    assert!(FOLD_NEG_INV.len() == LOG_N - 1)
+    assert!(SCALARS.len() == 42 + LOG_N)
+    assert!(COMMITMENTS.len() == 2 * SCALARS.len())
+    assert!(SQUARES[0] == GEMINI_R)
+    assert!(SCALARS[0] == 1)
+    assert!(SCALARS[40 + LOG_N] == CONSTANT_TERM)
+    assert!(SCALARS[41 + LOG_N] == SHPLONK_Z)
+    assert!(LIBRA_DENOMINATORS[0] == POS_INV)
+    assert!(DIFF == 0)
+}
+
+#[test]
+fn test_captured_p1_is_the_negated_kzg_quotient() {
+    assert!(P1_X == PROOF[140])
+    assert!(P1_Y == Q - PROOF[141])
+}
