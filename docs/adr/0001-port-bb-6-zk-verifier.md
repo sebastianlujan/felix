@@ -10,7 +10,7 @@ The project needs one reference to port from and to test against.
 
 - The goal is UltraHonk verification written natively in Fe. The project's teaching page sketches the modules, but nothing in it was ever compiled.
 - No Fe UltraHonk verifier was found: `fe-lang/rosetta/examples/verifier` has Groth16, a gnark Plonk and a Halo2 skeleton, and no Honk.
-- Barretenberg already emits an audited Solidity verifier for the EVM, in a non-ZK flavor (`-t evm-no-zk`) and a ZK flavor (`-t evm`).
+- Barretenberg already emits a Solidity verifier for the EVM, in a non-ZK flavor (`-t evm-no-zk`) and a ZK flavor (`-t evm`).
 - The application is a vault that hides a secret. A non-ZK proof leaks witness evaluations.
 - The submission deadline is Nov 24, 2026 23:59 UTC, about 48 hours away when the plan was written.
 - A first draft of the plan named the non-ZK flavor. The project owner changed the target on 2026-11-22, during stage 0, when the real verifier was still a skeleton.
@@ -21,7 +21,7 @@ The source of truth for the real verifier is the Solidity verifier that `bb` 6.0
 
 | Item | Value |
 |---|---|
-| Upstream sources | `BaseZKHonkVerifier.sol` + `ZKTranscript.sol` at `aztec-packages@b225653` |
+| Upstream sources | `BaseZKHonkVerifier.sol` + `ZKTranscript.sol`, read at `aztec-packages@b225653`. That commit is not the `v6.0.0` tag; the two files are identical there (compared on 2026-11-23) |
 | Upstream template | `honk_zk_contract.hpp` |
 | Pinned versions | `bb` 6.0.0, `nargo` 1.0.0 |
 | Non-ZK flavor | Dropped. It is not built alongside the ZK one. |
@@ -35,6 +35,7 @@ The generated verifier is used as a local reference oracle and is not committed 
 - The tests do not show that every proof the reference rejects is rejected.
 - The proof size, the values per sumcheck round and the evaluation counts this record gives for the ZK flavor match the generated verifier. The full layout is in `ultrahonk/docs/zk-verifier-reference.md`.
 - The recorded differences from the reference are in ADR-0008.
+- Two statements were removed on 2026-11-23 because nothing in the repository supports them: that Barretenberg's verifier is audited, and that the ZK flavor is the one Aztec's own L1 verifier uses.
 - The reasoning above rests on a vault that hides a secret. The vault that was built does not: its witness can be computed from the public `y` (ADR-0010). The decision stands for another reason given in the options, that an application with a private witness needs this flavor.
 
 ## Options Considered
@@ -44,10 +45,10 @@ The generated verifier is used as a local reference oracle and is not committed 
 | Dimension | Assessment |
 |-----------|------------|
 | Complexity | More protocol steps than non-ZK: Libra masking, a small-subgroup consistency check, a Gemini masking polynomial |
-| Cost | The two flavor-specific upstream files are 621 + 371 lines; 9 values per sumcheck round; 42 evaluated entities (37 unshifted); proof of 82 + 12·log N words |
+| Cost | The two flavor-specific upstream files are 621 + 371 lines; 9 values per sumcheck round; 42 evaluations: the masking polynomial and 41 entities (36 unshifted, 5 shifted); proof of 82 + 12·log N words |
 | Risk | Higher risk of not reaching the final pairing check by the deadline |
 | Fit with the application | A vault that hides its secret needs ZK |
-| Fit with the ecosystem | `-t evm` is `bb`'s standard EVM target and the flavor Aztec's own L1 verifier uses |
+| Fit with the ecosystem | `-t evm` is `bb`'s standard EVM target |
 
 **Pros:** The proof does not leak witness evaluations. Matches the standard target. The 31 subrelations are the same ones, in the shared relations code.  
 **Cons:** More steps to port under the same deadline. The pipeline and the skeleton built in stage 0 had to be switched to `-t evm`.

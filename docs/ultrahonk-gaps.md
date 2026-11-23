@@ -16,7 +16,7 @@ One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is 
 - [x] #6 Consistency check with fewer inversions, measured again (H3)
 - [ ] #7 Garaga's bb 6.0.0 fixtures at other circuit sizes (E1)
 - [x] #8 Run the built contracts on anvil and state the chain requirements (H4, M8): `ultrahonk/scripts/demo_anvil.sh`
-- [ ] #9 Correct the documents where the data does not support them (M6)
+- [x] #9 Correct the documents where the data does not support them (M6)
 - [x] #10 Say plainly that the vault protects nothing (M7)
 - [ ] #11 Root README as the entry page (M2, M9)
 - [ ] #12 vectors.sh end to end (H5)
@@ -179,6 +179,8 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 | Shipping the worktree's `verifier.fe` as public API | It is at most the start of E1's test helper |
 
 ## Documentation corrections
+
+Every row below was corrected in #9 on 2026-11-23. Two more were found on the way and corrected with them: the vault reads only the first word of a longer answer (the README said such an answer reverts), and the upstream commit the documents named for the reference, `b225653`, is not the `v6.0.0` tag: two of its five source files are identical to the tag's and three differ. The port follows the verifier `bb` 6.0.0 generates.
 
 | Where | It says | The data says |
 |---|---|---|

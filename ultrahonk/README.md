@@ -109,7 +109,7 @@ otherwise:
 | Recorded case | Asserted |
 |---|---|
 | 4 wrong proof lengths, the empty proof among them | Yes, the whole revert data |
-| 7 overwritten proof words (range checks) | Yes |
+| 7 overwrites of 6 proof words: 6 fail a range check, one passes it and fails in sumcheck | Yes |
 | Each of the 142 proof words set to `Q` | Yes |
 | 3 changed public inputs, 3 wrong public-input counts (0, 1, 3) | Yes |
 | 4 calls that break two rules at once (order of the checks) | Yes |
@@ -221,10 +221,10 @@ runs these commands and the other checks at once; its two vector checks also nee
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # 182: field arithmetic, proof checks, transcript, relations, sumcheck, opening
+(cd lib && fe test)        # 183: field arithmetic, proof checks, transcript, relations, sumcheck, opening
 (cd relations && fe test)  # 2: the relations contract against the reference values
 (cd verifier && fe test)   # 19: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound
-(cd vault && fe test)      # 11: the vault against stand-in verifiers, and in front of HonkVerifier
+(cd vault && fe test)      # 13: the vault against stand-in verifiers, and in front of HonkVerifier
 (cd ../honk-toy && fe test) # 70: the toy verifier against its Python reference's vectors
 ```
 
@@ -234,7 +234,7 @@ The numbers are the tests that pass in each ingot, counted on 2026-11-23.
 `verifier/` and `fe build --contract Vault` in `vault/` write the bytecode to `out/` in each
 directory. Without `--contract`, the build in `verifier/` also writes `FixedRelations` and
 `FailingRelations`, two stand-ins for the relations contract that only its tests deploy, and the
-build in `vault/` the five contracts its tests deploy. `lib/` and `../honk-toy/` are libraries and have
+build in `vault/` the seven contracts its tests deploy. `lib/` and `../honk-toy/` are libraries and have
 no contract to build.
 
 ## Layout
