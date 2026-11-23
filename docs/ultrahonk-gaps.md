@@ -1,6 +1,6 @@
 # UltraHonk verification in Fe: gaps before shipping and before real use
 
-> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 284 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
+> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 292 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
 
 > **How to read this document.** It does not repeat the limits already written down: [Limits](../ultrahonk/README.md#limits) in the verifier README, [Not done](ultrahonk.md#not-done) and [Out of scope](ultrahonk.md#out-of-scope) in the plan, [Not implemented](../ultrahonk/vault/README.md#not-implemented) in the vault README. It adds what those sections do not say, and orders the work.
 
@@ -166,7 +166,7 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 | The downloads of `bb` and `nargo` are for macOS arm64, without checksums; `vectors.sh` needs `rg` and does not say so | Regenerating the vectors works on one platform | Document `rg`; add checksums |
 | The captured values cannot be regenerated from the repository alone | They rest on their documented provenance | By decision (ADR-0009) |
 | No CI | Nothing runs the tests on a push | After M4 and M5, a workflow that runs `check.sh` |
-| A worktree left by the development holds an untracked `ultrahonk/lib/src/verifier.fe` (144 lines: the whole verifier in one call) | Removing the worktree deletes it | Read it for E1, then keep or delete it on purpose |
+| A worktree left by the development holds an untracked `ultrahonk/lib/src/verifier.fe` (144 lines: the whole verifier in one call) | Removing the worktree deletes it | Read it for E1, then keep or delete it on purpose. Done in #7: `ultrahonk/lib/src/verifier.fe` is that function, with tests of its own; the worktree's copy is no longer needed |
 
 ## Not to attempt before the deadline
 
