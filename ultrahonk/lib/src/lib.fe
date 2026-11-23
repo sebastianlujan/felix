@@ -3,3 +3,4 @@
 pub use abi
 pub use errors
 pub use fr
+pub use vectors
