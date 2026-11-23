@@ -1,6 +1,6 @@
 # ZK UltraHonk verifier reference (bb 6.0.0, `-t evm`)
 
-What the Fe port must reproduce, extracted from the verifier that Barretenberg 6.0.0 generates for this project's circuit. The generated file is a local, untracked reference (`ultrahonk/.oracle/src/HonkVerifier.sol`, 2,518 lines, sha256 `5609d13d…8bfe`); line numbers below (`L…`) point into it. `L` in formulas is `LOG_N`. Every layout row and every transcript row was checked against that reference on the pinned proof.
+What the Fe port reproduces, extracted from the verifier that Barretenberg 6.0.0 generates for this project's circuit. The port is complete: `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call (`../README.md`). The generated file is a local, untracked reference (`ultrahonk/.oracle/src/HonkVerifier.sol`, 2,518 lines, sha256 `5609d13d…8bfe`); line numbers below (`L…`) point into it. `L` in formulas is `LOG_N`. Every layout row and every transcript row was checked against that reference on the pinned proof.
 
 ## This circuit
 
@@ -148,13 +148,15 @@ Observed on `verifySumcheck` alone (a contract inheriting from the reference ran
 
 Observed on proofs built from a rule: the all-zero proof of the right length → `ShpleminiFailed`, with the valid public inputs and with zero public inputs, and `verifySumcheck` returns true for it (every check compares 0 with 0); every word at its largest in-range value, with or without the limbs → `SumcheckFailed` in the first round; the empty proof → `ProofLengthWrongWithLogN(5, 0, 4544)`; no public inputs → `PublicInputsLengthWrong`.
 
-## Risks for the port
+## Risks for the port, and what became of them
 
-- **Code size.** The reference deploys three contracts (16,946 + 8,211 + 6,008 runtime bytes = 31,165), above the 24,576-byte limit for one contract. The Fe verifier must be split or size-optimised.
-- **Off-curve points.** A failed precompile consumes the gas forwarded to it, so the reference can revert with empty data instead of `ShpleminiFailed`. For those cases a test can only require "reverted".
-- **Consistency check cost.** 256 modular inversions, most multiplied by zero (only indices 0..9L and 255 of the Lagrange array are non-zero).
-- **Reference gas for a valid proof:** about 2.65M to 2.97M.
-- **Untested branches:** aggregation with non-zero limbs, `PointAtInfinity`, `InvertOfZero`, `GeminiChallengeInSubgroup`, `NotPowerOfTwo` were read, not triggered.
+| Risk | In the reference | In the Fe port |
+|---|---|---|
+| Code size | Three contracts: 16,946 + 8,211 + 6,008 runtime bytes = 31,165, above the 24,576-byte limit for one contract | Two contracts: `HonkVerifier` 16,446 bytes and `HonkRelations` 8,527 at `-O 1` (`../README.md`) |
+| Off-curve points | A failed precompile call consumes the gas forwarded to it, so the reference can revert with empty data instead of `ShpleminiFailed` | The first failed call reverts with `ShpleminiFailed()`. For proof word 138 the two verifiers therefore differ, and the Fe tests assert `ShpleminiFailed()` |
+| Consistency check cost | 256 modular inversions, most multiplied by zero (only indices 0..9L and 255 of the Lagrange array are non-zero) | `consistency::check` keeps the 256 inversions. `evaluate_sparse`, with 9L + 2 inversions, is tested to give the same values and is not used by the verifier |
+| Gas for a valid proof | About 2.65M to 2.97M | 2,108,994 at `-O 1` (`../README.md`) |
+| Branches no proof reaches | Aggregation with non-zero limbs, `PointAtInfinity`, `InvertOfZero`, `GeminiChallengeInSubgroup` and `NotPowerOfTwo` were read on the reference. Later the aggregation was run on it with limbs put in place of the zeros (`lib/src/opening_vectors.fe`) | Library tests cover the aggregation against those values, and trigger `PointAtInfinity`, `InvertOfZero` and `GeminiChallengeInSubgroup`. `NotPowerOfTwo` is never raised: `r^256` is computed by eight squarings |
 
 ## Fe 26.6.0 notes from this stage
 
