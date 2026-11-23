@@ -290,4 +290,10 @@ uses (evm: mut Evm)
             assert!(selector == not_implemented())
         }
     }
+    // The flip the reference rejected without revert data, in its multi-scalar multiplication.
+    let word = expected::BIT_FLIP_WITHOUT_REVERT_DATA
+    let tampered = proof_with(word, value: PROOF[word] ^ 1)
+    assert!(
+        revert_of(verifier, proof: tampered, public_inputs: public_inputs()) == not_implemented(),
+    )
 }
