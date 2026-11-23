@@ -484,6 +484,57 @@ pub fn poseidon2_internal(p: [u256; 41], pow: u256, evals: mut [u256; NUMBER_OF_
     evals[30] = add(evals[30], mul(q_pos_by_scaling, sub(v4, p[W_4_SHIFT])))
 }
 
+/// The 31 subrelations: the ten relations run in the reference's order on one array.
+pub fn subrelations(
+    p: [u256; 41],
+    rp: RelationParameters,
+    pow: u256,
+) -> [u256; NUMBER_OF_SUBRELATIONS] {
+    var evals: [u256; NUMBER_OF_SUBRELATIONS] = [0; NUMBER_OF_SUBRELATIONS]
+    arithmetic(p, pow, evals: mut evals)
+    permutation(p, rp, pow, evals: mut evals)
+    lookup(p, rp, pow, evals: mut evals)
+    delta_range(p, pow, evals: mut evals)
+    elliptic(p, pow, evals: mut evals)
+    memory(p, rp, pow, evals: mut evals)
+    rom_logup(p, rp, pow, evals: mut evals)
+    non_native_field(p, pow, evals: mut evals)
+    poseidon2_external(p, pow, evals: mut evals)
+    poseidon2_internal(p, pow, evals: mut evals)
+    evals
+}
+
+/// `evals[0] + evals[1] * alpha + ... + evals[30] * alpha^30`.
+///
+/// `scaleAndBatchSubrelations` of the reference, which receives the powers of alpha
+/// precomputed by its transcript instead of alpha.
+pub fn batch(evals: [u256; NUMBER_OF_SUBRELATIONS], alpha: u256) -> u256 {
+    var accumulator = evals[0]
+    var alpha_power = alpha
+    var i: usize = 1
+    while i < NUMBER_OF_SUBRELATIONS {
+        accumulator = add(accumulator, mul(evals[i], alpha_power))
+        alpha_power = mul(alpha_power, alpha)
+        i += 1
+    }
+    accumulator
+}
+
+/// The full Honk relation at the sumcheck point: `accumulateRelationEvaluations` of the
+/// reference. `evaluations[e]` is the evaluation of entity `e` (see `wire.fe`) and `pow`
+/// the partial evaluation of the pow polynomial after the last sumcheck round.
+pub fn accumulate(
+    evaluations: [u256; 41],
+    params: RelationParameters,
+    alpha: u256,
+    pow: u256,
+) -> u256 {
+    batch(
+        evals: subrelations(p: evaluations, rp: params, pow),
+        alpha,
+    )
+}
+
 fn proof_params() -> RelationParameters {
     RelationParameters {
         eta: PROOF_ETA,
@@ -682,4 +733,75 @@ fn test_poseidon2_internal_relation_matches_reference() {
     var proof: [u256; 31] = [0; 31]
     poseidon2_internal(p: PROOF_EVALS, pow: PROOF_POW, evals: mut proof)
     assert!(proof_only(proof, first: 27, end: 31))
+}
+
+// The ten relations together: every slot, the batched value, and a tampered evaluation.
+
+#[test]
+fn test_subrelations_match_reference() {
+    assert!(
+        subrelations(p: SYNTH_EVALS, rp: synth_params(), pow: SYNTH_POW) == SYNTH_SUBRELATIONS,
+    )
+    assert!(
+        subrelations(p: PROOF_EVALS, rp: proof_params(), pow: PROOF_POW) == PROOF_SUBRELATIONS,
+    )
+}
+
+#[test]
+fn test_batch_matches_reference() {
+    assert!(
+        batch(evals: SYNTH_SUBRELATIONS, alpha: SYNTH_ALPHA) == SYNTH_BATCHED,
+    )
+    assert!(
+        batch(evals: PROOF_SUBRELATIONS, alpha: PROOF_ALPHA) == PROOF_BATCHED,
+    )
+}
+
+#[test]
+fn test_accumulate_matches_reference() {
+    assert!(
+        accumulate(
+                evaluations: SYNTH_EVALS,
+                params: synth_params(),
+                alpha: SYNTH_ALPHA,
+                pow: SYNTH_POW,
+            )
+            == SYNTH_BATCHED,
+    )
+    assert!(
+        accumulate(
+                evaluations: PROOF_EVALS,
+                params: proof_params(),
+                alpha: PROOF_ALPHA,
+                pow: PROOF_POW,
+            )
+            == PROOF_BATCHED,
+    )
+}
+
+// Adding one to a single evaluation gives the value the reference gives for the same
+// change, which is not the value of the untouched inputs.
+#[test]
+fn test_accumulate_follows_a_changed_evaluation() {
+    var synth = SYNTH_EVALS
+    synth[TAMPERED_ENTITY] = add(synth[TAMPERED_ENTITY], 1)
+    let synth_result = accumulate(
+        evaluations: synth,
+        params: synth_params(),
+        alpha: SYNTH_ALPHA,
+        pow: SYNTH_POW,
+    )
+    assert!(synth_result == SYNTH_BATCHED_TAMPERED)
+    assert!(synth_result != SYNTH_BATCHED)
+
+    var proof = PROOF_EVALS
+    proof[TAMPERED_ENTITY] = add(proof[TAMPERED_ENTITY], 1)
+    let proof_result = accumulate(
+        evaluations: proof,
+        params: proof_params(),
+        alpha: PROOF_ALPHA,
+        pow: PROOF_POW,
+    )
+    assert!(proof_result == PROOF_BATCHED_TAMPERED)
+    assert!(proof_result != PROOF_BATCHED)
 }
