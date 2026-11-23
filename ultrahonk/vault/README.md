@@ -4,6 +4,10 @@
 `x * x == y`, shown with a proof of the circuit in `../circuit/`. It asks a verifier contract
 through the standard ABI `verify(bytes,bytes32[])`.
 
+**The vault protects nothing.** It shows how a Fe contract consumes a Noir proof. Anyone can
+compute a square root of the public `y` and prove for their own address, so the first claim wins
+a race, not a puzzle. See [Not implemented](#not-implemented).
+
 **A claim succeeds with the real verifier.** A test claims through the vault in front of
 `HonkVerifier` with a second pinned proof, made for the address of the Fe test contract
 (`../lib/src/test_address_vectors.fe`); the first pinned proof, made for the recipient `0xc0ffe`,
@@ -47,6 +51,9 @@ Three decisions:
 |---|---|
 | Payout | Out of scope by decision |
 | Checks on the constructor arguments | A vault deployed with a wrong verifier address, or a `y` the verifier rejects, can never be claimed |
+| A statement only the claimant can prove | The circuit proves `x * x == y` for a public `y`, and square roots modulo a prime are computed efficiently. A hash preimage would need a new circuit, a new pinned proof and new captured values |
+| The vault address and the chain id among the public inputs | The public inputs are `[y, caller]`, so a caller's proof is valid at every vault with the same `y`, on every chain |
+| An event | A claim can only be seen by reading `claimed()` and `winner()` |
 
 ## Tests
 

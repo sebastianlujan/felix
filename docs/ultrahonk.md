@@ -82,7 +82,7 @@ Why the ZK flavor:
 
 | Reason | Detail |
 |---|---|
-| The vault hides a secret | A proof without zero-knowledge leaks witness evaluations, so a vault that hides its secret needs ZK. |
+| Applications with a private witness | A proof without zero-knowledge leaks witness evaluations, so an application that hides its witness needs ZK. The vault of this entry was planned as one. It is not: its witness can be computed from the public `y` (see [Design: vault](#design-vault-integration-contract)). The ZK flavor is ported for the applications that do need it. |
 | Standard target | `-t evm` is `bb`'s standard EVM target. |
 | Same flavor as Aztec | It is the flavor Aztec's own L1 verifier uses. |
 | Cost | More protocol steps: Libra masking, a small-subgroup consistency check, a Gemini masking polynomial. All of them are ported. |
@@ -365,7 +365,8 @@ fn main(x: Field, y: pub Field, recipient: pub Field) {
 
 | Aspect | Detail |
 |---|---|
-| Why ZK | `x` is the secret. A proof without zero-knowledge leaks witness evaluations. |
+| Why ZK | A proof without zero-knowledge leaks witness evaluations, which matters when the witness is private. Here it is not: anyone can compute a square root of the public `y`. The vault shows the integration with the ZK flavor; it does not need it. |
+| What it protects | Nothing. Anyone can compute `x` from `y` and prove for their own address, so the first claim wins a race, not a puzzle. The public inputs are `[y, caller]`, with no vault address and no chain id: a caller's proof is valid at every vault with the same `y`, on every chain. With a relayer, the relayer is the caller and becomes the winner. |
 | Payout | Not implemented, by decision. The contract records the claim and the claimant only. |
 | Tests | 11 Fe tests. Nine put a stand-in behind the vault: a valid claim, a replay, another caller, a wrong proof, a verifier that reverts, a verifier address without code, a verifier that writes storage, the calldata the verifier receives, and the fixed address of the test contract. Two put the vault in front of `HonkVerifier`. |
 | Caller in tests | A Fe test cannot choose the caller of a call. A caller is a `Claimer` contract that forwards `claim`, or the test contract itself, whose address is always `0xbd770416a3345f91e4b34576cb804a576fa48eb1` with `fe` 26.6.0. |

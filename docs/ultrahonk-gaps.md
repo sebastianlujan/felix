@@ -17,7 +17,7 @@ One line per GitHub issue, with the plan item it covers. M1 (push `develop`) is 
 - [ ] #7 Garaga's bb 6.0.0 fixtures at other circuit sizes (E1)
 - [x] #8 Run the built contracts on anvil and state the chain requirements (H4, M8): `ultrahonk/scripts/demo_anvil.sh`
 - [ ] #9 Correct the documents where the data does not support them (M6)
-- [ ] #10 Say plainly that the vault protects nothing (M7)
+- [x] #10 Say plainly that the vault protects nothing (M7)
 - [ ] #11 Root README as the entry page (M2, M9)
 - [ ] #12 vectors.sh end to end (H5)
 - [ ] #13 Verification key module and key-only generator mode (H6)
