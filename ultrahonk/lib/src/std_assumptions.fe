@@ -5,13 +5,7 @@ use std::abi::bytes_from_words
 use std::evm::crypto::{PrecompileError, ec_add, ec_mul, ec_pairing, keccak_words}
 use std::evm::packed::Packed
 use super::fr::Q
-
-// BN254 G2 generator in EIP-197 order (imaginary part first). The same four
-// words are the fixed G2 point of `pairing` in the Solidity verifier.
-const G2_X_C1: u256 = 0x198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2
-const G2_X_C0: u256 = 0x1800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed
-const G2_Y_C1: u256 = 0x090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b
-const G2_Y_C0: u256 = 0x12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa
+use super::opening::G2_GENERATOR
 
 // 2 * (1, 2) on BN254 G1.
 const DOUBLE_X: u256 = 0x030644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd3
@@ -46,18 +40,13 @@ fn expect_bool(_ result: Result<PrecompileError, bool>) -> bool {
 /// Pairing input `e((1, 2), G2) * e((1, y), G2)`.
 fn pairing_of_generator_with(y: u256) -> Result<PrecompileError, bool> {
     var input = Packed::with_capacity(bytes: 384)
-    input.u256(1)
-    input.u256(2)
-    input.u256(G2_X_C1)
-    input.u256(G2_X_C0)
-    input.u256(G2_Y_C1)
-    input.u256(G2_Y_C0)
-    input.u256(1)
-    input.u256(y)
-    input.u256(G2_X_C1)
-    input.u256(G2_X_C0)
-    input.u256(G2_Y_C1)
-    input.u256(G2_Y_C0)
+    for g1_y in [2, y] {
+        input.u256(1)
+        input.u256(g1_y)
+        for limb in G2_GENERATOR {
+            input.u256(limb)
+        }
+    }
     ec_pairing(input.span())
 }
 

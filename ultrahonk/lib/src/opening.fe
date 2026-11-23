@@ -21,7 +21,7 @@ use super::types::{PAIRING_POINTS_SIZE, Transcript, VerificationKey}
 
 /// The fixed G2 point of `pairing`, the generator of G2, as the pairing precompile reads
 /// it: the imaginary part of `x`, its real part, then the same for `y`.
-const G2_GENERATOR: [u256; 4] = [
+pub const G2_GENERATOR: [u256; 4] = [
     0x198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2,
     0x1800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed,
     0x090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b,
