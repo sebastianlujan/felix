@@ -1,9 +1,9 @@
 // UltraHonk verifier contract for the vault circuit (ZK flavor).
 //
-// Not a verifier yet. It has the ABI of the Solidity `HonkVerifier` and runs its checks,
-// in its order and with its errors, up to the end of sumcheck. What follows (Shplemini,
-// the consistency check, the pairing) does not exist, so a call that passes every
-// implemented check reverts with `VerificationNotImplemented`. It never accepts a proof.
+// It has the ABI of the Solidity `HonkVerifier` and runs its checks, in its order and with
+// its errors: proof validation, the transcript, sumcheck, then the opening (Shplemini, the
+// consistency check, the multi-scalar multiplication, the pairing-point aggregation and the
+// pairing). It returns true only if the pairing holds, and reverts otherwise.
 //
 // The relations are in a contract of their own, `HonkRelations`, as the reference links
 // them as a separate library: one contract with everything exceeds the code size limit.
@@ -11,16 +11,13 @@
 use std::abi::Bytes32
 use std::evm::Ctx
 use ultrahonk::abi::VerifierMsg
-use ultrahonk::errors::{PublicInputsLengthWrong, SumcheckFailed}
+use ultrahonk::errors::{PublicInputsLengthWrong, ShpleminiFailed, SumcheckFailed}
+use ultrahonk::opening::verify as verify_opening
 use ultrahonk::proof::validate
 use ultrahonk::sumcheck::{public_input_delta, verify_with_relations_at}
 use ultrahonk::transcript::generate
 use ultrahonk::types::PAIRING_POINTS_SIZE
 use ultrahonk::vectors::VK
-
-/// Raised once every implemented check has passed: nothing after them exists yet.
-#[error]
-pub struct VerificationNotImplemented {}
 
 /// `relations` is the address of a `HonkRelations` contract.
 fn verify(_ proof: Bytes, _ public_inputs: Vec<Bytes32>, relations: Address) -> bool
@@ -35,7 +32,11 @@ uses (call: Call, ctx: Ctx)
     if !verify_with_relations_at(proof, t, delta, log_n: VK.log_n, relations) {
         revert_error(SumcheckFailed {})
     }
-    revert_error(VerificationNotImplemented {})
+    // The reference turns a pairing that does not hold into `ShpleminiFailed`.
+    if !verify_opening(vk: VK, proof, t) {
+        revert_error(ShpleminiFailed {})
+    }
+    true
 }
 
 pub contract HonkVerifier {
@@ -68,10 +69,6 @@ use ultrahonk_relations::HonkRelations
 
 // The reference verifier was called with this much gas when the reverts were recorded.
 const GAS: u256 = 20000000
-
-fn not_implemented() -> u32 {
-    <VerificationNotImplemented as ErrorVariant<Sol>>::SELECTOR
-}
 
 /// Deploys the relations contract, then the verifier that calls it.
 fn deploy() -> Address uses (evm: mut Evm) {
@@ -120,11 +117,10 @@ fn test_wrong_proof_length_reverts() uses (evm: mut Evm) {
         )
 }
 
-// Waiting for the opening proof. The reference rejected the all-zero proof with
-// `ShpleminiFailed` (`expected::ZERO_PROOF`): it passes sumcheck there as it does here,
-// so until that step exists this contract can only stop at `VerificationNotImplemented`.
+// The reference rejected the all-zero proof with `ShpleminiFailed` (`expected::ZERO_PROOF`):
+// it passes sumcheck there as it does here and fails in the opening.
 #[test]
-fn test_the_all_zero_proof_is_not_accepted() uses (evm: mut Evm) {
+fn test_the_all_zero_proof_reverts_as_the_reference() uses (evm: mut Evm) {
     let verifier = deploy()
     assert!(expected::ZERO_PROOF == expected::SHPLEMINI_FAILED)
     assert!(
@@ -133,7 +129,7 @@ fn test_the_all_zero_proof_is_not_accepted() uses (evm: mut Evm) {
                 proof: Bytes::zeroed(expected::PROOF_LENGTH),
                 public_inputs: public_inputs(),
             )
-            == not_implemented(),
+            == expected::ZERO_PROOF,
     )
     assert!(
         revert_of(
@@ -141,7 +137,7 @@ fn test_the_all_zero_proof_is_not_accepted() uses (evm: mut Evm) {
                 proof: Bytes::zeroed(expected::PROOF_LENGTH),
                 public_inputs: two_inputs(0, 0),
             )
-            == not_implemented(),
+            == expected::ZERO_PROOF,
     )
 }
 
@@ -161,13 +157,18 @@ fn test_the_largest_values_revert_as_the_reference() uses (evm: mut Evm) {
     }
 }
 
-// The reference verifier returned true for this call. This contract must not, at this stage.
+// The reference verifier returned true for this call, and so does this contract.
 #[test]
-fn test_the_valid_proof_is_not_accepted_yet() uses (evm: mut Evm) {
+fn test_the_valid_proof_is_accepted() uses (evm: mut Evm) {
     let verifier = deploy()
-    assert!(
-        revert_of(verifier, proof: proof(), public_inputs: public_inputs()) == not_implemented(),
-    )
+    let accepted: bool = evm
+        .call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof: proof(), public_inputs: public_inputs() },
+        )
+    assert!(accepted)
 }
 
 // The whole revert data, not only its selector, equals what the reference verifier
@@ -319,33 +320,23 @@ fn test_checks_run_in_the_order_of_the_reference() uses (evm: mut Evm) {
     )
 }
 
-// Sumcheck decides five of the recorded bit flips, with `SumcheckFailed` in the reference
-// too: words 8, 28 and 29 in the round checks, words 75 and 116 (an evaluation the
-// relations read, and the Libra evaluation) in its last comparison. The reference rejects
-// the other flips in steps this contract does not have: those proofs pass every
-// implemented check and stop at `VerificationNotImplemented`.
+// Every recorded bit flip reverts with the selector the reference gave: sumcheck decides
+// five of them, the opening the others. The flip the reference rejected without revert
+// data, in its multi-scalar multiplication, reverts here with `ShpleminiFailed`.
 #[test]
-fn test_bit_flips_decided_by_sumcheck_revert_as_the_reference()
-uses (evm: mut Evm)
-{
+fn test_bit_flips_revert_as_the_reference() uses (evm: mut Evm) {
     let verifier = deploy()
-    var decided: usize = 0
     for flip in expected::BIT_FLIPS {
         let tampered = proof_with(word: flip.word, value: PROOF[flip.word] ^ 1)
-        let selector = revert_of(verifier, proof: tampered, public_inputs: public_inputs())
-        if flip.selector == expected::SUMCHECK_FAILED {
-            assert!(selector == flip.selector)
-            decided += 1
-        } else {
-            assert!(selector == not_implemented())
-        }
+        assert!(
+            revert_of(verifier, proof: tampered, public_inputs: public_inputs()) == flip.selector,
+        )
     }
-    assert!(decided == 5)
-    // The flip the reference rejected without revert data, in its multi-scalar multiplication.
     let word = expected::BIT_FLIP_WITHOUT_REVERT_DATA
     let tampered = proof_with(word, value: PROOF[word] ^ 1)
     assert!(
-        revert_of(verifier, proof: tampered, public_inputs: public_inputs()) == not_implemented(),
+        revert_of(verifier, proof: tampered, public_inputs: public_inputs())
+            == expected::SHPLEMINI_FAILED,
     )
 }
 
@@ -408,14 +399,14 @@ uses (evm: mut Evm)
 {
     // The reference's value for the pinned proof: sumcheck passes.
     let right = deploy_with_fixed_relations(answer: PROOF_BATCHED)
-    assert!(
-        revert_of(
-                verifier: right,
-                proof: proof(),
-                public_inputs: public_inputs(),
-            )
-            == not_implemented(),
-    )
+    let accepted: bool = evm
+        .call(
+            addr: right,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof: proof(), public_inputs: public_inputs() },
+        )
+    assert!(accepted)
     // Any other value: the last comparison of sumcheck fails.
     let wrong = deploy_with_fixed_relations(answer: PROOF_BATCHED_TAMPERED)
     assert!(
