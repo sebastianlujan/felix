@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Prints Fe constants from the raw bb output in vectors/. Needs only bash, xxd and shasum.
+# Prints Fe constants from the raw bb output in vectors/. Needs only bash, xxd and shasum;
+# --verifier also needs python3.
 #
 #   scripts/proof_to_fe.sh                  print the generated part of lib/src/vectors.fe: the
 #                                           pinned proof and its public inputs
@@ -13,6 +14,12 @@
 #   scripts/proof_to_fe.sh --garaga-key NAME
 #                                           print the generated part of lib/src/garaga_NAME.fe, the
 #                                           verification key of that circuit
+#   scripts/proof_to_fe.sh --verifier KEY_DIR OUT_DIR
+#                                           write a verifier ingot for the key bb wrote into
+#                                           KEY_DIR (`vk` and `vk_hash`): OUT_DIR/fe.toml and
+#                                           OUT_DIR/src/lib.fe, the key and the `HonkVerifier` of
+#                                           verifier/src/lib.fe. Both directories are relative to
+#                                           where the script is called from
 #   scripts/proof_to_fe.sh --check          fail unless lib/src/vectors.fe starts with exactly the
 #                                           first, lib/src/vk.fe is the second,
 #                                           lib/src/test_address_vectors.fe the third, every
@@ -28,11 +35,13 @@
 # shellcheck disable=SC2207,SC2016
 set -euo pipefail
 
+CALLER_PWD=$PWD # --verifier takes its two directories relative to it
 cd "$(dirname "$0")/.."
 
 TARGET=lib/src/vectors.fe
 KEY_TARGET=lib/src/vk.fe
 TEST_ADDRESS_TARGET=lib/src/test_address_vectors.fe
+BB_VERSION=6.0.0 # the version of bb the keys are read as; scripts/vectors.sh checks it
 GARAGA_COMMIT=86b6025567c5e2395947f9c6d40262c9ead2a54c # the commit vectors/garaga/ was copied from
 
 # One 32-byte word per line, as 64 hex digits.
@@ -72,38 +81,22 @@ num_public_inputs() {
     printf '%d' "$n"
 }
 
-# The verification key of the vault circuit, from vectors/vk and vectors/vk_hash alone.
-generate_vk() {
-    local vk=($(words vectors/vk))
-    local vk_hash=($(words vectors/vk_hash))
+# key_constants VK VK_HASH: checks the key in the two files and prints its constants and `VK`.
+# It runs inside `$(...)`, so that a refused key stops the caller before it prints anything.
+key_constants() {
+    local vk=($(words "$1"))
+    local vk_hash=($(words "$2"))
     local log_n public_inputs
-    log_n=$(log_n vectors/vk "${vk[0]}")
-    public_inputs=$(num_public_inputs vectors/vk "${vk[1]}")
 
     # bb writes the key as 3 header words and 28 points.
-    [ "${#vk[@]}" -eq 59 ] || { echo "vectors/vk: expected 59 words, got ${#vk[@]}" >&2; exit 1; }
-    [ "${#vk_hash[@]}" -eq 1 ] || { echo "vectors/vk_hash: expected 1 word" >&2; exit 1; }
+    [ "${#vk[@]}" -eq 59 ] || { echo "$1: expected 59 words, got ${#vk[@]}" >&2; exit 1; }
+    [ "${#vk_hash[@]}" -eq 1 ] || { echo "$2: expected 1 word" >&2; exit 1; }
+    log_n=$(log_n "$1" "${vk[0]}") || exit 1
+    public_inputs=$(num_public_inputs "$1" "${vk[1]}") || exit 1
     # sumcheck.fe has the row of the first public input as a constant, not as a field of the key.
-    [ "$(small "${vk[2]}")" -eq 5 ] || { echo "vectors/vk: the public-input offset is not 5" >&2; exit 1; }
+    [ "$(small "${vk[2]}")" -eq 5 ] || { echo "$1: the public-input offset is not 5" >&2; exit 1; }
 
-    cat <<'EOF'
-// Verification key of the vault circuit: the key `HonkVerifier` is built with.
-//
-// GENERATED FILE. `scripts/proof_to_fe.sh --vk` prints it from `vectors/vk` and
-// `vectors/vk_hash`, and `scripts/proof_to_fe.sh --check` fails if this file is anything else.
-// Words are 32 bytes, big-endian.
-//
-EOF
-    shasum -a 256 vectors/vk vectors/vk_hash |
-        while read -r line; do printf '//   %s\n' "$line"; done
     cat <<EOF
-//
-// \`vectors/vk\` is three header words (\`LOG_N\`, \`NUM_PUBLIC_INPUTS\`, the public-input offset,
-// which must be 5) followed by 28 points, two words each, already in the order the reference
-// verifier places them in its multi-scalar multiplication (slots 2-29 of
-// \`docs/zk-verifier-reference.md\`).
-use super::types::VerificationKey
-
 pub const LOG_N: usize = $log_n
 pub const N: usize = $((1 << log_n))
 
@@ -128,6 +121,82 @@ pub const VK: VerificationKey = VerificationKey {
     points: VK_POINTS,
 }
 EOF
+}
+
+# The verification key of the vault circuit, from vectors/vk and vectors/vk_hash alone.
+generate_vk() {
+    local constants
+    constants=$(key_constants vectors/vk vectors/vk_hash)
+
+    cat <<'EOF'
+// Verification key of the vault circuit: the key `HonkVerifier` is built with.
+//
+// GENERATED FILE. `scripts/proof_to_fe.sh --vk` prints it from `vectors/vk` and
+// `vectors/vk_hash`, and `scripts/proof_to_fe.sh --check` fails if this file is anything else.
+// Words are 32 bytes, big-endian.
+//
+EOF
+    shasum -a 256 vectors/vk vectors/vk_hash |
+        while read -r line; do printf '//   %s\n' "$line"; done
+    cat <<'EOF'
+//
+// `vectors/vk` is three header words (`LOG_N`, `NUM_PUBLIC_INPUTS`, the public-input offset,
+// which must be 5) followed by 28 points, two words each, already in the order the reference
+// verifier places them in its multi-scalar multiplication (slots 2-29 of
+// `docs/zk-verifier-reference.md`).
+use super::types::VerificationKey
+
+EOF
+    printf '%s\n' "$constants"
+}
+
+# generate_verifier KEY_DIR OUT_DIR: an ingot with the verifier contract of one key, as
+# `bb write_solidity_verifier` writes a Solidity one. The contract is copied from
+# verifier/src/lib.fe, so it is the one the tests there cover.
+generate_verifier() {
+    local dir=$1 out=$2 constants lib
+    [[ $dir == /* ]] || dir=$CALLER_PWD/$dir
+    [[ $out == /* ]] || out=$CALLER_PWD/$out
+    [ -f "$dir/vk" ] && [ -f "$dir/vk_hash" ] || { echo "$dir: expected the files vk and vk_hash" >&2; exit 1; }
+    constants=$(key_constants "$dir/vk" "$dir/vk_hash")
+    # Fe refuses an absolute dependency path. Both ends are resolved first: on macOS /var is a
+    # link to /private/var.
+    lib=$(python3 -c 'import os,sys;print(os.path.relpath(*map(os.path.realpath,sys.argv[1:])))' lib "$out")
+
+    mkdir -p "$out/src"
+    cat >"$out/fe.toml" <<EOF
+[ingot]
+name = "honk_verifier"
+version = "0.1.0"
+
+[dependencies]
+ultrahonk = { path = "$lib" }
+EOF
+    {
+        cat <<EOF
+// UltraHonk verifier contract (ZK flavor) for one verification key: \`HonkVerifier\` of the
+// \`ultrahonk\` library, with the key below. It is deployed with the address of a
+// \`HonkRelations\` contract, which takes no key and serves every verifier.
+//
+// GENERATED FILE, do not edit. \`scripts/proof_to_fe.sh --verifier KEY_DIR OUT_DIR\` writes it
+// from the \`vk\` and \`vk_hash\` that \`bb\` $BB_VERSION wrote into KEY_DIR; run it again for
+// another key. Words are 32 bytes, big-endian.
+//
+EOF
+        (cd "$dir" && shasum -a 256 vk vk_hash) |
+            while read -r line; do printf '//   %s\n' "$line"; done
+        cat <<'EOF'
+use std::abi::Bytes32
+use std::evm::Ctx
+use ultrahonk::abi::{VerifierInfoMsg, VerifierMsg}
+use ultrahonk::types::VerificationKey
+use ultrahonk::verifier::verify_at
+
+EOF
+        printf '%s\n\n' "$constants"
+        awk '/^pub contract HonkVerifier \{$/,/^}$/' verifier/src/lib.fe
+    } >"$out/src/lib.fe"
+    echo "wrote $out/fe.toml and $out/src/lib.fe"
 }
 
 generate() {
@@ -302,6 +371,7 @@ case "${1:-}" in
     done
     ;;
 --vk) generate_vk ;;
+--verifier) generate_verifier "${2:?usage: proof_to_fe.sh --verifier KEY_DIR OUT_DIR}" "${3:?usage: proof_to_fe.sh --verifier KEY_DIR OUT_DIR}" ;;
 --test-address) generate_test_address ;;
 --garaga) generate_garaga "${2:?usage: proof_to_fe.sh --garaga NAME}" ;;
 --garaga-key) generate_garaga_key "${2:?usage: proof_to_fe.sh --garaga-key NAME}" ;;
