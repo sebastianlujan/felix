@@ -1,6 +1,6 @@
 # UltraHonk verification in Fe: gaps before shipping and before real use
 
-> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 312 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
+> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 316 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
 
 > **How to read this document.** It does not repeat the limits already written down: [Limits](../ultrahonk/README.md#limits) in the verifier README, [Not done](ultrahonk.md#not-done) and [Out of scope](ultrahonk.md#out-of-scope) in the plan, [Not implemented](../ultrahonk/vault/README.md#not-implemented) in the vault README. It adds what those sections do not say, and orders the work.
 
@@ -142,7 +142,7 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 
 | Limit | Consequence | Smallest fix |
 |---|---|---|
-| One circuit, one size (`LOG_N = 5`), no recursive proof verified from start to end | Other sizes and the aggregation rest on the formulas being right | E1. Since #7 the library verifier is also tested at `LOG_N = 12`, 17 and 20, on Garaga's `hello`, `mutator_set` and `recursive`; the last one carries pairing points. The contracts are still built for one circuit. What remains: no accepted proof exercises the elliptic-curve relation (`qElliptic` is zero in the four circuits) |
+| One circuit, one size (`LOG_N = 5`), no recursive proof verified from start to end | Other sizes and the aggregation rest on the formulas being right | E1. Since #7 the library verifier is also tested at `LOG_N = 12`, 17 and 20, on Garaga's `hello`, `mutator_set` and `recursive`; the last one carries pairing points. The contracts are still built for one circuit. Since #50 the elliptic-curve relation is exercised by an accepted proof too: `pedersen_commit` (`LOG_N` 15), made by this project, through the two contracts in a test. `qElliptic` is zero in the four other circuits |
 | No fuzzing, no differential testing against the reference over many proofs. By hand, on 2026-11-23, ten fresh proofs of the pinned circuit were accepted on `anvil` and rejected with one bit flipped (#12) | Rejection is shown for recorded cases and bit flips only; acceptance for one circuit | A seeded loop of tampered proofs against `bb verify` |
 | The failed `modexp` call has no test. The carried point off the curve does (`ultrahonk/lib/src/opening.fe:668-674`) | One recorded difference from the reference is untested | H1 covers the branch next to it |
 | The port is not audited | As stated in [Limits](../ultrahonk/README.md#limits) | An audit |

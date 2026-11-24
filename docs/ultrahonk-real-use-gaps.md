@@ -71,7 +71,7 @@ Since #46 the route is written down in `RD`, "Verify your own circuit": `bb writ
 | # | Task | State | Evidence |
 | --- | --- | --- | --- |
 | S-1 | Tests for the Unknown rows: a sumcheck challenge in 0..8, a zero denominator in the public-input delta, a single `(0, 0)` commitment, a second public input at `P` and `P - 1`, `z == -r`, `r == 0` | To do | partly covered: first input at `P` (`LIB/transcript.fe:245-249`), `z == r` (`LIB/shplemini.fe:441-450`), the generator's order (`LIB/consistency.fe:193-203`) |
-| S-2 | An accepted proof that exercises the elliptic-curve relation | To do | `qElliptic` is zero in the four circuits (gaps plan, soundness evidence) |
+| S-2 | An accepted proof that exercises the elliptic-curve relation | Done (#50) | `pedersen_commit`, made by this project; `qElliptic` is zero in the four other circuits. With the relation disabled its three library tests fail |
 | S-3 | A must-reject test for another `bb` version or flavor | To do | only 6.0.0 files under `ultrahonk/vectors/` |
 | S-4 | **new** The Noir circuit's own tests run, and `nargo` is pinned in `Nargo.toml` | To do | `ultrahonk/circuit/src/main.nr:8-21` has three tests; no match for `nargo test` in `SCR/` or `compiler_version` in `Nargo.toml` |
 | S-5 | Fuzzing or a differential loop against `bb verify` | To do | gaps plan, soundness evidence |
