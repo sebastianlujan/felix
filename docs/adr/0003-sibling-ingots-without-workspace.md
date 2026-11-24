@@ -13,7 +13,7 @@
 
 ## Decision
 
-Sibling ingots under `ultrahonk/`, joined by relative path dependencies. No workspace. The decision named four ingots; the code-size split (ADR-0012) added `ultrahonk_relations`.
+Sibling ingots under `ultrahonk/`, joined by relative path dependencies. No workspace. The decision named four ingots; the code-size split (ADR-0012) added `ultrahonk_relations`, and `ultrahonk_key` holds the limits of the key apart from the EVM tests of the library, so that a native program can depend on it.
 
 | Ingot | Path | Kind | Depends on |
 |---|---|---|---|
@@ -68,7 +68,7 @@ With about 48 hours available, the plan prefers the pattern that already exists 
 - Easier: each ingot is a self-contained unit for review, and a stage can be reverted alone.
 - Easier: the two implementation lines touch disjoint directories (ADR-0014).
 - Harder: dependency paths are relative, so moving an ingot means editing its dependants.
-- Harder: an end-to-end run is five commands, one per ingot.
+- Harder: an end-to-end run is six commands, one per ingot.
 - Revisit: a workspace, once the deadline has passed.
 
 ## Action Items

@@ -1,0 +1,45 @@
+// What Barretenberg 6.0.0 fixes about a verification key, shared by the verifier and by the
+// tools that read bb's `vk` file. It has no test that needs the EVM, so a native program can
+// depend on it.
+
+/// Upper bound of `LOG_N` the reference verifier sizes its arrays for
+/// (`CONST_PROOF_SIZE_LOG_N`).
+pub const MAX_LOG_N: usize = 25
+
+/// Pairing-point limbs at the start of a proof. They are public inputs of the circuit
+/// that the caller does not supply.
+pub const PAIRING_POINTS_SIZE: usize = 8
+
+/// Row of the first public input: `NUM_DISABLED_ROWS_IN_SUMCHECK + NUM_ZERO_ROWS = 4 + 1`.
+pub const PUBLIC_INPUTS_OFFSET: u256 = 5
+
+/// Words of 32 bytes in bb's `vk` file: the header, then the points.
+pub const KEY_WORDS: usize = 59
+
+/// Header words of the `vk` file: `LOG_N`, `NUM_PUBLIC_INPUTS`, the public-input offset.
+pub const KEY_HEADER_WORDS: usize = 3
+
+/// Commitments in the `vk` file, each written as an `x, y` pair of words.
+pub const KEY_POINTS: usize = 28
+
+/// Words the commitments take in the `vk` file.
+pub const KEY_POINT_WORDS: usize = 56
+
+/// Words of 32 bytes in bb's `vk_hash` file.
+pub const KEY_HASH_WORDS: usize = 1
+
+#[test]
+fn test_the_limits_of_bb_6_0_0() {
+    assert!(MAX_LOG_N == 25)
+    assert!(PAIRING_POINTS_SIZE == 8)
+    assert!(PUBLIC_INPUTS_OFFSET == 4 + 1)
+}
+
+#[test]
+fn test_the_key_is_its_header_and_its_points() {
+    assert!(KEY_WORDS == 3 + 56)
+    assert!(KEY_WORDS == KEY_HEADER_WORDS + KEY_POINT_WORDS)
+    assert!(KEY_POINT_WORDS == 2 * 28)
+    assert!(KEY_POINT_WORDS == 2 * KEY_POINTS)
+    assert!(KEY_HASH_WORDS == 1)
+}
