@@ -11,7 +11,8 @@ use std::process::{Command, Exit, Redirect, Spawn, Status}
 use ultrahonk_key::*
 
 const USAGE: DynString = "usage:
-  honk_fe up [DIR]         from the Noir package in DIR (default .) to its proof verified on anvil
+  honk_fe up [DIR]         from the Noir package in DIR (default .) to its proof verified on anvil,
+                           with bb and nargo from ultrahonk/.tools (or HONK_FE_TOOLS, or PATH)
   honk_fe gen-vk KEY       print the Fe module of the key: its constants and `VK`
   honk_fe new KEY DIR      write a verifier ingot for the key into DIR
   honk_fe demo KEY_DIR     run ultrahonk/scripts/demo_anvil.sh --key KEY_DIR
@@ -83,26 +84,33 @@ fn up(_ dir: MemBuffer) -> i32
 uses (args: Args, env: Env, fs: mut Fs, io: mut Stdio, exit: Exit, proc: mut Spawn)
 {
     // Each step below needs the library, so a missing one stops honk_fe before the first.
-    lib_dir()
-    check_version("nargo", "nargo version = 1.0.0")
-    check_version("bb", "6.0.0")
-    check_version("fe", "fe 26.6.0")
-    check_version("anvil", "anvil")
-    check_version("cast", "cast")
+    let lib = lib_dir()
+    // The pinned bb and nargo of the checkout, as `scripts/vectors.sh` runs them (ADR-0002).
+    let tools = match env.lookup("HONK_FE_TOOLS") {
+        Option::Some(tools) => tools,
+        Option::None => format!(lib, "/../.tools"),
+    }
+    let nargo = tool(format!(tools, "/nargo/bin/nargo"), "nargo")
+    let bb = tool(format!(tools, "/bb/bb"), "bb")
+    check_version(nargo, "nargo version = 1.0.0")
+    check_version(bb, "6.0.0")
+    check_version(format!("fe"), "fe 26.6.0")
+    check_version(format!("anvil"), "anvil")
+    check_version(format!("cast"), "cast")
     let name = match package_name(read(format!(dir, "/Nargo.toml")).span()) {
         Option::Some(name) => name,
         Option::None => die(format!(dir, "/Nargo.toml has no `name = \"...\"` line")),
     }
     let target = format!(dir, "/target")
-    run(dir, "nargo", format!("execute"))
+    run(dir, nargo, format!("execute"))
     let circuit = format!("-b target/", name, ".json")
     let write_vk = format!("write_vk ", circuit, " -o target -t evm")
-    run(dir, "bb", write_vk)
+    run(dir, bb, write_vk)
     let witness = format!(circuit, " -w target/", name, ".gz")
     let prove = format!("prove ", witness, " -k target/vk -o target -t evm")
-    run(dir, "bb", prove)
+    run(dir, bb, prove)
     let files = "-k target/vk -p target/proof -i target/public_inputs"
-    run(dir, "bb", format!("verify ", files, " -t evm"))
+    run(dir, bb, format!("verify ", files, " -t evm"))
     let ingot = format!(target, "/verifier")
     new_ingot(key: format!(target), dir: format!(ingot))
     let code = demo(target)
@@ -113,10 +121,10 @@ uses (args: Args, env: Env, fs: mut Fs, io: mut Stdio, exit: Exit, proc: mut Spa
 
 // Stops honk_fe unless the first line `program --version` prints is `expected`, or starts with it
 // and a space.
-fn check_version(_ program: DynString, _ expected: DynString)
+fn check_version(_ program: MemBuffer, _ expected: DynString)
 uses (err: mut Stderr, exit: Exit, proc: mut Spawn)
 {
-    let tools = "; honk_fe up needs nargo 1.0.0, bb 6.0.0, fe 26.6.0, anvil and cast"
+    let tools = "; honk_fe up needs nargo 1.0.0 and bb 6.0.0, fe 26.6.0, anvil and cast"
     let command = Command::new(program).arg("--version").stdout(Redirect::Capture)
     let printed = match proc.output(command) {
         Result::Ok(output) => output.stdout,
@@ -134,9 +142,17 @@ uses (err: mut Stderr, exit: Exit, proc: mut Spawn)
     }
 }
 
+// `path` made absolute if it exists, or else `name`, for PATH to find.
+fn tool(_ path: MemBuffer, _ name: DynString) -> MemBuffer uses (fs: Fs) {
+    match fs.canonicalize(path) {
+        Result::Ok(absolute) => absolute,
+        Result::Err(_) => format!(name),
+    }
+}
+
 // Runs `program args` in `dir`, `args` split at spaces, and stops honk_fe with its status if it
 // fails.
-fn run(_ dir: MemBuffer, _ program: DynString, _ args: MemBuffer)
+fn run(_ dir: MemBuffer, _ program: MemBuffer, _ args: MemBuffer)
 uses (io: mut Stdio, exit: Exit, proc: mut Spawn)
 {
     let line = format!(program, " ", args)

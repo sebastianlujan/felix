@@ -10,8 +10,10 @@ the verifier is built with.
 honk-fe/out/honk_fe up path/to/noir_package                      # DIR defaults to .
 ```
 
-`up` first checks that `nargo` 1.0.0, `bb` 6.0.0, `fe` 26.6.0, `anvil` and `cast` are on `PATH`.
-In the package it then runs `nargo execute`, `bb write_vk`, `bb prove` and `bb verify`, all with
+`up` takes `bb` and `nargo` from `ultrahonk/.tools/`, as `ultrahonk/scripts/vectors.sh` does, or
+from the directory in `HONK_FE_TOOLS` (same layout), and from `PATH` only when they are not there.
+It first checks that they are `bb` 6.0.0 and `nargo` 1.0.0, and that `fe` 26.6.0, `anvil` and
+`cast` are on `PATH`. In the package it then runs `nargo execute`, `bb write_vk`, `bb prove` and `bb verify`, all with
 `-t evm`, writes the verifier ingot into `target/verifier`, and runs
 `ultrahonk/scripts/demo_anvil.sh --key target`: `HonkRelations` and the verifier of the key are
 deployed on anvil, the proof is verified, and the proof with one bit flipped is refused. It stops
