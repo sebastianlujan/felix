@@ -20,7 +20,7 @@ Sizes are mine, in the gaps plan's units.
 | [2. Deploy and integrate](#2-deploy-and-integrate) | half a day | Partial: anvil only, measured up to `LOG_N = 20` (#46) | D-2, a deploy script for a real network |
 | [3. Soundness evidence](#3-soundness-evidence) | half a day | Partial: four circuits, edge inputs untested | One test per Unknown row of the test track |
 | [4. The vault as an example](#4-the-vault-as-an-example) | under 2 h | Partial: no getters, promised notes unwritten | `y()` and `verifier()` messages |
-| [5. The repository as a product](#5-the-repository-as-a-product) | under 2 h | Partial: a clone lands on the placeholder | #14, an install line for `fe`, the `vectors.sh` fix |
+| [5. The repository as a product](#5-the-repository-as-a-product) | under 2 h | Partial: a clone lands on the placeholder | #14, an install line for `fe` |
 | [6. The toy, complete](#6-the-toy-complete) | half a day to a day | Partial: verifier complete, prover and circuit Python only | Decide the toy's scope, then the missing negative tests |
 
 ## Legend
@@ -75,7 +75,7 @@ Since #46 the route is written down in `RD`, "Verify your own circuit": `bb writ
 | S-3 | A must-reject test for another `bb` version or flavor | To do | only 6.0.0 files under `ultrahonk/vectors/` |
 | S-4 | **new** The Noir circuit's own tests run, and `nargo` is pinned in `Nargo.toml` | To do | `ultrahonk/circuit/src/main.nr:8-21` has three tests; no match for `nargo test` in `SCR/` or `compiler_version` in `Nargo.toml` |
 | S-5 | Fuzzing or a differential loop against `bb verify` | To do | gaps plan, soundness evidence |
-| S-6 | **new** `README.md:55` says any one of the 142 words "changed by one bit" is rejected. The test flips the low bit of each word only | To do | `VER:198-201` |
+| S-6 | **new** `README.md:55` says any one of the 142 words "changed by one bit" is rejected. The test flips the low bit of each word only | Done (#37) | the root README says "the low bit of any one of its 142 words" |
 
 ## 4. The vault as an example
 
@@ -91,7 +91,7 @@ Since #46 the route is written down in `RD`, "Verify your own circuit": `bb writ
 | # | Task | State | Evidence |
 | --- | --- | --- | --- |
 | P-1 | A clone lands on `main`, which holds only the scaffold; no tag | To do (#14) | `main` at `21d3bbe`; no tags |
-| P-2 | **new** `vectors.sh` deletes the 14 committed Garaga files with the rest of `vectors/`; the restore line names two proofs only | To do | `SCR/vectors.sh:27`; `git ls-files ultrahonk/vectors/garaga` gives 14 |
+| P-2 | **new** `vectors.sh` deletes the 14 committed Garaga files with the rest of `vectors/`; the restore line names two proofs only | Done (#37) | `SCR/vectors.sh:28` removes only the six files it writes; the restore command is `git checkout -- vectors` |
 | P-3 | **new** An install line for `fe` 26.6.0. `check.sh` only warns on another version, while the tests assert 26.6.0 facts | To do | no match for `cargo install\|feup\|brew install` in any `*.md`; `SCR/check.sh:16-20` |
 | P-4 | **new** The root placeholder (`fe.toml`, `src/lib.fe`) and `calculator/` with its committed build output | Decide | `git ls-files calculator/out` gives 3 files; the root files hold the owner's edits |
 | P-5 | CI running `check.sh` | To do | no `.github/`. **new** The gaps plan says `.github/` is ignored (`docs/ultrahonk-gaps.md:178`); since #2 it is not |
@@ -121,10 +121,11 @@ The Fe side verifies every step of the page's protocol (permutation, LogUp looku
 
 ## Order
 
-1. Cheap fixes with no code risk: P-2, P-5's stale line, S-6, T-7, V-2, and T-1 and T-3 as Limits lines if the toy keeps its scope.
-2. Your own circuit: C-2, C-1, C-4, C-6, C-3.
-3. Realistic sizes: D-1 with Garaga's `recursive` key, then D-3, D-5, D-2.
-4. Soundness: S-1, S-4, S-3, then S-2 and S-5.
-5. The vault: V-1.
-6. The toy: T-4, T-5, T-6, T-2; then the T-1, T-3 and T-8 decisions.
-7. Release (#14), when the owner says so.
+Done since the report was written (#37 to #52): C-1, C-2, C-4, C-6, D-1, S-2, S-6, P-2, V-1, T-1 (as a limit), T-5, and T-4 and T-7 in part. What remains, in this order:
+
+1. Cheap, with no code risk: V-2, P-3, D-5, the map of T-7.
+2. Release (#14), when the owner says so.
+3. Real use: D-2, D-6, D-3, C-3.
+4. Soundness: S-1, S-4, S-3, S-5.
+5. The repository: P-5, P-6, and the P-4 decision.
+6. The toy: T-6, T-2, one test per subrelation (T-4); then the T-3 and T-8 decisions.
