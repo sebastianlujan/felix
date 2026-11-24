@@ -21,7 +21,7 @@ esac
 
 step() { printf '\n== %s\n' "$*"; }
 
-for ingot in ultrahonk/lib ultrahonk/relations ultrahonk/verifier ultrahonk/vault honk-toy; do
+for ingot in ultrahonk/key ultrahonk/lib ultrahonk/relations ultrahonk/verifier ultrahonk/vault honk-toy; do
     step "$ingot: format"
     (cd "$ingot" && fe fmt --check)
     step "$ingot: test"

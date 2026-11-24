@@ -68,7 +68,7 @@ small() {
 }
 
 # log_n FILE WORD: `LOG_N` of the key in FILE, its first word. The verifier sizes its arrays for
-# `MAX_LOG_N = 25` (lib/src/types.fe), and its transcript underflows at 0. The explicit exits are
+# `MAX_LOG_N = 25` (key/src/lib.fe), and its transcript underflows at 0. The explicit exits are
 # for bash 3.2, which drops `set -e` inside `$(...)`.
 log_n() {
     local n
@@ -98,7 +98,7 @@ key_constants() {
     [ "${#vk_hash[@]}" -eq 1 ] || { echo "$2: expected 1 word" >&2; exit 1; }
     log_n=$(log_n "$1" "${vk[0]}") || exit 1
     public_inputs=$(num_public_inputs "$1" "${vk[1]}") || exit 1
-    # sumcheck.fe has the row of the first public input as a constant, not as a field of the key.
+    # key/src/lib.fe has the row of the first public input as a constant, not as a field of the key.
     [ "$(small "${vk[2]}")" -eq 5 ] || { echo "$1: the public-input offset is not 5" >&2; exit 1; }
 
     cat <<EOF
@@ -337,7 +337,7 @@ generate_bundle_key() {
 
     [ "${#vk[@]}" -eq 59 ] || { echo "$dir/vk: expected 59 words, got ${#vk[@]}" >&2; exit 1; }
     [ "${#vk_hash[@]}" -eq 1 ] || { echo "$dir/vk_hash: expected 1 word" >&2; exit 1; }
-    # sumcheck.fe has the row of the first public input as a constant, not as a field of the key.
+    # key/src/lib.fe has the row of the first public input as a constant, not as a field of the key.
     [ "$(small "${vk[2]}")" -eq 5 ] || { echo "$dir/vk: the public-input offset is not 5" >&2; exit 1; }
 
     cat <<EOF

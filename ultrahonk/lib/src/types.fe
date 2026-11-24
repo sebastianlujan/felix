@@ -1,12 +1,7 @@
 // Data the verifier steps share. Field elements are plain `u256` values below `fr::P`.
 
-/// Upper bound of `LOG_N` the reference verifier sizes its arrays for
-/// (`CONST_PROOF_SIZE_LOG_N`).
-pub const MAX_LOG_N: usize = 25
-
-/// Pairing-point limbs at the start of a proof. They are public inputs of the circuit
-/// that the caller does not supply.
-pub const PAIRING_POINTS_SIZE: usize = 8
+use ultrahonk_key::KEY_POINT_WORDS
+pub use ultrahonk_key::{MAX_LOG_N, PAIRING_POINTS_SIZE}
 
 pub struct VerificationKey {
     pub log_n: usize,
@@ -15,7 +10,7 @@ pub struct VerificationKey {
     pub vk_hash: u256,
     /// The 28 commitments as `x, y` pairs, in the order of slots 2-29 of the reference's
     /// multi-scalar multiplication (see `docs/zk-verifier-reference.md`).
-    pub points: [u256; 56],
+    pub points: [u256; KEY_POINT_WORDS],
 }
 
 /// The Fiat-Shamir challenges, in the order the transcript produces them.

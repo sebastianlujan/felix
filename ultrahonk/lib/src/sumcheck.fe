@@ -15,11 +15,9 @@ use super::proof::{LIBRA_SUM, UNIVARIATES, UNIVARIATE_LENGTH, evaluations, word}
 use super::relations::{RelationParameters, RelationsMsg, accumulate}
 use super::types::{PAIRING_POINTS_SIZE, Transcript}
 use super::wire::NUMBER_OF_ENTITIES
+use ultrahonk_key::PUBLIC_INPUTS_OFFSET
 
 const PERMUTATION_ARGUMENT_VALUE_SEPARATOR: u256 = 1 << 28
-
-/// Row of the first public input: `NUM_DISABLED_ROWS_IN_SUMCHECK + NUM_ZERO_ROWS = 4 + 1`.
-const PUBLIC_INPUTS_OFFSET: u256 = 5
 
 /// `BARYCENTRIC_LAGRANGE_DENOMINATORS` of the reference, copied from it:
 /// entry `i` is the product of `i - j` over the other points `j` of `0..9`.
