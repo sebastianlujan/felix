@@ -71,6 +71,12 @@ for log_n in 0 26; do
     [[ $message == *"LOG_N is $log_n"* ]] || { echo "refused for another reason: $message" >&2; exit 1; }
     echo "OK: $message"
 done
+# A mistyped mode must not fall through to the default one, which prints and exits 0.
+if ultrahonk/scripts/proof_to_fe.sh --verifer >/dev/null 2>&1; then
+    echo "an unknown mode of proof_to_fe.sh was accepted" >&2
+    exit 1
+fi
+echo "OK: an unknown mode is refused"
 
 step "pinned vectors: the Fe constants equal the raw bb output"
 ultrahonk/scripts/proof_to_fe.sh --check

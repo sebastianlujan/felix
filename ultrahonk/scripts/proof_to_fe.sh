@@ -375,5 +375,9 @@ case "${1:-}" in
 --test-address) generate_test_address ;;
 --garaga) generate_garaga "${2:?usage: proof_to_fe.sh --garaga NAME}" ;;
 --garaga-key) generate_garaga_key "${2:?usage: proof_to_fe.sh --garaga-key NAME}" ;;
-*) generate ;;
+"") generate ;;
+*)
+    echo "unknown mode $1: expected none, --check, --vk, --verifier, --test-address, --garaga or --garaga-key" >&2
+    exit 2
+    ;;
 esac
