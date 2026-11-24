@@ -8,6 +8,16 @@ same protocol with numbers small enough to follow.
 
 It is an entry for the Fe Builders Challenge. Nothing here runs on the Aztec network.
 
+## Contest requirements
+
+| Requirement | Where |
+|---|---|
+| An OSI-approved licence | [MIT](LICENSE) |
+| The exact Fe version, reproducible build instructions and tests | `fe` 26.6.0 (5b3f96a). [Run it](#run-it): `ultrahonk/scripts/check.sh` builds and tests the seven ingots in one command. [`demo/`](demo/README.md) starts from an empty directory |
+| A README covering approach, architecture and limitations | This page: the approach above and in [How it is checked](#how-it-is-checked), then [Architecture](#architecture) and [Limits](#limits) |
+| A short pitch, a Fe-specific highlight, and a demo or reproducible example | The pitch at the top of this page, [What Fe brings](#what-fe-brings), and [`demo/`](demo/README.md): a Noir circuit proved and verified in Fe with one command |
+| A note on prior work, reused code and AI assistance | [Declarations](#declarations) |
+
 ## What is here
 
 | Path | What |
@@ -15,6 +25,7 @@ It is an entry for the Fe Builders Challenge. Nothing here runs on the Aztec net
 | [`ultrahonk/`](ultrahonk/README.md) | The verifier: a library ingot and two contracts, `HonkVerifier` and `HonkRelations`. Also the Noir circuit, the pinned proofs and the scripts |
 | [`ultrahonk/vault/`](ultrahonk/vault/README.md) | `Vault`: a Fe contract that asks the verifier about a Noir proof bound to its caller |
 | [`felix/`](felix/README.md) | `felix`, a native Fe program that writes the Fe verifier of a key `bb` wrote |
+| [`demo/`](demo/README.md) | A small Noir circuit, proved and verified on a local chain with one command |
 | [`honk-toy/`](honk-toy/README.md) | A toy Honk verifier over the field of 17 elements, with a Python reference. A teaching model, not secure |
 | [`docs/`](docs/ultrahonk.md) | The plan and its outcome, the [decision records](docs/adr/README.md), and the [gaps](docs/ultrahonk-gaps.md) that remain |
 | `src/`, `calculator/` | The scaffold the repository started from. Not part of the entry: see [the end of this page](#the-root-library-and-calculator) |
