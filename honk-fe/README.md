@@ -1,12 +1,25 @@
 # honk-fe
 
 `honk_fe` writes the Fe verifier of a key that `bb` 6.0.0 wrote, as `bb write_solidity_verifier`
-writes a Solidity one. It is Fe built for the native target, and takes the limits of the key from
-`ultrahonk_key`, the ingot the verifier is built with.
+writes a Solidity one, and takes a Noir package to its proof verified on chain in one command. It
+is Fe built for the native target, and takes the limits of the key from `ultrahonk_key`, the ingot
+the verifier is built with.
 
 ```sh
 (cd honk-fe && fe build --backend native --out-dir out)          # writes out/honk_fe
-export HONK_FE_LIB=$PWD/ultrahonk/lib                            # new and demo need it
+honk-fe/out/honk_fe up path/to/noir_package                      # DIR defaults to .
+```
+
+`up` first checks that `nargo` 1.0.0, `bb` 6.0.0, `fe` 26.6.0, `anvil` and `cast` are on `PATH`.
+In the package it then runs `nargo execute`, `bb write_vk`, `bb prove` and `bb verify`, all with
+`-t evm`, writes the verifier ingot into `target/verifier`, and runs
+`ultrahonk/scripts/demo_anvil.sh --key target`: `HonkRelations` and the verifier of the key are
+deployed on anvil, the proof is verified, and the proof with one bit flipped is refused. It stops
+at the first step that fails, with that step's exit status.
+
+The steps one at a time:
+
+```sh
 honk-fe/out/honk_fe new target my-verifier          # fe.toml, src/vk.fe, src/lib.fe
 honk-fe/out/honk_fe gen-vk target/vk > my-verifier/src/vk.fe     # another key, same contract
 honk-fe/out/honk_fe demo target                     # ultrahonk/scripts/demo_anvil.sh --key target
@@ -14,4 +27,6 @@ honk-fe/out/honk_fe demo target                     # ultrahonk/scripts/demo_anv
 
 `target` is the directory of `bb write_vk -o target -t evm`, or its `vk` file. A key outside the
 limits is refused with the errors of `ultrahonk/scripts/proof_to_fe.sh`, and nothing goes to
-stdout. `ultrahonk/scripts/check.sh` compares the output with that script's.
+stdout. `ultrahonk/scripts/check.sh` compares the output with that script's. `up`, `new` and
+`demo` find `ultrahonk/lib` next to `honk-fe/` when `honk_fe` is run by its path; a copy elsewhere,
+or one found by name on `PATH`, needs `HONK_FE_LIB` set to that directory.

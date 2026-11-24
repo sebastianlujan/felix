@@ -235,6 +235,10 @@ The contracts were not run on a public test network.
 
 ## Verify your own circuit
 
+In one command: `honk-fe/out/honk_fe up DIR` runs the steps below on the Noir package in DIR, checks
+the proof with `bb verify`, verifies it on anvil and leaves the verifier ingot in
+`DIR/target/verifier` ([`../honk-fe/`](../honk-fe/README.md)). The steps follow one by one.
+
 `HonkVerifier` is built for the vault circuit, but the algorithm is not. It is the library
 function `verifier::verify_at(vk, proof, public_inputs, relations)` (`lib/src/verifier.fe`): every
 step, with the verification key as an argument and the relations asked from the `HonkRelations`
@@ -260,7 +264,7 @@ bb prove -b "target/$NAME.json" -w "target/$NAME.gz" -k target/vk -o target -t e
 # 4. The verifier ingot of that key: $INGOT/fe.toml, $INGOT/src/vk.fe and $INGOT/src/lib.fe.
 #    `honk_fe gen-vk target/vk > "$INGOT/src/vk.fe"` changes the key alone.
 (cd "$REPO/honk-fe" && fe build --backend native --out-dir out)
-HONK_FE_LIB="$REPO/ultrahonk/lib" "$REPO/honk-fe/out/honk_fe" new target "$INGOT"
+"$REPO/honk-fe/out/honk_fe" new target "$INGOT"
 # 5. Build the verifier and HonkRelations: out/<Contract>.bin in each ingot
 (cd "$INGOT" && fe build --contract HonkVerifier)
 (cd "$REPO/ultrahonk/relations" && fe build --contract HonkRelations)
@@ -392,7 +396,7 @@ cd ultrahonk
 (cd verifier && fe test)   # 21: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound, two other keys
 (cd vault && fe test)      # 15: the vault against stand-in verifiers, its two getters, and in front of HonkVerifier
 (cd ../honk-toy && fe test) # 76: the toy verifier against its Python reference's vectors
-(cd ../honk-fe && fe test)  # 2: honk_fe's relative paths and key checks, run natively
+(cd ../honk-fe && fe test)  # 3: honk_fe's relative paths, key checks and Nargo.toml name, run natively
 ```
 
 The numbers are the tests that pass in each ingot, counted on 2026-11-24.
