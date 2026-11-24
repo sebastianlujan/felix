@@ -14,6 +14,10 @@
 #   scripts/proof_to_fe.sh --garaga-key NAME
 #                                           print the generated part of lib/src/garaga_NAME.fe, the
 #                                           verification key of that circuit
+#   scripts/proof_to_fe.sh --bundle NAME    print lib/src/NAME_proof.fe, the same for a bundle made
+#                                           here: vectors/NAME/, from the Noir package examples/NAME/
+#   scripts/proof_to_fe.sh --bundle-key NAME
+#                                           print the generated part of lib/src/NAME.fe, its key
 #   scripts/proof_to_fe.sh --verifier KEY_DIR OUT_DIR
 #                                           write a verifier ingot for the key bb wrote into
 #                                           KEY_DIR (`vk` and `vk_hash`): OUT_DIR/fe.toml and
@@ -24,7 +28,8 @@
 #                                           first, lib/src/vk.fe is the second,
 #                                           lib/src/test_address_vectors.fe the third, every
 #                                           lib/src/garaga_*_proof.fe the fourth and every other
-#                                           lib/src/garaga_*.fe starts with the fifth
+#                                           lib/src/garaga_*.fe starts with the fifth, and the same
+#                                           for the two modules of the bundle `pedersen_commit`
 #
 # Every mode refuses a key whose LOG_N is outside 1 to 25, or with fewer than 8 public inputs.
 #
@@ -270,11 +275,25 @@ garaga_source() {
 EOF
 }
 
-# A proof bundle copied from Garaga (vectors/garaga/README.md): the proof of another circuit
-# and its public inputs. The key of the bundle gives the lengths both must have.
-generate_garaga() {
-    local name=$1
-    local dir=vectors/garaga/$name
+# bundle KIND NAME: sets, in the function that calls it, where a proof bundle is (`dir`), the
+# module its key goes to (`module`) and how a generated file names its origin (`whose`,
+# `source`). KIND is `garaga` for a bundle copied from Garaga (vectors/garaga/README.md), and
+# `bundle` for one made here from the Noir package examples/NAME/ (vectors/NAME/README.md).
+bundle() {
+    if [ "$1" = garaga ]; then
+        dir=vectors/garaga/$2 module=garaga_$2 whose=' of Garaga' source=$(garaga_source)
+    else
+        dir=vectors/$2 module=$2 whose=''
+        source="// Source: the Noir package \`examples/$2/\` of this repository. Made with \`nargo\` 1.0.0
+// and \`bb\` 6.0.0, target \`evm\`, and accepted by \`bb verify\` (\`$dir/README.md\`)."
+    fi
+}
+
+# generate_bundle KIND NAME: the proof of another circuit and its public inputs, from a proof
+# bundle. The key of the bundle gives the lengths both must have.
+generate_bundle() {
+    local kind=$1 name=$2 dir module whose source
+    bundle "$kind" "$name"
     local proof=($(words "$dir/proof"))
     local inputs=($(words "$dir/public_inputs"))
     local vk=($(words "$dir/vk"))
@@ -287,12 +306,12 @@ generate_garaga() {
     [ "${#inputs[@]}" -eq $((public_inputs - 8)) ] || { echo "$dir/public_inputs: wrong length" >&2; exit 1; }
 
     cat <<EOF
-// The \`$name\` proof bundle of Garaga: a proof of a circuit with \`LOG_N = $log_n\`, and its public
-// inputs. Its verification key is in \`garaga_$name.fe\`.
+// The \`$name\` proof bundle$whose: a proof of a circuit with \`LOG_N = $log_n\`, and its public
+// inputs. Its verification key is in \`$module.fe\`.
 //
-$(garaga_source)
+$source
 //
-// GENERATED FILE. \`scripts/proof_to_fe.sh --garaga $name\` prints it from \`$dir/\`,
+// GENERATED FILE. \`scripts/proof_to_fe.sh --$kind $name\` prints it from \`$dir/\`,
 // and \`scripts/proof_to_fe.sh --check\` fails if this file is anything else. Words are 32 bytes,
 // big-endian.
 //
@@ -305,11 +324,11 @@ EOF
     array PROOF "${proof[@]}"
 }
 
-# The verification key of a Garaga bundle: the generated part of lib/src/garaga_NAME.fe, whose
-# hand-written part holds the tests of the bundle.
-generate_garaga_key() {
-    local name=$1
-    local dir=vectors/garaga/$name
+# generate_bundle_key KIND NAME: the verification key of a proof bundle, which is the generated
+# part of its key module. The hand-written part of that module holds the tests of the bundle.
+generate_bundle_key() {
+    local kind=$1 name=$2 dir module whose source
+    bundle "$kind" "$name"
     local vk=($(words "$dir/vk"))
     local vk_hash=($(words "$dir/vk_hash"))
     local log_n public_inputs
@@ -322,12 +341,12 @@ generate_garaga_key() {
     [ "$(small "${vk[2]}")" -eq 5 ] || { echo "$dir/vk: the public-input offset is not 5" >&2; exit 1; }
 
     cat <<EOF
-// The \`$name\` proof bundle of Garaga: its verification key, then the tests that verify the
-// proof of \`garaga_${name}_proof.fe\` with it.
+// The \`$name\` proof bundle$whose: its verification key, then the tests that verify the
+// proof of \`${module}_proof.fe\` with it.
 //
-$(garaga_source)
+$source
 //
-// GENERATED PART. \`scripts/proof_to_fe.sh --garaga-key $name\` prints everything down to the line
+// GENERATED PART. \`scripts/proof_to_fe.sh --$kind-key $name\` prints everything down to the line
 // "END OF GENERATED PART" from \`$dir/\`, and \`scripts/proof_to_fe.sh --check\` fails
 // if this file starts with anything else. Words are 32 bytes, big-endian.
 //
@@ -357,27 +376,32 @@ case "${1:-}" in
     echo "OK: $KEY_TARGET is the output of scripts/proof_to_fe.sh --vk"
     diff <(generate_test_address) "$TEST_ADDRESS_TARGET"
     echo "OK: $TEST_ADDRESS_TARGET is the output of scripts/proof_to_fe.sh --test-address"
-    for target in lib/src/garaga_*.fe; do
-        name=${target#lib/src/garaga_}
+    for target in lib/src/garaga_*.fe lib/src/pedersen_commit*.fe; do
+        name=${target#lib/src/}
         name=${name%.fe}
+        kind=bundle
+        [[ $name != garaga_* ]] || { kind=garaga name=${name#garaga_}; }
         if [[ $name == *_proof ]]; then
             name=${name%_proof}
-            diff <(generate_garaga "$name") "$target"
-            echo "OK: $target is the output of scripts/proof_to_fe.sh --garaga $name"
+            diff <(generate_bundle "$kind" "$name") "$target"
+            echo "OK: $target is the output of scripts/proof_to_fe.sh --$kind $name"
         else
-            diff <(generate_garaga_key "$name") <(head -n "$(generate_garaga_key "$name" | wc -l)" "$target")
-            echo "OK: $target starts with the output of scripts/proof_to_fe.sh --garaga-key $name"
+            diff <(generate_bundle_key "$kind" "$name") <(head -n "$(generate_bundle_key "$kind" "$name" | wc -l)" "$target")
+            echo "OK: $target starts with the output of scripts/proof_to_fe.sh --$kind-key $name"
         fi
     done
     ;;
 --vk) generate_vk ;;
 --verifier) generate_verifier "${2:?usage: proof_to_fe.sh --verifier KEY_DIR OUT_DIR}" "${3:?usage: proof_to_fe.sh --verifier KEY_DIR OUT_DIR}" ;;
 --test-address) generate_test_address ;;
---garaga) generate_garaga "${2:?usage: proof_to_fe.sh --garaga NAME}" ;;
---garaga-key) generate_garaga_key "${2:?usage: proof_to_fe.sh --garaga-key NAME}" ;;
+--garaga | --bundle) generate_bundle "${1#--}" "${2:?usage: proof_to_fe.sh $1 NAME}" ;;
+--garaga-key | --bundle-key)
+    kind=${1#--}
+    generate_bundle_key "${kind%-key}" "${2:?usage: proof_to_fe.sh $1 NAME}"
+    ;;
 "") generate ;;
 *)
-    echo "unknown mode $1: expected none, --check, --vk, --verifier, --test-address, --garaga or --garaga-key" >&2
+    echo "unknown mode $1: expected none, --check, --vk, --verifier, --test-address, --garaga, --garaga-key, --bundle or --bundle-key" >&2
     exit 2
     ;;
 esac
