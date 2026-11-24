@@ -1,4 +1,4 @@
-// honk_fe: writes the Fe verifier of a verification key that `bb` 6.0.0 wrote, as
+// felix: writes the Fe verifier of a verification key that `bb` 6.0.0 wrote, as
 // `bb write_solidity_verifier` writes a Solidity one. A native Fe program: it checks the key
 // against the limits in `ultrahonk_key`, the ones the verifier is built with.
 use core::abi::DynString
@@ -11,14 +11,14 @@ use std::process::{Command, Exit, Redirect, Spawn, Status}
 use ultrahonk_key::*
 
 const USAGE: DynString = "usage:
-  honk_fe up [DIR]         from the Noir package in DIR (default .) to its proof verified on anvil,
-                           with bb and nargo from ultrahonk/.tools (or HONK_FE_TOOLS, or PATH)
-  honk_fe gen-vk KEY       print the Fe module of the key: its constants and `VK`
-  honk_fe new KEY DIR      write a verifier ingot for the key into DIR
-  honk_fe demo KEY_DIR     run ultrahonk/scripts/demo_anvil.sh --key KEY_DIR
+  felix up [DIR]         from the Noir package in DIR (default .) to its proof verified on anvil,
+                         with bb and nargo from ultrahonk/.tools (or FELIX_TOOLS, or PATH)
+  felix gen-vk KEY       print the Fe module of the key: its constants and `VK`
+  felix new KEY DIR      write a verifier ingot for the key into DIR
+  felix demo KEY_DIR     run ultrahonk/scripts/demo_anvil.sh --key KEY_DIR
 KEY is bb's `vk` file, with `vk_hash` next to it, or the directory that holds both.
-`up`, `new` and `demo` use the ultrahonk/lib directory next to honk-fe/ when honk_fe is run by its
-path, as honk-fe/out/honk_fe; otherwise set HONK_FE_LIB to it."
+`up`, `new` and `demo` use the ultrahonk/lib directory next to felix/ when felix is run by its
+path, as felix/out/felix; otherwise set FELIX_LIB to it."
 
 pub fn main() -> i32
 uses (args: Args, env: Env, fs: mut Fs, io: mut Stdio, exit: Exit, proc: mut Spawn)
@@ -83,10 +83,10 @@ uses (args: Args, env: Env, fs: Fs, err: mut Stderr, exit: Exit, proc: mut Spawn
 fn up(_ dir: MemBuffer) -> i32
 uses (args: Args, env: Env, fs: mut Fs, io: mut Stdio, exit: Exit, proc: mut Spawn)
 {
-    // Each step below needs the library, so a missing one stops honk_fe before the first.
+    // Each step below needs the library, so a missing one stops felix before the first.
     let lib = lib_dir()
     // The pinned bb and nargo of the checkout, as `scripts/vectors.sh` runs them (ADR-0002).
-    let tools = match env.lookup("HONK_FE_TOOLS") {
+    let tools = match env.lookup("FELIX_TOOLS") {
         Option::Some(tools) => tools,
         Option::None => format!(lib, "/../.tools"),
     }
@@ -119,12 +119,12 @@ uses (args: Args, env: Env, fs: mut Fs, io: mut Stdio, exit: Exit, proc: mut Spa
     code
 }
 
-// Stops honk_fe unless the first line `program --version` prints is `expected`, or starts with it
+// Stops felix unless the first line `program --version` prints is `expected`, or starts with it
 // and a space.
 fn check_version(_ program: MemBuffer, _ expected: DynString)
 uses (err: mut Stderr, exit: Exit, proc: mut Spawn)
 {
-    let tools = "; honk_fe up needs nargo 1.0.0 and bb 6.0.0, fe 26.6.0, anvil and cast"
+    let tools = "; felix up needs nargo 1.0.0 and bb 6.0.0, fe 26.6.0, anvil and cast"
     let command = Command::new(program).arg("--version").stdout(Redirect::Capture)
     let printed = match proc.output(command) {
         Result::Ok(output) => output.stdout,
@@ -150,7 +150,7 @@ fn tool(_ path: MemBuffer, _ name: DynString) -> MemBuffer uses (fs: Fs) {
     }
 }
 
-// Runs `program args` in `dir`, `args` split at spaces, and stops honk_fe with its status if it
+// Runs `program args` in `dir`, `args` split at spaces, and stops felix with its status if it
 // fails.
 fn run(_ dir: MemBuffer, _ program: MemBuffer, _ args: MemBuffer)
 uses (io: mut Stdio, exit: Exit, proc: mut Spawn)
@@ -166,7 +166,7 @@ uses (io: mut Stdio, exit: Exit, proc: mut Spawn)
         Result::Err(e) => die(format!("cannot run ", program, ": ", e)),
     }
     if !status.success() {
-        eprintln!("honk_fe up: `", line, "` failed: ", status)
+        eprintln!("felix up: `", line, "` failed: ", status)
         let code = match status {
             Status::Exited(code) => code,
             _ => 1,
@@ -194,11 +194,11 @@ fn package_name(_ toml: MemSpan) -> Option<MemBuffer> {
     Option::None
 }
 
-// HONK_FE_LIB, or else the `ultrahonk/lib` next to `honk-fe/` when this program runs by a path.
+// FELIX_LIB, or else the `ultrahonk/lib` next to `felix/` when this program runs by a path.
 fn lib_dir() -> MemBuffer
 uses (args: Args, env: Env, fs: Fs, err: mut Stderr, exit: Exit)
 {
-    if let Option::Some(lib) = env.lookup("HONK_FE_LIB") {
+    if let Option::Some(lib) = env.lookup("FELIX_LIB") {
         return lib
     }
     let program = format!(args.get(0))
@@ -211,11 +211,11 @@ uses (args: Args, env: Env, fs: Fs, err: mut Stderr, exit: Exit)
         }
     }
     die(
-        format!("no ultrahonk/lib next to ", program, "; set HONK_FE_LIB"),
+        format!("no ultrahonk/lib next to ", program, "; set FELIX_LIB"),
     )
 }
 
-// `ultrahonk/lib` of the checkout of the program at `path`, `<checkout>/honk-fe/out/honk_fe`.
+// `ultrahonk/lib` of the checkout of the program at `path`, `<checkout>/felix/out/felix`.
 fn lib_next_to(_ path: MemSpan) -> MemBuffer {
     var end = path.len()
     for _ in 0 .. 3 {
@@ -387,7 +387,7 @@ pub const VK: VerificationKey = VerificationKey {
 "
 
 const VK_HEADER: DynString = "// Verification key of one circuit, for `HonkVerifier` in `lib.fe`. GENERATED FILE, do not
-// edit: `honk_fe gen-vk KEY > src/vk.fe` writes it again from the `vk` and `vk_hash` that `bb`
+// edit: `felix gen-vk KEY > src/vk.fe` writes it again from the `vk` and `vk_hash` that `bb`
 // 6.0.0 wrote. Words are 32 bytes, big-endian, in the order of the `vk` file.
 use ultrahonk::types::VerificationKey
 
@@ -395,7 +395,7 @@ use ultrahonk::types::VerificationKey
 
 const LIB_HEADER: DynString = "// UltraHonk verifier contract (ZK flavor) for the key in `vk.fe`: `HonkVerifier` of the
 // `ultrahonk` library, deployed with the address of a `HonkRelations` contract, which serves
-// every verifier. GENERATED FILE, do not edit: `honk_fe new KEY DIR` writes it.
+// every verifier. GENERATED FILE, do not edit: `felix new KEY DIR` writes it.
 use std::abi::Bytes32
 use std::evm::Ctx
 use ultrahonk::abi::{VerifierInfoMsg, VerifierMsg}
@@ -441,7 +441,7 @@ fn test_the_package_name_and_the_lib_next_to_the_program() {
     assert!(package_name(toml.span()).unwrap() == "pedersen_commit")
     let other = "[package]\nnames = \"x\"\n"
     assert!(package_name(other.span()).is_none())
-    let program = "/r/honk-fe/out/honk_fe"
+    let program = "/r/felix/out/felix"
     assert!(lib_next_to(program.span()) == "/r/ultrahonk/lib")
 }
 
