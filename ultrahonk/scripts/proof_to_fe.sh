@@ -19,6 +19,8 @@
 #                                           lib/src/garaga_*_proof.fe the fourth and every other
 #                                           lib/src/garaga_*.fe starts with the fifth
 #
+# Every mode refuses a key whose LOG_N is outside 1 to 25, or with fewer than 8 public inputs.
+#
 # The values captured from the reference oracle follow the generated part in vectors.fe and are
 # maintained by hand; a new proof needs both.
 # Words are hex digits without spaces, so splitting them into arrays is intended (SC2207), and
@@ -51,13 +53,32 @@ small() {
     printf '%d' "0x${1:56}"
 }
 
+# log_n FILE WORD: `LOG_N` of the key in FILE, its first word. The verifier sizes its arrays for
+# `MAX_LOG_N = 25` (lib/src/types.fe), and its transcript underflows at 0. The explicit exits are
+# for bash 3.2, which drops `set -e` inside `$(...)`.
+log_n() {
+    local n
+    n=$(small "$2") || { echo "$1: LOG_N is outside 1 to 25" >&2; exit 1; }
+    { [ "$n" -ge 1 ] && [ "$n" -le 25 ]; } || { echo "$1: LOG_N is $n, expected 1 to 25" >&2; exit 1; }
+    printf '%d' "$n"
+}
+
+# num_public_inputs FILE WORD: `NUM_PUBLIC_INPUTS` of the key in FILE, its second word. It counts
+# the 8 pairing-point limbs (`PAIRING_POINTS_SIZE`).
+num_public_inputs() {
+    local n
+    n=$(small "$2") || { echo "$1: NUM_PUBLIC_INPUTS is not a 32-bit number" >&2; exit 1; }
+    [ "$n" -ge 8 ] || { echo "$1: NUM_PUBLIC_INPUTS is $n, expected at least 8 (the pairing-point limbs)" >&2; exit 1; }
+    printf '%d' "$n"
+}
+
 # The verification key of the vault circuit, from vectors/vk and vectors/vk_hash alone.
 generate_vk() {
     local vk=($(words vectors/vk))
     local vk_hash=($(words vectors/vk_hash))
     local log_n public_inputs
-    log_n=$(small "${vk[0]}")
-    public_inputs=$(small "${vk[1]}")
+    log_n=$(log_n vectors/vk "${vk[0]}")
+    public_inputs=$(num_public_inputs vectors/vk "${vk[1]}")
 
     # bb writes the key as 3 header words and 28 points.
     [ "${#vk[@]}" -eq 59 ] || { echo "vectors/vk: expected 59 words, got ${#vk[@]}" >&2; exit 1; }
@@ -114,8 +135,8 @@ generate() {
     local inputs=($(words vectors/public_inputs))
     local vk=($(words vectors/vk))
     local log_n public_inputs
-    log_n=$(small "${vk[0]}")
-    public_inputs=$(small "${vk[1]}")
+    log_n=$(log_n vectors/vk "${vk[0]}")
+    public_inputs=$(num_public_inputs vectors/vk "${vk[1]}")
 
     # A proof has 82 + 12 * LOG_N words.
     [ "${#proof[@]}" -eq $((82 + 12 * log_n)) ] || { echo "vectors/proof: wrong length" >&2; exit 1; }
@@ -145,7 +166,7 @@ generate_test_address() {
     local inputs=($(words vectors/test_address/public_inputs))
     local vk=($(words vectors/vk))
     local log_n
-    log_n=$(small "${vk[0]}")
+    log_n=$(log_n vectors/vk "${vk[0]}")
 
     [ "${#proof[@]}" -eq $((82 + 12 * log_n)) ] || { echo "vectors/test_address/proof: wrong length" >&2; exit 1; }
     [ "${#inputs[@]}" -eq 2 ] || { echo "vectors/test_address/public_inputs: expected 2 words" >&2; exit 1; }
@@ -189,8 +210,8 @@ generate_garaga() {
     local inputs=($(words "$dir/public_inputs"))
     local vk=($(words "$dir/vk"))
     local log_n public_inputs
-    log_n=$(small "${vk[0]}")
-    public_inputs=$(small "${vk[1]}")
+    log_n=$(log_n "$dir/vk" "${vk[0]}")
+    public_inputs=$(num_public_inputs "$dir/vk" "${vk[1]}")
 
     [ "${#vk[@]}" -eq 59 ] || { echo "$dir/vk: expected 59 words, got ${#vk[@]}" >&2; exit 1; }
     [ "${#proof[@]}" -eq $((82 + 12 * log_n)) ] || { echo "$dir/proof: wrong length" >&2; exit 1; }
@@ -222,6 +243,9 @@ generate_garaga_key() {
     local dir=vectors/garaga/$name
     local vk=($(words "$dir/vk"))
     local vk_hash=($(words "$dir/vk_hash"))
+    local log_n public_inputs
+    log_n=$(log_n "$dir/vk" "${vk[0]}")
+    public_inputs=$(num_public_inputs "$dir/vk" "${vk[1]}")
 
     [ "${#vk[@]}" -eq 59 ] || { echo "$dir/vk: expected 59 words, got ${#vk[@]}" >&2; exit 1; }
     [ "${#vk_hash[@]}" -eq 1 ] || { echo "$dir/vk_hash: expected 1 word" >&2; exit 1; }
@@ -245,10 +269,10 @@ EOF
 //
 // \`$dir/vk\` is laid out as \`vectors/vk\` (\`vectors.fe\`): three header words, then
 // the 28 points in the order of \`vectors::VK_POINTS\`.
-pub const LOG_N: usize = $(small "${vk[0]}")
+pub const LOG_N: usize = $log_n
 
 /// Public inputs of the circuit, counting the 8 pairing-point limbs carried in the proof.
-pub const NUM_PUBLIC_INPUTS: usize = $(small "${vk[1]}")
+pub const NUM_PUBLIC_INPUTS: usize = $public_inputs
 pub const VK_HASH: u256 = 0x${vk_hash[0]}
 
 EOF
