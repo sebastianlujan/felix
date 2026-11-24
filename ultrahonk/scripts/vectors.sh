@@ -8,7 +8,8 @@
 #
 # Proving with the ZK target is randomized: every run writes different, valid proofs. The
 # committed proofs are the pinned vectors; restore them with
-# `git checkout -- vectors/proof vectors/test_address/proof` unless the Fe constants are redone too.
+# `git checkout -- vectors` unless the Fe constants are redone too. The script removes only the
+# files it writes, so the Garaga bundles under `vectors/garaga/` are kept.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -24,7 +25,8 @@ done
 [ "$("$BB" --version)" = "6.0.0" ] || { echo "bb 6.0.0 required" >&2; exit 1; }
 "$NARGO" --version | rg -q '^nargo version = 1\.0\.0$' || { echo "nargo 1.0.0 required" >&2; exit 1; }
 
-rm -rf circuit/target vectors "$ORACLE/src/HonkVerifier.sol"
+rm -rf circuit/target vectors/vk vectors/vk_hash vectors/proof vectors/public_inputs vectors/test_address \
+    "$ORACLE/src/HonkVerifier.sol"
 mkdir -p vectors/test_address "$ORACLE/src"
 
 (cd circuit && "../$NARGO" execute)
