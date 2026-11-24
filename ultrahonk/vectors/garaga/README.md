@@ -72,7 +72,8 @@ bb verify -k <bundle>/vk -p <bundle>/proof -i <bundle>/public_inputs -t evm
 `scripts/proof_to_fe.sh --garaga <bundle>` prints the proof and its public inputs as the Fe
 constants of `lib/src/garaga_<bundle>_proof.fe`, and `--garaga-key <bundle>` prints the key as the
 first part of `lib/src/garaga_<bundle>.fe`. `scripts/proof_to_fe.sh --check` fails if a committed
-file differs from what they print.
+file differs from what they print. `--verifier vectors/garaga/<bundle> <out dir>` writes a verifier
+contract for the key of a bundle; `scripts/check.sh` does it for `recursive` and builds it.
 
 The tests are in the second part of `lib/src/garaga_<bundle>.fe`; what they show is listed under
 "Other circuits" in [`../../README.md`](../../README.md#other-circuits).
