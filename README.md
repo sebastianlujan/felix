@@ -14,6 +14,7 @@ It is an entry for the Fe Builders Challenge. Nothing here runs on the Aztec net
 |---|---|
 | [`ultrahonk/`](ultrahonk/README.md) | The verifier: a library ingot and two contracts, `HonkVerifier` and `HonkRelations`. Also the Noir circuit, the pinned proofs and the scripts |
 | [`ultrahonk/vault/`](ultrahonk/vault/README.md) | `Vault`: a Fe contract that asks the verifier about a Noir proof bound to its caller |
+| [`honk-fe/`](honk-fe/README.md) | `honk_fe`, a native Fe program that writes the Fe verifier of a key `bb` wrote |
 | [`honk-toy/`](honk-toy/README.md) | A toy Honk verifier over the field of 17 elements, with a Python reference. A teaching model, not secure |
 | [`docs/`](docs/ultrahonk.md) | The plan and its outcome, the [decision records](docs/adr/README.md), and the [gaps](docs/ultrahonk-gaps.md) that remain |
 | `src/`, `calculator/` | The scaffold the repository started from. Not part of the entry: see [the end of this page](#the-root-library-and-calculator) |
@@ -37,7 +38,7 @@ ultrahonk/scripts/check.sh
 ```
 
 It needs `fe` 26.6.0 (`fe 26.6.0 (5b3f96a)`); its checks of the vectors and of the generated
-verifier also need `xxd`, `shasum` and `python3`. It runs the tests and the formatter in the five
+verifier also need `xxd`, `shasum` and `python3`. It runs the tests and the formatter in the seven
 ingots, builds the three contracts at three optimisation levels, fails if a runtime exceeds the
 code-size limit, generates and builds a verifier for another key, and compares the committed
 vectors with their generators. It takes under a minute and writes nothing into the repository.
@@ -54,7 +55,7 @@ rejected with one bit flipped, and claims through the vault.
 For a proof of your own Noir circuit, follow
 [Verify your own circuit](ultrahonk/README.md#verify-your-own-circuit): the commands from
 `nargo execute` to a deployed verifier, which `demo_anvil.sh --key <directory>` runs on the local
-node.
+node. [`honk-fe/`](honk-fe/README.md) writes the verifier ingot of your key.
 
 ## How it is checked
 
