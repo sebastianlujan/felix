@@ -1,6 +1,6 @@
 # UltraHonk verification in Fe: gaps before shipping and before real use
 
-> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 311 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
+> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 312 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
 
 > **How to read this document.** It does not repeat the limits already written down: [Limits](../ultrahonk/README.md#limits) in the verifier README, [Not done](ultrahonk.md#not-done) and [Out of scope](ultrahonk.md#out-of-scope) in the plan, [Not implemented](../ultrahonk/vault/README.md#not-implemented) in the vault README. It adds what those sections do not say, and orders the work.
 
@@ -134,7 +134,7 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 |---|---|---|
 | Run on a local `anvil` node only (#8), at the three optimisation levels, on Osaka, Prague and Cancun. Never on a public test network | No evidence from a chain with real state, fees and block limits | Deploy on a test network |
 | One verifier per circuit | `scripts/proof_to_fe.sh --vk` prints `lib/src/vk.fe` from a key alone (#13). A verifier for another circuit is that file regenerated and the contracts rebuilt; the test suite then fails, because its captured values belong to the pinned proof | A verifier ingot per circuit, or a test suite that does not pin one proof |
-| A `verify` transaction uses 1,239,609 gas on Osaka and 937,321 on Prague and Cancun (measured on `anvil` at `-O 1`, #8), against 1,152,338 for the call alone in the Fe tests. Before #6 the estimate was about 2.2M | Osaka prices `modexp` higher, so the cost depends on the fork | Stated in `ultrahonk/README.md` |
+| A `verify` transaction uses 1,240,270 gas on Osaka and 937,982 on Prague and Cancun (measured on `anvil` at `-O 1`, #8, and again after #42), against 1,153,013 for the call alone in the Fe tests. Before #6 the estimate was about 2.2M | Osaka prices `modexp` higher, so the cost depends on the fork | Stated in `ultrahonk/README.md` |
 | Under low gas a valid proof reverts with the error of an invalid one | It fails closed, but the error misleads | Document it |
 | The key appears twice in the `-O s` runtime, about 1.8 KB | Size only | Later |
 

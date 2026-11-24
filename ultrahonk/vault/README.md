@@ -128,7 +128,7 @@ With `fe` 26.6.0. `fe build --contract Vault` writes the bytecode to `out/`; wit
 | Gas of a claim that succeeds, 4,544-byte proof, a verifier that accepts everything | 29,403 | 29,397 | 29,538 |
 | Gas of a claim the verifier answers `false` to (the right proof, from another caller) | 4,966 | 4,957 | 5,098 |
 | Gas of a claim on a vault already claimed | 939 | 930 | 952 |
-| Gas of a claim that succeeds, second pinned proof, `HonkVerifier` and `HonkRelations` | 1,178,060 | 1,176,547 | 1,192,443 |
+| Gas of a claim that succeeds, second pinned proof, `HonkVerifier` and `HonkRelations` | 1,177,045 | 1,175,778 | 1,191,629 |
 | Gas of a second claim with that proof, on the vault it claimed | 2,828 | 2,828 | 2,850 |
 
 The gas is the difference of `evm.gas()` around the call to `claim` in a Fe test, with the proof
@@ -138,7 +138,7 @@ temporary copy of the real-verifier claim test that measured both calls and reve
 figures. The test deploys the contracts in the transaction that calls them, so the accounts are
 warm; a call in a transaction of its own pays the cold surcharges on top, and the transaction's
 own cost. Only the `HonkVerifier` row includes a real verification; `HonkVerifier` alone spends
-1,152,338 gas (`-O 1`) accepting the pinned proof (`../README.md`).
+1,153,013 gas (`-O 1`) accepting the pinned proof (`../README.md`).
 
 The table was measured again on 2026-11-23, after `y` and the verifier address became immutable
 and the verifier's consistency check stopped inverting the denominators it does not use
@@ -157,3 +157,11 @@ The table was measured once more the same day, after the getters `y()` and `veri
 added. Before them the build gave 671, 671 and 675 bytes, and temporary tests written again to
 the method above gave the figures this table held: 22 gas less in every gas row at `-O 1` and
 `-O 2`, 44 less at `-O s`.
+
+The `HonkVerifier` row was measured again the same day, after `HonkVerifier` began to call the
+library function `verify_at` (#42, `../README.md`), with a temporary change to the real-verifier
+claim test: both proofs built first, then the gas read around each claim. On the code before #42
+that test gives 1,176,384, 1,174,862 and 1,190,758, which is 661, 916 and 871 less, and not what
+the row held (1,178,060, 1,176,547 and 1,192,443): the earlier temporary test is not committed
+and was not reproduced. The other rows were not measured again: the runtime of `Vault` is the
+same, byte for byte, and no other row reaches `HonkVerifier`.

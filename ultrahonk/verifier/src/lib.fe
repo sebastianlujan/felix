@@ -6,39 +6,15 @@
 // pairing). It returns true only if the pairing holds, and reverts otherwise.
 //
 // The relations are in a contract of their own, `HonkRelations`, as the reference links
-// them as a separate library: one contract with everything exceeds the code size limit.
+// them as a separate library. It takes no key, so one deployment serves the verifier of every
+// circuit. One contract with everything fits, but only just (ADR-0012).
 // The address of that contract is fixed when this one is deployed, and `relations()`
 // returns it: the one function this contract has and the Solidity verifier has not.
 use std::abi::Bytes32
 use std::evm::Ctx
 use ultrahonk::abi::{VerifierInfoMsg, VerifierMsg}
-use ultrahonk::errors::{PublicInputsLengthWrong, ShpleminiFailed, SumcheckFailed}
-use ultrahonk::opening::verify as verify_opening
-use ultrahonk::proof::validate
-use ultrahonk::sumcheck::{public_input_delta, verify_with_relations_at}
-use ultrahonk::transcript::generate
-use ultrahonk::types::PAIRING_POINTS_SIZE
+use ultrahonk::verifier::verify_at
 use ultrahonk::vk::VK
-
-/// `relations` is the address of a `HonkRelations` contract.
-fn verify(_ proof: Bytes, _ public_inputs: Vec<Bytes32>, relations: Address) -> bool
-uses (call: Call, ctx: Ctx)
-{
-    validate(proof, log_n: VK.log_n)
-    if public_inputs.len() != VK.num_public_inputs - PAIRING_POINTS_SIZE {
-        revert_error(PublicInputsLengthWrong {})
-    }
-    let t = generate(vk: VK, proof, public_inputs)
-    let delta = public_input_delta(proof, public_inputs, beta: t.beta, gamma: t.gamma)
-    if !verify_with_relations_at(proof, t, delta, log_n: VK.log_n, relations) {
-        revert_error(SumcheckFailed {})
-    }
-    // The reference turns a pairing that does not hold into `ShpleminiFailed`.
-    if !verify_opening(vk: VK, proof, t) {
-        revert_error(ShpleminiFailed {})
-    }
-    true
-}
 
 pub contract HonkVerifier {
     // Immutable: set once in `init` and kept in the contract's code, not in storage.
@@ -48,7 +24,7 @@ pub contract HonkVerifier {
 
     recv VerifierMsg {
         Verify { proof, public_inputs } -> bool uses (relations, call: Call, ctx: Ctx) {
-            verify(proof, public_inputs, relations)
+            verify_at(vk: VK, proof, public_inputs, relations)
         }
     }
 
@@ -63,8 +39,8 @@ pub contract HonkVerifier {
 // what the reference verifier returned for the same call, as recorded in
 // `ultrahonk::expected`. The exceptions say so: the valid proof, accepted here as by the
 // reference; the flip of one bit in every proof word, which the reference was not asked
-// about; proof word 138, where the reference reverts without data; and the tests of the call
-// between the two contracts, at the end.
+// about; proof word 138, where the reference reverts without data; the tests of the call
+// between the two contracts; and the test of a second key, at the end.
 use core::error::ErrorVariant
 use core::message::MsgVariant
 use std::abi::{DynArray, Sol, bytes_from_words, dyn_array_from}
@@ -75,6 +51,7 @@ use ultrahonk::proof::evaluations
 use ultrahonk::relations::RelationsMsg
 use ultrahonk::relations_vectors::{PROOF_BATCHED, PROOF_BATCHED_TAMPERED}
 use ultrahonk::vectors::{LOG_N, PROOF, PUBLIC_INPUTS, proof, proof_with, public_inputs}
+use ultrahonk::{garaga_recursive, garaga_recursive_proof}
 use ultrahonk_relations::HonkRelations
 
 // The reference verifier was called with this much gas when the reverts were recorded.
@@ -195,8 +172,8 @@ fn test_the_valid_proof_is_accepted() uses (evm: mut Evm) {
 
 // A bound on the gas of `verify` for the valid proof, measured as the README describes: the
 // difference of `evm.gas()` around the call, with the proof built before. Measured on
-// 2026-11-23 with `fe` 26.6.0: 1,152,338 at `-O 1` (the default of `fe test`), 1,150,828 at
-// `-O 2`, 1,166,583 at `-O s`. The bound is about 10% above that. With one inversion per
+// 2026-11-23 with `fe` 26.6.0: 1,153,013 at `-O 1` (the default of `fe test`), 1,151,747 at
+// `-O 2`, 1,167,457 at `-O s`. The bound is about 10% above that. With one inversion per
 // subgroup element in the consistency check (`consistency::evaluate`) the same call costs
 // 2,106,146 at `-O 1`, so going back to it fails here.
 #[test]
@@ -549,5 +526,96 @@ uses (evm: mut Evm)
 fn test_the_selector_of_relations() {
     assert!(
         <VerifierInfoMsg::Relations as MsgVariant<Sol>>::SELECTOR == 0xb3a480f2,
+    )
+}
+
+// One algorithm, two keys. `RecursiveVerifier` is the shell of `HonkVerifier` over the key of
+// Garaga's `recursive` circuit: `LOG_N = 20`, one public input, and a proof that `bb verify`
+// accepted (`vectors/garaga/README.md`).
+
+/// Tests only: nothing deploys it outside them.
+contract RecursiveVerifier {
+    relations: Address,
+
+    init(relations_address: Address) uses (mut relations) { relations = relations_address }
+
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool uses (relations, call: Call, ctx: Ctx) {
+            verify_at(vk: garaga_recursive::VK, proof, public_inputs, relations)
+        }
+    }
+}
+
+/// The selector `verify` reverted with, whatever follows it in the revert data.
+fn revert_selector_of(verifier: Address, proof: own Bytes, public_inputs: own Vec<Bytes32>) -> u32
+uses (evm: mut Evm)
+{
+    let outcome = evm
+        .try_call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof, public_inputs },
+        )
+    assert!(!outcome.success())
+    revert_selector(outcome.returndata()).unwrap()
+}
+
+// Both verifiers ask the same `HonkRelations`, and each accepts only the proof of its key: the
+// other's has another length, which is the first check. The gas of the accepted call is
+// measured as in the gas test above, on 2026-11-23 with `fe` 26.6.0: 2,894,264 at `-O 1`,
+// 2,892,207 at `-O 2`, 2,925,664 at `-O s`. The bound is about 10% above that.
+#[test]
+fn test_the_same_shell_over_another_key_verifies_its_proof_through_the_relations_contract()
+uses (evm: mut Evm)
+{
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    let recursive = evm.create2<RecursiveVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+    let pinned = evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+    let words = garaga_recursive_proof::PROOF
+    let input = garaga_recursive_proof::PUBLIC_INPUTS[0]
+
+    let valid = bytes_from_words(words)
+    let inputs = one_input(input)
+    let before = evm.gas()
+    let accepted: bool = evm
+        .call(
+            addr: recursive,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof: valid, public_inputs: inputs },
+        )
+    let used = before - evm.gas()
+    assert!(accepted)
+    assert!(used < 3180000)
+
+    // The low bit of the last proof word.
+    var tampered = words
+    tampered[321] = words[321] ^ 1
+    assert!(
+        revert_of(
+                verifier: recursive,
+                proof: bytes_from_words(tampered),
+                public_inputs: one_input(input),
+            )
+            == expected::SHPLEMINI_FAILED,
+    )
+
+    // Each verifier with the proof of the other's circuit.
+    assert!(
+        revert_selector_of(
+                verifier: recursive,
+                proof: proof(),
+                public_inputs: public_inputs(),
+            )
+            == expected::PROOF_LENGTH_WRONG_WITH_LOG_N,
+    )
+    assert!(
+        revert_selector_of(
+                verifier: pinned,
+                proof: bytes_from_words(words),
+                public_inputs: one_input(input),
+            )
+            == expected::PROOF_LENGTH_WRONG_WITH_LOG_N,
     )
 }

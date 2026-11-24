@@ -2,7 +2,7 @@
 
 This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 199 tests in `lib`, 2 in `relations`, 19 in `verifier`, 15 in `vault`, 76 in `toy`.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 199 tests in `lib`, 2 in `relations`, 20 in `verifier`, 15 in `vault`, 76 in `toy`.
 >
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
@@ -21,7 +21,7 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
    cd ultrahonk
    (cd lib && fe test)        # 199 tests
    (cd relations && fe test)  # 2
-   (cd verifier && fe test)   # 19
+   (cd verifier && fe test)   # 20
    (cd vault && fe test)      # 15
    (cd ../honk-toy && fe test) # 76
    ```
@@ -294,11 +294,11 @@ All modules are in `ultrahonk/lib/src/`.
 | `shplemini.fe` | `scalars`, `commitment`, `slots` | The scalar part of `verifyShplemini`, `computeSquares`, `computeFoldPosEvaluations` |
 | `consistency.fe` | `check`, `evaluate`, `evaluate_sparse` | `checkEvalsConsistency` |
 | `opening.fe` | `msm`, `negate`, `pairing_points`, `pairing`, `verify` | `batchMul`, `negateInplace`, the pairing-point aggregation, `pairing` |
-| `verifier.fe` | `verify(vk, proof, public_inputs) -> bool`: every step, with the key as an argument and the relations evaluated in place. For the tests: the contract `KeyedVerifier` and `accepted_bit_flips` | `verify` of `HonkVerifier` |
+| `verifier.fe` | `verify_at(vk, proof, public_inputs, relations) -> bool`: every step, with the key as an argument and the relations asked from `HonkRelations`. `verify(vk, proof, public_inputs) -> bool`: the same with the relations evaluated in place. For the tests: the contract `KeyedVerifier` and `accepted_bit_flips` | `verify` of `HonkVerifier` |
 
 Plain parameters view the caller's value in place, with no copy. Outputs that are arrays go through `mut` parameters.
 
-`HonkVerifier` (`verifier/src/lib.fe`) runs `validate`, the public-input count check, `generate`, `public_input_delta`, `verify_with_relations_at` and `opening::verify`, in that order. `HonkRelations` (`relations/src/lib.fe`) answers `RelationsMsg::Accumulate` with `accumulate`. The verifier takes the address of the relations contract as its constructor argument, keeps it in an immutable field and returns it from `relations()`, a message of its own (`VerifierInfoMsg`) outside the ABI of the Solidity verifier.
+`HonkVerifier` (`verifier/src/lib.fe`) calls `verifier::verify_at` with the key of the vault circuit, as bb's generated contract supplies the key to `BaseZKHonkVerifier`. `verify_at` runs `validate`, the public-input count check, `generate`, `public_input_delta`, `verify_with_relations_at` and `opening::verify`, in that order. `HonkRelations` (`relations/src/lib.fe`) answers `RelationsMsg::Accumulate` with `accumulate`. The verifier takes the address of the relations contract as its constructor argument, keeps it in an immutable field and returns it from `relations()`, a message of its own (`VerifierInfoMsg`) outside the ABI of the Solidity verifier.
 
 ### Failure behaviour
 
@@ -443,20 +443,20 @@ With `fe` 26.6.0. The figures are the ones in [`ultrahonk/README.md`](../ultraho
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| Runtime size of `HonkVerifier`, bytes | 16,638 | 16,476 | 16,346 |
+| Runtime size of `HonkVerifier`, bytes | 16,710 | 16,637 | 16,504 |
 | Runtime size of `HonkRelations`, bytes | 8,527 | 6,336 | 6,343 |
 | Runtime size of `Vault`, bytes | 761 | 761 | 747 |
-| Gas of `verify` on the pinned proof, accepted | 1,152,338 | 1,150,828 | 1,166,583 |
-| Gas of a vault claim in front of `HonkVerifier` | 1,178,060 | 1,176,547 | 1,192,443 |
+| Gas of `verify` on the pinned proof, accepted | 1,153,013 | 1,151,747 | 1,167,457 |
+| Gas of a vault claim in front of `HonkVerifier` | 1,177,045 | 1,175,778 | 1,191,629 |
 
 | Reference (Solidity verifier, solc 0.8.34) | |
 |---|---|
 | Runtime size | `HonkVerifier` 16,946 bytes, plus the linked libraries `RelationsLib` 8,211 and `ZKTranscriptLib` 6,008 |
 | Gas of a valid `verify` | 2,654,961 (forge gas report) |
 
-The limit for one contract is 24,576 bytes (EIP-170). `fe test` cannot catch it: its revm allows 1 MiB. A size is read from the build: `fe build --contract <Name> -O <level>` writes `out/<Name>.runtime.bin` as hex text, and the size is half its length. The sizes and the gas figures were measured again on 2026-11-23, after three changes: `fr::inv` checks the answer of the precompile, the relations address and the vault's parameters are immutable, and the consistency check inverts only the denominators it uses. Before them the table held 16,446, 16,274 and 16,174 bytes for `HonkVerifier`, 655, 647 and 651 for `Vault`, 2,108,994, 2,106,426 and 2,124,076 gas for `verify`, and 2,120,252, 2,117,762 and 2,133,741 for the claim. The two `Vault` rows were measured once more after the getters `y()` and `verifier()` were added: before them they held 671, 671 and 675 bytes, and 1,178,038, 1,176,525 and 1,192,399 gas. The tests that measure the gas are not committed, except a bound: a verifier test asserts that `verify` on the valid proof stays below 1,270,000 gas. The verifier README says what the same temporary tests give on the earlier code.
+The limit for one contract is 24,576 bytes (EIP-170). `fe test` cannot catch it: its revm allows 1 MiB. A size is read from the build: `fe build --contract <Name> -O <level>` writes `out/<Name>.runtime.bin` as hex text, and the size is half its length. The sizes and the gas figures were measured again on 2026-11-23, after three changes: `fr::inv` checks the answer of the precompile, the relations address and the vault's parameters are immutable, and the consistency check inverts only the denominators it uses. Before them the table held 16,446, 16,274 and 16,174 bytes for `HonkVerifier`, 655, 647 and 651 for `Vault`, 2,108,994, 2,106,426 and 2,124,076 gas for `verify`, and 2,120,252, 2,117,762 and 2,133,741 for the claim. The two `Vault` rows were measured once more after the getters `y()` and `verifier()` were added: before them they held 671, 671 and 675 bytes, and 1,178,038, 1,176,525 and 1,192,399 gas. The tests that measure the gas are not committed, except a bound: a verifier test asserts that `verify` on the valid proof stays below 1,270,000 gas. The verifier README says what the same temporary tests give on the earlier code. The `HonkVerifier` row and the two gas rows were measured once more after #42, which moved the steps of `verify` into the library function `verify_at`: before it they held 16,638, 16,476 and 16,346 bytes, 1,152,338, 1,150,828 and 1,166,583 gas for `verify`, and 1,178,060, 1,176,547 and 1,192,443 for the claim, whose new figures come from another temporary test (`ultrahonk/vault/README.md`). A second verifier test bounds the gas of a `LOG_N = 20` verification through the two contracts: 2,894,264 at `-O 1`.
 
-The relations are a contract of their own, as the reference keeps them in a linked library ([ADR-0012](adr/0012-code-size-strategy.md)). The two Fe runtimes add up to 25,165 bytes at `-O 1`, 22,812 at `-O 2` and 22,689 at `-O s`. The repository records no size for a single Fe contract holding everything, so these sums only indicate what it would weigh.
+The relations are a contract of their own, as the reference keeps them in a linked library ([ADR-0012](adr/0012-code-size-strategy.md)). The two Fe runtimes add up to 25,237 bytes at `-O 1`, 22,973 at `-O 2` and 22,847 at `-O s`. The repository records no size for a single Fe contract holding everything, so these sums only indicate what it would weigh.
 
 ## Porting hazards (real verifier)
 
@@ -466,7 +466,7 @@ The implementer's checklist, restated for the ZK verifier. Every item is handled
 
 - [x] 1. Three orderings. Proof order: masking commitment, w1, w2, w3, lookupReadCounts, lookupReadTags, w4, lookupInverses, zPerm. Order of the multi-scalar multiplication (slots 30–37): w1, w2, w3, w4, zPerm, lookupInverses, lookupReadCounts, lookupReadTags. Verification-key order: `vectors/vk` already lists its points in the order of slots 2–29. Handled by `shplemini::commitment`; a test compares the commitment of every slot.
 - [x] 2. Shplemini slots: slot 0 is `shplonkQ` with scalar 1 and slot 1 the masking polynomial; the shifted wires are slots 30–34 and take evaluations 37–41; the ρ power is not reset between the unshifted and the shifted sum. Handled by `shplemini::scalars`; tests compare every scalar.
-- [x] 15. Length checks first: `proof.len() == (82 + 12L)·32`, then the range of each word, then `public_inputs.len() == num_public_inputs − 8`. Handled by `proof::validate` and `verifier/src/lib.fe`.
+- [x] 15. Length checks first: `proof.len() == (82 + 12L)·32`, then the range of each word, then `public_inputs.len() == num_public_inputs − 8`. Handled by `proof::validate` and `verifier::verify_at`.
 
 **Field arithmetic**
 
@@ -537,9 +537,9 @@ Code size is within EIP-170 for each contract by measurement, not by a test.
 ### Assumptions and limitations
 
 - The project owner is registered for the contest (registration closed Nov 17).
-- The pinned proofs exercise only the branch that skips pairing-point aggregation. The aggregation is tested at library level only: on values captured from the reference, and on Garaga's `recursive` proof, which carries pairing points.
+- The pinned proofs exercise only the branch that skips pairing-point aggregation. The aggregation is tested at library level, on values captured from the reference and on Garaga's `recursive` proof, which carries pairing points, and in one contract test on that proof.
 - No accepted proof exercises the elliptic-curve relation: its selector is zero in the four circuits tested.
-- The contracts are tested on one circuit, with `LOG_N = 5`. Other circuit sizes are tested in the library only, on proofs made by Garaga ([Other circuits](../ultrahonk/README.md#other-circuits)).
+- The contracts are tested on one circuit, with `LOG_N = 5`. Other circuit sizes are tested in the library, on proofs made by Garaga, and one of them (`LOG_N = 20`) through the two contracts in one test ([Other circuits](../ultrahonk/README.md#other-circuits)).
 - Committed expected values are trusted on their documented provenance, because the oracle and the local Foundry tests are not in the repository.
 - The port is not audited.
 
