@@ -1,15 +1,16 @@
 // The whole verifier in one call, with the verification key as an argument: `verify` of the
 // reference, for any circuit.
 //
-// The steps, their order and their errors are those of the contract `HonkVerifier`
-// (`verifier/src/lib.fe`): the length and the range of every proof word, the number of public
-// inputs, the challenges (which check the range of the public inputs), the public-input
-// delta, sumcheck, and the opening. It differs from the contract in two things: the key is
-// an argument, where the contract reads the constant of its circuit, and the relations are
-// evaluated in place (`sumcheck::verify`), where the contract asks `HonkRelations`.
+// The steps, their order and their errors are those of the reference: the length and the
+// range of every proof word, the number of public inputs, the challenges (which check the
+// range of the public inputs), the public-input delta, sumcheck, and the opening.
 //
-// No contract of this project calls it: the tests use it to verify proofs of other circuits.
+// `verify_at` is what a deployed verifier runs: it asks the `HonkRelations` contract for the
+// relations. `HonkVerifier` (`verifier/src/lib.fe`) calls it with the key of its circuit.
+// `verify` evaluates the relations in place (`sumcheck::verify`): no contract of this project
+// calls it, and the tests use it to verify proofs of other circuits.
 use std::abi::Bytes32
+use std::evm::Ctx
 use super::errors::{PublicInputsLengthWrong, ShpleminiFailed, SumcheckFailed}
 use super::opening
 use super::proof::validate
@@ -27,6 +28,34 @@ pub fn verify(vk: VerificationKey, _ proof: Bytes, _ public_inputs: Vec<Bytes32>
     let t = generate(vk, proof, public_inputs)
     let delta = sumcheck::public_input_delta(proof, public_inputs, beta: t.beta, gamma: t.gamma)
     if !sumcheck::verify(proof, t, delta, log_n: vk.log_n) {
+        revert_error(SumcheckFailed {})
+    }
+    // The reference turns a pairing that does not hold into `ShpleminiFailed`.
+    if !opening::verify(vk, proof, t) {
+        revert_error(ShpleminiFailed {})
+    }
+    true
+}
+
+/// `verify` as every deployed verifier runs it, the Fe counterpart of bb's
+/// `BaseZKHonkVerifier`: the relations are evaluated by the `HonkRelations` contract at
+/// `relations`, as the reference links them as a library (ADR-0012). A contract with a key
+/// calls this from its `verify`, as bb's generated `HonkVerifier` only supplies the key.
+pub fn verify_at(
+    vk: VerificationKey,
+    _ proof: Bytes,
+    _ public_inputs: Vec<Bytes32>,
+    relations: Address,
+) -> bool
+uses (call: Call, ctx: Ctx)
+{
+    validate(proof, log_n: vk.log_n)
+    if public_inputs.len() != vk.num_public_inputs - PAIRING_POINTS_SIZE {
+        revert_error(PublicInputsLengthWrong {})
+    }
+    let t = generate(vk, proof, public_inputs)
+    let delta = sumcheck::public_input_delta(proof, public_inputs, beta: t.beta, gamma: t.gamma)
+    if !sumcheck::verify_with_relations_at(proof, t, delta, log_n: vk.log_n, relations) {
         revert_error(SumcheckFailed {})
     }
     // The reference turns a pairing that does not hold into `ShpleminiFailed`.
