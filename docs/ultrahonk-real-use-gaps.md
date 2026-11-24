@@ -2,6 +2,8 @@
 
 The verifier is correct for one circuit and proven on four, but it is a build for that one circuit: there is no public entry point, no how-to and no tooling to verify your own, and the two deployed contracts were never measured above `LOG_N = 5`. The toy verifies every step of the page's protocol, but only in Fe's half: the circuit and the prover exist only in Python, there is no transcript, and several steps have no negative test.
 
+**Update, 2026-11-23, after #37 to #47.** The paragraph above is the state found on `3329eca`. Since then the library has `verify_at`, `proof_to_fe.sh --verifier` makes a verifier for any key, Garaga's three circuits (`LOG_N` 12, 17, 20) run as transactions on anvil, the vault answers `y()` and `verifier()`, and the toy has its missing negative tests and states that its prover is Python only. Each row says what remains.
+
 - **Sources:** the owner's goal (2026-11-23): "the UltraHonk useful and functional, the toy just a toy, but a complete one"; [the gaps plan](ultrahonk-gaps.md), whose "Known limits in real use" this report extends rather than repeats.
 - **State checked on:** `develop` at `3329eca`, 2026-11-23. Read-only; `fe test` and `check.sh` were not run. The toy's `gen_vectors.py --check` was run and passes.
 - **Related docs:** [ultrahonk-gaps.md](ultrahonk-gaps.md) for the contest bands, the test track and the known limits; [ultrahonk/README.md](../ultrahonk/README.md) for sizes and gas.
@@ -14,8 +16,8 @@ Sizes are mine, in the gaps plan's units.
 
 | Area | Size | State | Next step |
 | --- | --- | --- | --- |
-| [1. Verify your own circuit](#1-verify-your-own-circuit) | half a day | To do: one circuit, private entry point, no how-to | A public `verify_at` in the library and a "Verify your own circuit" section |
-| [2. Deploy and integrate](#2-deploy-and-integrate) | half a day | Partial: anvil only, `LOG_N = 5` only | Build the two contracts with Garaga's `recursive` key and measure them on anvil |
+| [1. Verify your own circuit](#1-verify-your-own-circuit) | half a day | Partial: the entry point, the generator and the how-to exist (#42, #44, #46) | C-3, a dependency example, and the decision of C-5 |
+| [2. Deploy and integrate](#2-deploy-and-integrate) | half a day | Partial: anvil only, measured up to `LOG_N = 20` (#46) | D-2, a deploy script for a real network |
 | [3. Soundness evidence](#3-soundness-evidence) | half a day | Partial: four circuits, edge inputs untested | One test per Unknown row of the test track |
 | [4. The vault as an example](#4-the-vault-as-an-example) | under 2 h | Partial: no getters, promised notes unwritten | `y()` and `verifier()` messages |
 | [5. The repository as a product](#5-the-repository-as-a-product) | under 2 h | Partial: a clone lands on the placeholder | #14, an install line for `fe`, the `vectors.sh` fix |
@@ -42,22 +44,22 @@ Sizes are mine, in the gaps plan's units.
 
 ## 1. Verify your own circuit
 
-The route exists only by reading scripts: `bb write_vk -t evm`, `proof_to_fe.sh --vk`, rebuild, deploy the relations contract then the verifier.
+Since #46 the route is written down in `RD`, "Verify your own circuit": `bb write_vk -t evm`, `proof_to_fe.sh --verifier`, build, deploy the relations contract then the verifier.
 
 | # | Task | State | Evidence |
 | --- | --- | --- | --- |
-| C-1 | **new** A "Verify your own circuit" section: the commands from a Noir project to two deployed contracts | To do | no match for `own circuit\|your circuit` in any `*.md` except the limit at `docs/ultrahonk-gaps.md:136` |
+| C-1 | **new** A "Verify your own circuit" section: the commands from a Noir project to two deployed contracts | Done (#46) | `RD` "Verify your own circuit": eight steps, from `nargo execute` to `demo_anvil.sh --key`, and how the structure compares with bb and Aztec. Steps 4 to 8 were run by hand on Garaga's `hello`; steps 1 to 3 are the commands of `SCR/vectors.sh` |
 | C-2 | **new** A public entry point in the library, `verify_at(vk, proof, inputs, relations)`. Today the deployable `verify` is private to the contract and bound to its constant key | Done (#42) | `verify_at` at `LIB/verifier.fe:44`; `HonkVerifier` calls it with its key (`VER:26`), and the test-only `RecursiveVerifier` with the key of Garaga's `recursive` (`VER:536`). `HonkVerifier` grew by 72, 161 and 158 bytes at the three levels (`RD:128`) |
 | C-3 | **new** A dependency example: the `fe.toml` line and the `use` of the library from another ingot. The test helpers are public next to the API | To do | no match for `ultrahonk = \{` in any `*.md`; `LIB/verifier.fe:74-132` |
 | C-4 | **new** Generator guards: refuse `LOG_N` above the transcript's maximum, and write the `bb` version into `vk.fe` | Done (#44) | `log_n` and `num_public_inputs` in `SCR/proof_to_fe.sh` require 1 to 25 and at least 8 in every mode; `check.sh` checks that `LOG_N` 0 and 26 are refused. The `bb` version is written into the header of a generated verifier, not into `vk.fe`, which is unchanged |
 | C-5 | A suite that does not pin one proof, or one verifier ingot per circuit | Decide | `docs/ultrahonk-gaps.md:136`; after `--vk` the captured values no longer match |
-| C-6 | **new** `proof_to_fe.sh --vk DIR` and `demo_anvil.sh --proof --inputs`, so a user can try their own proof without editing scripts | Partial (#44): `--verifier` takes any key directory; `demo_anvil.sh --key` is next | `generate_verifier` in `SCR/proof_to_fe.sh`; `SCR/demo_anvil.sh:38-39,87-88` still hard-code the pinned files |
+| C-6 | **new** `proof_to_fe.sh --vk DIR` and `demo_anvil.sh --proof --inputs`, so a user can try their own proof without editing scripts | Done (#44, #46), as `proof_to_fe.sh --verifier DIR OUT` and `demo_anvil.sh --key DIR` | `generate_verifier` in `SCR/proof_to_fe.sh`. With `--key`, `SCR/demo_anvil.sh` generates the verifier of the `vk` and `vk_hash` in DIR, deploys it with `HonkRelations`, and verifies the `proof` and `public_inputs` of DIR, then the proof with one bit flipped. The vault is left out, and a run without `--key` is unchanged |
 
 ## 2. Deploy and integrate
 
 | # | Task | State | Evidence |
 | --- | --- | --- | --- |
-| D-1 | **new** Gas and behaviour of the two contracts at `LOG_N` 12 to 20, with pairing points. Garaga's proofs run only through the library with 100M gas. By reading, `modexp` calls grow as about 21 per round: 112 at 5 (measured), about 427 at 20 (estimate) | Partial (#42): measured in a Fe test; not yet on anvil | Garaga's `recursive` proof (`LOG_N = 20`, with pairing points) is accepted through a verifier with its key and `HonkRelations` for 2,894,264 gas at `-O 1` (test at `VER:568`, `RD` "Other circuits"). `LOG_N` 12 and 17 and the `modexp` count are not measured |
+| D-1 | **new** Gas and behaviour of the two contracts at `LOG_N` 12 to 20, with pairing points. Garaga's proofs run only through the library with 100M gas. By reading, `modexp` calls grow as about 21 per round: 112 at 5 (measured), about 427 at 20 (estimate) | Done (#46) | `demo_anvil.sh --key` on Garaga's `hello`, `mutator_set` and `recursive` (`LOG_N` 12, 17 and 20; the last with pairing points): each proof is accepted, and rejected with one bit flipped, on Osaka and Prague. At `-O 1` a `verify` transaction uses 2,084,389, 2,695,688 and 3,075,743 gas on Osaka and 1,385,348, 1,713,252 and 1,923,270 on Prague, and deploying a verifier about 3.6M (`RD` "On a local node"). The forks differ by 2,699 gas times 259, 364 and 427, which is 21 `modexp` calls a round, as estimated; inferred from the difference, not counted in a trace. In a Fe test `recursive` uses 2,894,264 gas (`VER:568`) |
 | D-2 | A deploy script for a real network (RPC URL, key from the environment), reusing the demo's deployment order | To do | `SCR/demo_anvil.sh` uses an unlocked anvil account |
 | D-3 | **new** A way to check which relations contract a deployed verifier calls: print the keccak of both runtimes in `check.sh`, compare with `cast code` | Partial | `verify` rejects an address without code (test at `VER:489`), but nothing checks it is the right contract; no match for `codehash` |
 | D-4 | **new** The drop-in claim at its edges: undecodable calldata, an unknown selector, sent value, a Fe panic. No Solidity or JavaScript caller is tested | To verify | selectors and 13 errors match by declaration (`LIB/errors.fe:77-92`); no match for `callvalue\|payable` in `ultrahonk/verifier` |

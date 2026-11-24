@@ -1,31 +1,52 @@
 #!/usr/bin/env bash
 # Runs the built contracts on a local node instead of the Fe test harness.
 #
-#   ultrahonk/scripts/demo_anvil.sh [-O 1|2|s] [--hardfork NAME]     (default: -O 1, osaka)
+#   ultrahonk/scripts/demo_anvil.sh [-O 1|2|s] [--hardfork NAME] [--key DIR]
+#                                                                    (default: -O 1, osaka)
 #
-# It builds HonkRelations, HonkVerifier and Vault with `fe build`, starts `anvil`, deploys the
-# three artifacts, and then:
+# Without --key it builds HonkRelations, HonkVerifier and Vault with `fe build`, starts `anvil`,
+# deploys the three artifacts, and then:
 #   1. asks the verifier for the pinned proof (true) and for the same proof with one bit
 #      flipped (a revert);
 #   2. sends `verify` as a transaction, to read the gas a real transaction uses;
 #   3. claims through the vault as 0xc0ffe, the recipient the pinned proof was made for,
 #      after showing that another caller cannot claim with it.
 #
-# Needs `fe`, `anvil` and `cast` (Foundry) and `xxd`. The node keeps the real code-size limit.
-# Nothing is written into the repository: artifacts go to a temporary directory.
+# With --key DIR it runs the verifier of another circuit: DIR, relative to where the script is
+# called from, holds the `vk`, `vk_hash`, `proof` and `public_inputs` that `bb` wrote. It
+# generates a verifier ingot for that key with `scripts/proof_to_fe.sh --verifier`, builds it in
+# place of the committed HonkVerifier, deploys it with HonkRelations, and does steps 1 and 2 with
+# the proof of DIR. The vault is left out: it is bound to the pinned circuit.
+#
+# Needs `fe`, `anvil` and `cast` (Foundry) and `xxd`; --key also needs `shasum` and `python3`,
+# through proof_to_fe.sh. The node keeps the real code-size limit. Nothing is written into the
+# repository: the artifacts and the generated ingot go to a temporary directory.
 set -euo pipefail
 
+CALLER_PWD=$PWD # --key takes its directory relative to it
 cd "$(dirname "$0")/.."
 
 LEVEL=1
 HARDFORK=osaka
+KEY=""          # empty: the pinned circuit, with the vault
+VECTORS=vectors # the directory of the proof and the public inputs
+SUBJECT="the pinned proof"
 while [ $# -gt 0 ]; do
     case "$1" in
         -O) LEVEL="$2"; shift 2 ;;
         --hardfork) HARDFORK="$2"; shift 2 ;;
-        *) echo "usage: $0 [-O 1|2|s] [--hardfork NAME]" >&2; exit 2 ;;
+        --key)
+            KEY="$2"
+            [[ $KEY == /* ]] || KEY=$CALLER_PWD/$KEY
+            VECTORS=$KEY
+            SUBJECT="the proof of $2"
+            shift 2
+            ;;
+        *) echo "usage: $0 [-O 1|2|s] [--hardfork NAME] [--key DIR]" >&2; exit 2 ;;
     esac
 done
+[ -f "$VECTORS/proof" ] && [ -f "$VECTORS/public_inputs" ] ||
+    { echo "$VECTORS: expected the files proof and public_inputs" >&2; exit 1; }
 
 for tool in fe anvil cast xxd; do
     command -v "$tool" >/dev/null || { echo "missing $tool" >&2; exit 1; }
@@ -50,9 +71,17 @@ step() { printf '\n== %s\n' "$*"; }
 field() { awk -v key="$1" '$1 == key { print $2 }'; }
 
 step "build at -O $LEVEL"
-for pair in relations:HonkRelations verifier:HonkVerifier vault:Vault; do
-    (cd "${pair%%:*}" && fe build --contract "${pair##*:}" -O "$LEVEL" --out-dir "$out" >/dev/null)
-done
+# build <ingot directory> <contract>
+build() { (cd "$1" && fe build --contract "$2" -O "$LEVEL" --out-dir "$out" >/dev/null); }
+build relations HonkRelations
+if [ -n "$KEY" ]; then
+    # The generated ingot stands in for verifier/: the committed HonkVerifier is not built.
+    scripts/proof_to_fe.sh --verifier "$KEY" "$out/verifier"
+    build "$out/verifier" HonkVerifier
+else
+    build verifier HonkVerifier
+    build vault Vault
+fi
 
 step "start anvil ($HARDFORK)"
 anvil --hardfork "$HARDFORK" --port "$PORT" --silent &
@@ -78,19 +107,19 @@ deploy() {
 step "deploy"
 relations="$(deploy HonkRelations "")"
 verifier="$(deploy HonkVerifier "$(cast abi-encode 'constructor(address)' "$relations")")"
-vault="$(deploy Vault "$(cast abi-encode 'constructor(uint256,address)' "$Y" "$verifier")")"
+[ -n "$KEY" ] || vault="$(deploy Vault "$(cast abi-encode 'constructor(uint256,address)' "$Y" "$verifier")")"
 [ "$(cast call --rpc-url "$RPC" "$verifier" 'relations()(address)')" = "$relations" ] ||
     { echo "the verifier does not name the relations contract it was deployed with" >&2; exit 1; }
-[ "$(cast call --rpc-url "$RPC" "$vault" 'verifier()(address)')" = "$verifier" ] ||
+[ -n "$KEY" ] || [ "$(cast call --rpc-url "$RPC" "$vault" 'verifier()(address)')" = "$verifier" ] ||
     { echo "the vault does not name the verifier it was deployed with" >&2; exit 1; }
 
-proof="0x$(xxd -p vectors/proof | tr -d '\n')"
-inputs="[$(xxd -p -c 32 vectors/public_inputs | awk '{ printf "%s0x%s", (NR > 1 ? "," : ""), $1 }')]"
+proof="0x$(xxd -p "$VECTORS/proof" | tr -d '\n')"
+inputs="[$(xxd -p -c 32 "$VECTORS/public_inputs" | awk '{ printf "%s0x%s", (NR > 1 ? "," : ""), $1 }')]"
 
-step "verify the pinned proof"
+step "verify $SUBJECT"
 answer="$(cast call --rpc-url "$RPC" "$verifier" 'verify(bytes,bytes32[])(bool)' "$proof" "$inputs")"
 echo "verify: $answer"
-[ "$answer" = true ] || { echo "the pinned proof was not accepted" >&2; exit 1; }
+[ "$answer" = true ] || { echo "$SUBJECT was not accepted" >&2; exit 1; }
 
 step "verify the same proof with its last bit flipped"
 last="${proof: -1}"
@@ -105,6 +134,11 @@ step "verify as a transaction"
 receipt="$(cast send --rpc-url "$RPC" --unlocked --from "$DEPLOYER" "$verifier" 'verify(bytes,bytes32[])' "$proof" "$inputs")"
 [ "$(field status <<<"$receipt")" = 1 ] || { echo "the verify transaction failed" >&2; exit 1; }
 echo "gas used by the transaction: $(field gasUsed <<<"$receipt")"
+
+if [ -n "$KEY" ]; then
+    printf '\nThe verifier generated for %s ran on anvil (%s) at -O %s.\n' "$VECTORS" "$HARDFORK" "$LEVEL"
+    exit 0
+fi
 
 step "claim through the vault"
 if reply="$(cast call --rpc-url "$RPC" --from "$DEPLOYER" "$vault" 'claim(bytes)(bool)' "$proof" 2>&1)"; then
