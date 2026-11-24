@@ -9,8 +9,8 @@ __pycache__/
 
 # Build output and local tools under ultrahonk/ are listed in ultrahonk/.gitignore.
 
-# The executable honk-fe is built into.
-honk-fe/out/
+# The executable felix is built into.
+felix/out/
 
-# What honk_fe up writes for the demo circuits.
+# What felix up writes for the demo circuits.
 demo/*/target/

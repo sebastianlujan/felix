@@ -16,17 +16,45 @@ written in Fe and generated for this circuit:
 demo/run.sh
 ```
 
-## What you need
+## From a fresh machine
 
-- `fe` 26.6.0 and [Foundry](https://getfoundry.sh) (`anvil` and `cast`) on your `PATH`.
-- `nargo` 1.0.0 and `bb` 6.0.0. `honk_fe` takes them from `ultrahonk/.tools` first (installed as
-  in [`docs/ultrahonk.md`](../docs/ultrahonk.md)), then from the directory in `HONK_FE_TOOLS`,
-  then from `PATH`. It stops if it finds other versions.
+On macOS arm64, from an empty directory. Every tool except Foundry goes into the clone, under
+`ultrahonk/.tools/`, which is not committed, so nothing installed on the machine is used or
+changed:
+
+```sh
+# Foundry (anvil, cast), if you do not have it: https://getfoundry.sh
+curl -L https://foundry.paradigm.xyz | bash && ~/.foundry/bin/foundryup
+export PATH="$HOME/.foundry/bin:$PATH"
+
+git clone https://github.com/sebastianlujan/felix.git && cd felix
+
+# fe 26.6.0, bb 6.0.0 and nargo 1.0.0
+mkdir -p ultrahonk/.tools/fe ultrahonk/.tools/bb ultrahonk/.tools/nargo/bin
+curl -sSfL -o ultrahonk/.tools/fe/fe https://github.com/argotorg/fe/releases/download/v26.6.0/fe_mac_arm64
+chmod +x ultrahonk/.tools/fe/fe
+curl -sSfL https://github.com/AztecProtocol/aztec-packages/releases/download/v6.0.0/barretenberg-arm64-darwin.tar.gz | tar -xz -C ultrahonk/.tools/bb
+curl -sSfL https://github.com/noir-lang/noir/releases/download/v1.0.0/noir-aarch64-apple-darwin.tar.gz | tar -xz -C ultrahonk/.tools/nargo/bin
+export PATH="$PWD/ultrahonk/.tools/fe:$PATH"
+
+demo/run.sh
+```
+
+- **Tested** on 2026-11-24, as written from `git clone` on, in a fresh clone with a `PATH` of
+  only the system directories and Foundry (`anvil` 1.5.1-stable): the proof was verified. The
+  Foundry installer was not run in that test, because Foundry was already installed.
+- **On Linux x86-64**, use the files `fe_linux_amd64`, `barretenberg-amd64-linux.tar.gz` and
+  `noir-x86_64-unknown-linux-gnu.tar.gz` of the same releases. Not run.
+- **Also needed:** `git`, `curl`, `tar`, `python3` and `xxd`. On macOS they come with the Xcode
+  Command Line Tools.
+- **Other versions are refused.** `felix` takes `bb` and `nargo` from `ultrahonk/.tools` first,
+  then from the directory in `FELIX_TOOLS`, then from `PATH`, and stops if their versions are not
+  6.0.0 and 1.0.0.
 
 ## What happens
 
-`demo/run.sh` builds the command-line tool `honk_fe` with Fe's native backend, then runs
-`honk_fe up demo/age_check`, which:
+`demo/run.sh` builds the command-line tool `felix` with Fe's native backend, then runs
+`felix up demo/age_check`, which:
 
 1. Checks the versions of the five tools.
 2. Runs `nargo execute` with the inputs in `Prover.toml` (age 30, minimum 18), then

@@ -14,7 +14,7 @@ It is an entry for the Fe Builders Challenge. Nothing here runs on the Aztec net
 |---|---|
 | [`ultrahonk/`](ultrahonk/README.md) | The verifier: a library ingot and two contracts, `HonkVerifier` and `HonkRelations`. Also the Noir circuit, the pinned proofs and the scripts |
 | [`ultrahonk/vault/`](ultrahonk/vault/README.md) | `Vault`: a Fe contract that asks the verifier about a Noir proof bound to its caller |
-| [`honk-fe/`](honk-fe/README.md) | `honk_fe`, a native Fe program that writes the Fe verifier of a key `bb` wrote |
+| [`felix/`](felix/README.md) | `felix`, a native Fe program that writes the Fe verifier of a key `bb` wrote |
 | [`honk-toy/`](honk-toy/README.md) | A toy Honk verifier over the field of 17 elements, with a Python reference. A teaching model, not secure |
 | [`docs/`](docs/ultrahonk.md) | The plan and its outcome, the [decision records](docs/adr/README.md), and the [gaps](docs/ultrahonk-gaps.md) that remain |
 | `src/`, `calculator/` | The scaffold the repository started from. Not part of the entry: see [the end of this page](#the-root-library-and-calculator) |
@@ -55,9 +55,9 @@ rejected with one bit flipped, and claims through the vault.
 For a proof of your own Noir circuit, follow
 [Verify your own circuit](ultrahonk/README.md#verify-your-own-circuit): the commands from
 `nargo execute` to a deployed verifier, which `demo_anvil.sh --key <directory>` runs on the local
-node. `honk-fe/out/honk_fe up <package>` does all of it in one command ([`honk-fe/`](honk-fe/README.md)).
+node. `felix/out/felix up <package>` does all of it in one command ([`felix/`](felix/README.md)).
 
-The shortest way to see all of it is [`demo/`](demo/README.md): `demo/run.sh` builds `honk_fe`,
+The shortest way to see all of it is [`demo/`](demo/README.md): `demo/run.sh` builds `felix`,
 proves a small Noir circuit and verifies the proof on `anvil` with a verifier generated in Fe.
 
 ## How it is checked
@@ -159,10 +159,10 @@ The full lists are in [`ultrahonk/README.md`](ultrahonk/README.md#limits) and
   AI coding assistant, Claude Code, under the owner's direction. The owner set the scope and
   made the decisions recorded in `docs/adr/`.
 - **Toolchain.** `fe` 26.6.0 (5b3f96a) for everything. `bb` 6.0.0 and `nargo` 1.0.0 only to
-  prove: to regenerate the vectors, and in `honk_fe up`. Foundry's `anvil` and `cast` only for
+  prove: to regenerate the vectors, and in `felix up`. Foundry's `anvil` and `cast` only for
   the on-chain demos. The manifests are the `fe.toml` of each ingot: `ultrahonk/key`,
   `ultrahonk/lib`, `ultrahonk/relations`, `ultrahonk/verifier`, `ultrahonk/vault`, `honk-toy`
-  and `honk-fe`.
+  and `felix`.
 - **Licence.** [MIT](LICENSE).
 
 ## The root library and `calculator/`
