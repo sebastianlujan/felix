@@ -166,7 +166,7 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 | The downloads of `bb` and `nargo` are for macOS arm64, without checksums; `vectors.sh` needs `rg` and does not say so | Regenerating the vectors works on one platform | Document `rg`; add checksums |
 | The captured values cannot be regenerated from the repository alone | They rest on their documented provenance | By decision (ADR-0009) |
 | No CI | Nothing runs the tests on a push | After M4 and M5, a workflow that runs `check.sh` |
-| A worktree left by the development holds an untracked `ultrahonk/lib/src/verifier.fe` (144 lines: the whole verifier in one call) | Removing the worktree deletes it | Read it for E1, then keep or delete it on purpose. Done in #7: `ultrahonk/lib/src/verifier.fe` is that function, with tests of its own; the worktree's copy is no longer needed |
+| A worktree left by the development holds an untracked `ultrahonk/lib/src/verifier.fe` (144 lines: the whole verifier in one call) | Removing the worktree deletes it | Read it for E1, then keep or delete it on purpose. Done in #7: `ultrahonk/lib/src/verifier.fe` is that function, with tests of its own. The worktree was removed on 2026-11-23, after each of its ten test scenarios was found tested on `develop` |
 
 ## Not to attempt before the deadline
 
