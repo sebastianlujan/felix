@@ -41,6 +41,11 @@ ultrahonk/scripts/demo_anvil.sh
 It deploys the three artifacts on `anvil`, verifies the pinned proof, shows the same proof
 rejected with one bit flipped, and claims through the vault.
 
+For a proof of your own Noir circuit, follow
+[Verify your own circuit](ultrahonk/README.md#verify-your-own-circuit): the commands from
+`nargo execute` to a deployed verifier, which `demo_anvil.sh --key <directory>` runs on the local
+node.
+
 ## How it is checked
 
 Barretenberg's generated Solidity verifier is the reference. It is not committed: it is

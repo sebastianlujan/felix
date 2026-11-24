@@ -195,6 +195,32 @@ Osaka, `-O 2` gives 1,239,012 and 1,266,868, and `-O s` 1,254,722 and 1,282,719.
 code is 8,527, 16,742 and 825 bytes at `-O 1`: the runtime, plus 32 bytes for each immutable
 field.
 
+With `--key <directory>` the script runs the verifier of another circuit. It generates the
+verifier for the `vk` and `vk_hash` of the directory (`proof_to_fe.sh --verifier`), deploys it
+with `HonkRelations`, and checks that `verify` answers `true` for the `proof` and `public_inputs`
+of the directory and reverts for that proof with its last bit flipped. The vault is left out: it
+is bound to the pinned circuit. Garaga's three bundles ([Other circuits](#other-circuits)),
+measured with it on 2026-11-23 (anvil 1.5.1):
+
+| `--key vectors/garaga/` | `LOG_N` | Level | Runtime of the verifier, bytes | Deploying it | `verify`, Osaka | `verify`, Prague |
+|---|---|---|---|---|---|---|
+| `hello` | 12 | `-O 1` | 16,692 | 3,611,105 | 2,084,389 | 1,385,348 |
+| `mutator_set` | 17 | `-O 1` | 16,723 | 3,626,991 | 2,695,688 | 1,713,252 |
+| `recursive` | 20 | `-O 1` | 16,706 | 3,620,305 | 3,075,743 | 1,923,270 |
+| `recursive` | 20 | `-O 2` | 16,633 | 3,604,509 | 3,073,684 | not run |
+| `recursive` | 20 | `-O s` | 16,515 | 3,579,037 | 3,107,123 | not run |
+
+The eight runs passed, and each flipped proof reverted with `ShpleminiFailed()`. The gas columns
+are transactions, as above, and deploying costs the same on both forks. The runtime is the
+deployed code (`cast codesize`) less the 32 bytes of the relations address. `HonkRelations` is
+the contract of the first table; deploying it uses 1,421,112 gas at `-O 2` and 1,422,619 at
+`-O s`. anvil kept its default block gas limit of 30,000,000: the largest transaction, a
+deployment, uses 3,626,991 gas, under Osaka's limit of 16,777,216 for one transaction (EIP-7825).
+The forks differ by 699,041, 982,436 and 1,152,473 gas, which is 2,699 times 259, 364 and 427:
+the 2,699 a `modexp` call costs more on Osaka for the pinned proof, and the 112 calls of the
+pinned circuit plus 21 for each round above 5. That number of calls is inferred from the
+difference, not counted in a trace.
+
 What a chain needs:
 
 - **Cancun or later.** On Shanghai `HonkVerifier` does not deploy: the node reports an opcode that
@@ -203,18 +229,72 @@ What a chain needs:
 
 The contracts were not run on a public test network.
 
-## Other circuits
+## Verify your own circuit
 
 `HonkVerifier` is built for the vault circuit, but the algorithm is not. It is the library
-function `verifier::verify_at(vk, proof, public_inputs, relations)` (`lib/src/verifier.fe`), the
-Fe counterpart of bb's `BaseZKHonkVerifier`: every step, with the verification key as an argument
-and the relations asked from the `HonkRelations` contract at `relations`. `HonkVerifier` only
-calls it with the key of its circuit, as bb's generated contract only supplies the key to the
-base one. A verifier for another circuit is the same shell over another key, and one
-`HonkRelations` serves them all.
+function `verifier::verify_at(vk, proof, public_inputs, relations)` (`lib/src/verifier.fe`): every
+step, with the verification key as an argument and the relations asked from the `HonkRelations`
+contract at `relations`. `HonkVerifier` only calls it with the key of its circuit. A verifier for
+another circuit is the same shell over another key, which `scripts/proof_to_fe.sh --verifier`
+writes, and one `HonkRelations` serves them all.
 
-`verifier::verify` runs the same steps with the relations evaluated in place. With it the
-library tests verify proofs that another project made
+The steps, from the directory of a Noir package, with `nargo` 1.0.0, `bb` 6.0.0, `fe` 26.6.0,
+`python3` and Foundry's `cast`. `-t evm` is the target of `bb` for the EVM: Keccak transcript,
+zero knowledge.
+
+```sh
+NAME=my_circuit      # the package name in Nargo.toml
+REPO=~/fe-ultrahonk  # where this repository is checked out
+INGOT=my-verifier    # where the verifier ingot is written
+
+# 1. Compile the circuit and execute it on Prover.toml: target/$NAME.json and target/$NAME.gz
+nargo execute
+# 2. The verification key: target/vk and target/vk_hash
+bb write_vk -b "target/$NAME.json" -o target -t evm
+# 3. A proof: target/proof and target/public_inputs
+bb prove -b "target/$NAME.json" -w "target/$NAME.gz" -k target/vk -o target -t evm
+# 4. The verifier ingot of that key: $INGOT/fe.toml and $INGOT/src/lib.fe
+"$REPO/ultrahonk/scripts/proof_to_fe.sh" --verifier target "$INGOT"
+# 5. Build the verifier and HonkRelations: out/<Contract>.bin in each ingot
+(cd "$INGOT" && fe build --contract HonkVerifier)
+(cd "$REPO/ultrahonk/relations" && fe build --contract HonkRelations)
+# 6. Deploy HonkRelations once: it takes no key and serves every verifier. Then deploy the
+#    verifier with that address, $RELATIONS, as its constructor argument. Each command prints
+#    a contractAddress. Add --rpc-url and how you sign.
+cast send --create "0x$(cat "$REPO/ultrahonk/relations/out/HonkRelations.bin")"
+cast send --create "0x$(cat "$INGOT/out/HonkVerifier.bin")$(cast abi-encode 'constructor(address)' "$RELATIONS" | cut -c 3-)"
+# 7. Call verify(bytes,bytes32[]), the ABI of bb's Solidity verifier, on the verifier's
+#    address: the proof, and the public inputs as 32-byte words. It prints true.
+cast call "$VERIFIER" 'verify(bytes,bytes32[])(bool)' "0x$(xxd -p target/proof | tr -d '\n')" \
+    "[$(xxd -p -c 32 target/public_inputs | sed 's/^/0x/' | paste -sd, -)]"
+# 8. Or try steps 4 to 7 on a local anvil node, in one command
+"$REPO/ultrahonk/scripts/demo_anvil.sh" --key target
+```
+
+The generator refuses a key whose `LOG_N` is outside 1 to 25, or that counts fewer than 8 public
+inputs: the count in a key includes the 8 pairing-point limbs. The ingot names `ultrahonk/lib` of
+the checkout by a relative path in its `fe.toml`, so it builds only while both stay where they
+are. Its contract is the `HonkVerifier` of `verifier/src/lib.fe`, copied over the other key; the
+tests stay in that ingot. Steps 4 to 8 were run by hand on Garaga's `hello` bundle; steps 1 to 3
+are the commands of `scripts/vectors.sh`, which made the pinned proofs.
+
+### How this compares with bb and Aztec
+
+`verify_at` is the Fe counterpart of bb's `abstract contract BaseZKHonkVerifier`. The generated
+shell is bb's generated `contract HonkVerifier is BaseZKHonkVerifier(...)`, which only supplies
+the key. The shared `HonkRelations` stands where bb's linked library would. Aztec's L1 `Rollup`
+holds its generated verifier as an immutable `IVerifier` (`EPOCH_PROOF_VERIFIER`) and calls
+`verify(proof, publicInputs)` on it, as `Vault` holds the immutable address `verifier()` returns.
+Aztec pins the hash of the verifier's creation code and compares the generated file with the
+committed one in CI; `check.sh` mirrors the comparison for the pinned key, whose generated
+verifier must build to the runtime of the committed `HonkVerifier`, byte for byte. The Aztec
+side is in its `l1-contracts`: `src/core/interfaces/IVerifier.sol`, `RollupCore.sol` and
+`DeployRollupLib.sol`.
+
+## Other circuits
+
+`verifier::verify` runs the steps of `verify_at` with the relations evaluated in place. With it
+the library tests verify proofs that another project made
 with `bb` 6.0.0: the bundles Garaga commits, copied into `vectors/garaga/` with their provenance
 and the verdict of `bb verify` (`vectors/garaga/README.md`).
 
@@ -234,8 +314,9 @@ it), next to `HonkVerifier`, with one `HonkRelations` for both. The proof is acc
 low bit of its last word flipped it reverts with `ShpleminiFailed`; and each verifier rejects the
 proof of the other's circuit with `ProofLengthWrongWithLogN`, the first check. The accepted call
 uses 2,894,264 gas at `-O 1`, 2,892,207 at `-O 2` and 2,925,664 at `-O s`, measured on 2026-11-23
-as the gas of `verify` above, and the test asserts that it stays below 3,180,000. It was not run
-on a local node.
+as the gas of `verify` above, and the test asserts that it stays below 3,180,000. On a local
+node the generated verifier of that key accepts the proof in a transaction of 3,075,743 gas
+([On a local node](#on-a-local-node)).
 
 These proofs also reach relations the pinned proof does not. The range, elliptic, memory,
 non-native field and Poseidon2 relations are scaled by their selector, so where the selector
@@ -262,7 +343,8 @@ key has no selector the three others lack.
 - The contracts are built and tested for one circuit, with `LOG_N = 5`: the verification key is
   the constant `VK` in `lib/src/vk.fe`, generated from `vectors/vk` by `scripts/proof_to_fe.sh --vk`. Other circuits and sizes are verified in the library,
   on proofs this project did not make, and one of them through the two contracts, in a test
-  ([Other circuits](#other-circuits)).
+  ([Other circuits](#other-circuits)). The three also run on a local node, each through a
+  generated verifier, by hand ([On a local node](#on-a-local-node)).
 - No pinned proof carries pairing points: the eight limbs are zero, so the contract tests run
   only the branch that skips the aggregation. The aggregation is tested in the library: against
   values the reference computed with limbs put in place of the zeros, and on Garaga's `recursive`
@@ -313,7 +395,7 @@ its tests. `../honk-toy/` has no contract to build.
 | `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output. `test_address/`: the second proof and its public inputs, for the same `vk` |
 | `vectors/garaga/` | Proof bundles of other circuits, copied from Garaga (MIT) with its licence text: raw `bb` 6.0.0 output. `hello` (`LOG_N = 12`), `mutator_set` (17) and `recursive` (20). See `vectors/garaga/README.md` |
 | `scripts/check.sh` | Builds and tests everything in one command, and checks the code size of the three contracts. It also generates a verifier with `proof_to_fe.sh --verifier` for the key of Garaga's `recursive` bundle and formats, builds and measures it; checks that the one generated for the pinned key has the runtime of `HonkVerifier`, byte for byte; and checks that a key with `LOG_N` 0 or 26 is refused |
-| `scripts/demo_anvil.sh` | Deploys the built contracts on a local `anvil` node, verifies the pinned proof and claims through the vault |
+| `scripts/demo_anvil.sh` | Deploys the built contracts on a local `anvil` node, verifies the pinned proof and claims through the vault. With `--key <directory>` it generates, deploys and runs the verifier of the key and the proof `bb` wrote there, without the vault |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
 | `scripts/proof_to_fe.sh` | Prints the proof and public inputs of `vectors/` as Fe constants; `--vk` prints the verification key from `vectors/vk` and `vectors/vk_hash` alone, and refuses a key whose public-input offset is not 5; `--test-address` prints the second proof; `--garaga <bundle>` and `--garaga-key <bundle>` print a proof of `vectors/garaga/` and its key; `--verifier <key dir> <out dir>` writes a verifier ingot for the `vk` and `vk_hash` in a directory, as `bb write_solidity_verifier` writes a Solidity verifier: `fe.toml`, and `src/lib.fe` with the key and the `HonkVerifier` contract of `verifier/src/lib.fe` (it needs `python3`, for the relative path to `lib/`); every mode refuses a key with `LOG_N` outside 1 to 25 or with fewer than 8 public inputs; `--check` compares them with `lib/src/vectors.fe`, `lib/src/vk.fe`, `lib/src/test_address_vectors.fe` and every `lib/src/garaga_*.fe` |
 | `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi` |
