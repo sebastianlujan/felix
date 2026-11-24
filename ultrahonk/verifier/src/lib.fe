@@ -40,7 +40,7 @@ pub contract HonkVerifier {
 // `ultrahonk::expected`. The exceptions say so: the valid proof, accepted here as by the
 // reference; the flip of one bit in every proof word, which the reference was not asked
 // about; proof word 138, where the reference reverts without data; the tests of the call
-// between the two contracts; and the test of a second key, at the end.
+// between the two contracts; and the tests of two other keys, at the end.
 use core::error::ErrorVariant
 use core::message::MsgVariant
 use std::abi::{DynArray, Sol, bytes_from_words, dyn_array_from}
@@ -51,7 +51,7 @@ use ultrahonk::proof::evaluations
 use ultrahonk::relations::RelationsMsg
 use ultrahonk::relations_vectors::{PROOF_BATCHED, PROOF_BATCHED_TAMPERED}
 use ultrahonk::vectors::{LOG_N, PROOF, PUBLIC_INPUTS, proof, proof_with, public_inputs}
-use ultrahonk::{garaga_recursive, garaga_recursive_proof}
+use ultrahonk::{garaga_recursive, garaga_recursive_proof, pedersen_commit, pedersen_commit_proof}
 use ultrahonk_relations::HonkRelations
 
 // The reference verifier was called with this much gas when the reverts were recorded.
@@ -618,4 +618,47 @@ uses (evm: mut Evm)
             )
             == expected::PROOF_LENGTH_WRONG_WITH_LOG_N,
     )
+}
+
+// A third key, of `examples/pedersen_commit` (`LOG_N = 15`): the one proof here that reaches the
+// elliptic-curve relation (`pedersen_commit.fe`), and `bb verify` accepted it. Its gas is the
+// difference of `evm.gas()` around `accepts`, measured on 2026-11-24 with `fe` 26.6.0 at
+// `-O 1`: 2,302,243. The bound is about 10% above that.
+
+/// Tests only: nothing deploys it outside them.
+contract PedersenVerifier {
+    relations: Address,
+
+    init(relations_address: Address) uses (mut relations) { relations = relations_address }
+
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool uses (relations, call: Call, ctx: Ctx) {
+            verify_at(vk: pedersen_commit::VK, proof, public_inputs, relations)
+        }
+    }
+}
+
+#[test]
+fn test_a_proof_with_elliptic_gates_is_verified() uses (evm: mut Evm) {
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    let verifier = evm.create2<PedersenVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+    let words = pedersen_commit_proof::PROOF
+    let input = pedersen_commit_proof::PUBLIC_INPUTS[0]
+    let valid = bytes_from_words(words)
+    let inputs = one_input(input)
+    let before = evm.gas()
+    let accepted = accepts(verifier, proof: valid, public_inputs: inputs)
+    let used = before - evm.gas()
+    assert!(accepted)
+    assert!(used < 2530000)
+
+    // The low bit of the last proof word, then the public input plus one.
+    var tampered = words
+    tampered[261] = words[261] ^ 1
+    let flipped = bytes_from_words(tampered)
+    let same = bytes_from_words(words)
+    let flip = revert_of(verifier, proof: flipped, public_inputs: one_input(input))
+    assert!(flip == expected::SHPLEMINI_FAILED)
+    let change = revert_of(verifier, proof: same, public_inputs: one_input(input + 1))
+    assert!(change == expected::SUMCHECK_FAILED)
 }
