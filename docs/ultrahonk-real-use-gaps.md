@@ -2,6 +2,8 @@
 
 The verifier is correct for one circuit and proven on four, but it is a build for that one circuit: there is no public entry point, no how-to and no tooling to verify your own, and the two deployed contracts were never measured above `LOG_N = 5`. The toy verifies every step of the page's protocol, but only in Fe's half: the circuit and the prover exist only in Python, there is no transcript, and several steps have no negative test.
 
+**Update, 2026-11-23, after #37 to #47.** The paragraph above is the state found on `3329eca`. Since then the library has `verify_at`, `proof_to_fe.sh --verifier` makes a verifier for any key, Garaga's three circuits (`LOG_N` 12, 17, 20) run as transactions on anvil, the vault answers `y()` and `verifier()`, and the toy has its missing negative tests and states that its prover is Python only. Each row says what remains.
+
 - **Sources:** the owner's goal (2026-11-23): "the UltraHonk useful and functional, the toy just a toy, but a complete one"; [the gaps plan](ultrahonk-gaps.md), whose "Known limits in real use" this report extends rather than repeats.
 - **State checked on:** `develop` at `3329eca`, 2026-11-23. Read-only; `fe test` and `check.sh` were not run. The toy's `gen_vectors.py --check` was run and passes.
 - **Related docs:** [ultrahonk-gaps.md](ultrahonk-gaps.md) for the contest bands, the test track and the known limits; [ultrahonk/README.md](../ultrahonk/README.md) for sizes and gas.
