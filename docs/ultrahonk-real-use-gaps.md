@@ -47,8 +47,8 @@ The route exists only by reading scripts: `bb write_vk -t evm`, `proof_to_fe.sh 
 | # | Task | State | Evidence |
 | --- | --- | --- | --- |
 | C-1 | **new** A "Verify your own circuit" section: the commands from a Noir project to two deployed contracts | To do | no match for `own circuit\|your circuit` in any `*.md` except the limit at `docs/ultrahonk-gaps.md:136` |
-| C-2 | **new** A public entry point in the library, `verify_at(vk, proof, inputs, relations)`. Today the deployable `verify` is private to the contract and bound to its constant key | To do | `VER:24-41`; the library verifier evaluates the relations in place (`LIB/verifier.fe:22`), and one contract with both does not fit (`docs/adr/0012-code-size-strategy.md:38`) |
-| C-3 | **new** A dependency example: the `fe.toml` line and the `use` of the library from another ingot. The test helpers are public next to the API | To do | no match for `ultrahonk = \{` in any `*.md`; `LIB/verifier.fe:45-103` |
+| C-2 | **new** A public entry point in the library, `verify_at(vk, proof, inputs, relations)`. Today the deployable `verify` is private to the contract and bound to its constant key | Done (#42) | `verify_at` at `LIB/verifier.fe:44`; `HonkVerifier` calls it with its key (`VER:26`), and the test-only `RecursiveVerifier` with the key of Garaga's `recursive` (`VER:536`). `HonkVerifier` grew by 72, 161 and 158 bytes at the three levels (`RD:128`) |
+| C-3 | **new** A dependency example: the `fe.toml` line and the `use` of the library from another ingot. The test helpers are public next to the API | To do | no match for `ultrahonk = \{` in any `*.md`; `LIB/verifier.fe:74-132` |
 | C-4 | **new** Generator guards: refuse `LOG_N` above the transcript's maximum, and write the `bb` version into `vk.fe` | To do | `SCR/proof_to_fe.sh:58-59` reads `LOG_N` with no bound; the version is checked only in `SCR/vectors.sh:24` |
 | C-5 | A suite that does not pin one proof, or one verifier ingot per circuit | Decide | `docs/ultrahonk-gaps.md:136`; after `--vk` the captured values no longer match |
 | C-6 | **new** `proof_to_fe.sh --vk DIR` and `demo_anvil.sh --proof --inputs`, so a user can try their own proof without editing scripts | To do | `SCR/proof_to_fe.sh:56-57` and `SCR/demo_anvil.sh:38-39,85` hard-code the pinned files |
@@ -57,9 +57,9 @@ The route exists only by reading scripts: `bb write_vk -t evm`, `proof_to_fe.sh 
 
 | # | Task | State | Evidence |
 | --- | --- | --- | --- |
-| D-1 | **new** Gas and behaviour of the two contracts at `LOG_N` 12 to 20, with pairing points. Garaga's proofs run only through the library with 100M gas. By reading, `modexp` calls grow as about 21 per round: 112 at 5 (measured), about 427 at 20 (estimate) | To verify | gas measured at `LOG_N = 5` only (`RD:130`); `LIB/verifier.fe:83` |
+| D-1 | **new** Gas and behaviour of the two contracts at `LOG_N` 12 to 20, with pairing points. Garaga's proofs run only through the library with 100M gas. By reading, `modexp` calls grow as about 21 per round: 112 at 5 (measured), about 427 at 20 (estimate) | Partial (#42): measured in a Fe test; not yet on anvil | Garaga's `recursive` proof (`LOG_N = 20`, with pairing points) is accepted through a verifier with its key and `HonkRelations` for 2,894,264 gas at `-O 1` (test at `VER:568`, `RD` "Other circuits"). `LOG_N` 12 and 17 and the `modexp` count are not measured |
 | D-2 | A deploy script for a real network (RPC URL, key from the environment), reusing the demo's deployment order | To do | `SCR/demo_anvil.sh` uses an unlocked anvil account |
-| D-3 | **new** A way to check which relations contract a deployed verifier calls: print the keccak of both runtimes in `check.sh`, compare with `cast code` | Partial | `verify` rejects an address without code (test at `VER:513`), but nothing checks it is the right contract; no match for `codehash` |
+| D-3 | **new** A way to check which relations contract a deployed verifier calls: print the keccak of both runtimes in `check.sh`, compare with `cast code` | Partial | `verify` rejects an address without code (test at `VER:489`), but nothing checks it is the right contract; no match for `codehash` |
 | D-4 | **new** The drop-in claim at its edges: undecodable calldata, an unknown selector, sent value, a Fe panic. No Solidity or JavaScript caller is tested | To verify | selectors and 13 errors match by declaration (`LIB/errors.fe:77-92`); no match for `callvalue\|payable` in `ultrahonk/verifier` |
 | D-5 | **new** A troubleshooting table: `SumcheckFailed` also answers a wrong public input; under low gas a valid proof reverts as an invalid one | To do | `LIB/expected.fe:135-136`; low gas appears only at `docs/ultrahonk-gaps.md:138` |
 | D-6 | A run on a public test network | To do | `docs/ultrahonk-gaps.md:134` |
@@ -73,7 +73,7 @@ The route exists only by reading scripts: `bb write_vk -t evm`, `proof_to_fe.sh 
 | S-3 | A must-reject test for another `bb` version or flavor | To do | only 6.0.0 files under `ultrahonk/vectors/` |
 | S-4 | **new** The Noir circuit's own tests run, and `nargo` is pinned in `Nargo.toml` | To do | `ultrahonk/circuit/src/main.nr:8-21` has three tests; no match for `nargo test` in `SCR/` or `compiler_version` in `Nargo.toml` |
 | S-5 | Fuzzing or a differential loop against `bb verify` | To do | gaps plan, soundness evidence |
-| S-6 | **new** `README.md:55` says any one of the 142 words "changed by one bit" is rejected. The test flips the low bit of each word only | To do | `VER:222-225` |
+| S-6 | **new** `README.md:55` says any one of the 142 words "changed by one bit" is rejected. The test flips the low bit of each word only | To do | `VER:198-201` |
 
 ## 4. The vault as an example
 
@@ -112,7 +112,7 @@ The Fe side verifies every step of the page's protocol (permutation, LogUp looku
 
 ## Risks to the estimates
 
-- **Your own circuit.** C-2 moves code between the library and the contract; both runtimes are near the size limit at `-O 1` (16,638 and 8,527 bytes), so a move that grows either needs the size check again.
+- **Your own circuit.** C-2 moves code between the library and the contract; both runtimes are near the size limit at `-O 1` (16,638 and 8,527 bytes), so a move that grows either needs the size check again. Done in #42: `HonkVerifier` is 16,710 bytes, and `check.sh` passes.
 - **Realistic sizes.** D-1 may show the two contracts above a block's gas or a fork's `modexp` price; nothing measured rules it out.
 - **The toy prover.** T-1 as a Fe prover is the largest item here (a day or more: commitments, grand product, sumcheck, Gemini and Shplonk provers). As a Limits line it is minutes.
 - **Deadline.** Feature freeze is 2026-11-24 14:00 UTC. Areas 1 to 3 change code and captured values; only small parts fit before it.

@@ -33,11 +33,11 @@ Measured with `fe` 26.6.0 (`fe build --contract <Name> -O <level>`; the size is 
 
 | Runtime size, bytes | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| `HonkVerifier` | 16,638 | 16,476 | 16,346 |
+| `HonkVerifier` | 16,710 | 16,637 | 16,504 |
 | `HonkRelations` | 8,527 | 6,336 | 6,343 |
-| Both together | 25,165 | 22,812 | 22,689 |
+| Both together | 25,237 | 22,973 | 22,847 |
 
-- The table was measured again on 2026-11-23, after issues #4 to #6 (`ultrahonk/README.md`). Before them `HonkVerifier` was 16,446, 16,274 and 16,174 bytes.
+- The table was measured again on 2026-11-23, after issues #4 to #6 (`ultrahonk/README.md`). Before them `HonkVerifier` was 16,446, 16,274 and 16,174 bytes. It was measured once more after #42, which moved the steps of `verify` into the library function `verify_at`: before it `HonkVerifier` was 16,638, 16,476 and 16,346 bytes.
 - Each contract is below the 24,576-byte limit at every level.
 - The reference is a 16,946-byte contract plus two linked libraries of 8,211 and 6,008 bytes.
 - The split was made when the relations were ported, on 2026-11-22. The repository records no size for a single Fe contract holding everything, and no use of the × ~4.5 projection. The sums in the last row only indicate what a single contract would weigh: above the limit at `-O 1`, below it at `-O 2` and `-O s`.

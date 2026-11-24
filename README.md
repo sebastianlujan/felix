@@ -93,9 +93,9 @@ With `fe` 26.6.0 at `-O 1`, on the pinned proof. Methods and the other levels ar
 
 | | Fe port | Barretenberg's Solidity verifier |
 |---|---|---|
-| Runtime size | `HonkVerifier` 16,638 bytes, `HonkRelations` 8,527 | 16,946 bytes, plus two linked libraries of 8,211 and 6,008 |
-| Gas of `verify`, the call alone | 1,152,338 | 2,654,961 |
-| Gas of a `verify` transaction on a local node | 1,239,609 on Osaka, 937,321 on Cancun and Prague | not measured |
+| Runtime size | `HonkVerifier` 16,710 bytes, `HonkRelations` 8,527 | 16,946 bytes, plus two linked libraries of 8,211 and 6,008 |
+| Gas of `verify`, the call alone | 1,153,013 | 2,654,961 |
+| Gas of a `verify` transaction on a local node | 1,240,270 on Osaka, 937,982 on Cancun and Prague | not measured |
 
 The two gas figures of the call come from different harnesses (a Fe test and a `forge` gas
 report). Most of the difference is one change: the consistency check inverts the 47 denominators

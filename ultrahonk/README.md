@@ -66,7 +66,7 @@ In the order of the reference verifier, each with the reference's error:
 |---|---|---|
 | Proof length | `lib/src/proof.fe` | `ProofLengthWrongWithLogN(logN, actual, expected)` |
 | Every proof word in range for what it holds | `lib/src/proof.fe` | `ValueGeLimbMax`, `ValueGeGroupOrder`, `ValueGeFieldOrder` |
-| Number of public inputs | `verifier/src/lib.fe` | `PublicInputsLengthWrong` |
+| Number of public inputs | `lib/src/verifier.fe` | `PublicInputsLengthWrong` |
 | Public inputs in range, then the 16 challenges | `lib/src/transcript.fe` | `ValueGeFieldOrder` |
 | Public-input delta | `lib/src/sumcheck.fe` | (a value the relations read) |
 | The `LOG_N` sumcheck round checks | `lib/src/sumcheck.fe` | `SumcheckFailed` |
@@ -76,7 +76,7 @@ In the order of the reference verifier, each with the reference's error:
 | Consistency check of the Libra evaluations | `lib/src/consistency.fe` | `GeminiChallengeInSubgroup`, `ConsistencyCheckFailed` |
 | Multi-scalar multiplication | `lib/src/opening.fe` | `ShpleminiFailed` |
 | Pairing-point aggregation, only when a limb is non-zero | `lib/src/opening.fe` | `ValueGeGroupOrder`, `PointAtInfinity`, `ShpleminiFailed` |
-| Pairing | `lib/src/opening.fe`, `verifier/src/lib.fe` | `ShpleminiFailed` |
+| Pairing | `lib/src/opening.fe`, `lib/src/verifier.fe` | `ShpleminiFailed` |
 
 For the pinned proof, every challenge, the delta, the target of every sumcheck round, the final
 partial pow, the batched value of the relations, every Shplemini scalar, the terms of the
@@ -125,9 +125,9 @@ Measured with `fe` 26.6.0:
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| Runtime size of `HonkVerifier`, bytes (`fe build`) | 16,638 | 16,476 | 16,346 |
+| Runtime size of `HonkVerifier`, bytes (`fe build`) | 16,710 | 16,637 | 16,504 |
 | Runtime size of `HonkRelations`, bytes (`fe build`) | 8,527 | 6,336 | 6,343 |
-| Gas of `verify` on the valid proof, accepted | 1,152,338 | 1,150,828 | 1,166,583 |
+| Gas of `verify` on the valid proof, accepted | 1,153,013 | 1,151,747 | 1,167,457 |
 
 Before the opening was ported, 2,976 bytes of the then 7,609-byte `HonkVerifier` runtime were
 constants (the verification key, the zeroed challenge array, the barycentric denominators); that
@@ -150,6 +150,12 @@ so the third saves 953,808: about 4,560 for each of the 209 inversions left out.
 before the three changes it gives 2,094,295, 2,091,825 and 2,107,685 at the three levels. This
 README gave 2,108,994, 2,106,426 and 2,124,076 for that code, which the test does not
 reproduce; it gives 2,107,422 at `-O 1` when the proof is built inside the measured call.
+
+The `HonkVerifier` and gas rows were measured again the same day, after the steps of `verify`
+moved into the library function `verifier::verify_at`, which takes the key as an argument (#42).
+Before that they held 16,638, 16,476 and 16,346 bytes and 1,152,338, 1,150,828 and 1,166,583
+gas, the figures the paragraph above compares with. The runtime of `HonkRelations` is the same,
+byte for byte.
 
 A `verify` of the pinned proof makes 112 modexp calls, counted in a call trace of the
 valid-proof test (`fe test --call-trace`): 46 up to the end of sumcheck and 66 in the opening,
@@ -178,14 +184,14 @@ Gas used by the transactions, measured with it on 2026-11-23 (anvil 1.5.1, `-O 1
 
 | | Osaka | Prague, Cancun |
 |---|---|---|
-| `verify` of the pinned proof | 1,239,609 | 937,321 |
-| A claim through the vault | 1,267,465 | 965,177 |
-| Deploying `HonkRelations`, `HonkVerifier`, `Vault` | 1,893,267, 3,594,885, 233,218 | not recorded |
+| `verify` of the pinned proof | 1,240,270 | 937,982 |
+| A claim through the vault | 1,268,126 | 965,838 |
+| Deploying `HonkRelations`, `HonkVerifier`, `Vault` | 1,893,267, 3,610,429, 233,218 | not recorded |
 
 These include the 21,000 of the transaction and its calldata. The forks differ by 302,288 gas,
 about 2,700 for each of the 112 modexp calls: Osaka prices that precompile higher (EIP-7883). On
-Osaka, `-O 2` gives 1,238,096 and 1,265,952, and `-O s` 1,253,851 and 1,281,848. The deployed
-code is 8,527, 16,670 and 825 bytes at `-O 1`: the runtime, plus 32 bytes for each immutable
+Osaka, `-O 2` gives 1,239,012 and 1,266,868, and `-O s` 1,254,722 and 1,282,719. The deployed
+code is 8,527, 16,742 and 825 bytes at `-O 1`: the runtime, plus 32 bytes for each immutable
 field.
 
 What a chain needs:
@@ -198,9 +204,16 @@ The contracts were not run on a public test network.
 
 ## Other circuits
 
-`HonkVerifier` is built for the vault circuit. The library function `verifier::verify`
-(`lib/src/verifier.fe`) runs the same steps with the verification key as an argument and the
-relations evaluated in place. With it the library tests verify proofs that another project made
+`HonkVerifier` is built for the vault circuit, but the algorithm is not. It is the library
+function `verifier::verify_at(vk, proof, public_inputs, relations)` (`lib/src/verifier.fe`), the
+Fe counterpart of bb's `BaseZKHonkVerifier`: every step, with the verification key as an argument
+and the relations asked from the `HonkRelations` contract at `relations`. `HonkVerifier` only
+calls it with the key of its circuit, as bb's generated contract only supplies the key to the
+base one. A verifier for another circuit is the same shell over another key, and one
+`HonkRelations` serves them all.
+
+`verifier::verify` runs the same steps with the relations evaluated in place. With it the
+library tests verify proofs that another project made
 with `bb` 6.0.0: the bundles Garaga commits, copied into `vectors/garaga/` with their provenance
 and the verdict of `bb verify` (`vectors/garaga/README.md`).
 
@@ -212,7 +225,16 @@ and the verdict of `bb verify` (`vectors/garaga/README.md`).
 
 The flips and the changed inputs go through `KeyedVerifier`, a contract only the tests deploy,
 which runs `verifier::verify` with the key in the calldata. None of these tests goes through
-`HonkVerifier` and `HonkRelations`.
+`HonkRelations`.
+
+One verifier test does, for `recursive`. It deploys `RecursiveVerifier`, the shell of
+`HonkVerifier` over the key of that bundle (16,671 bytes at `-O 1`, and only the tests deploy
+it), next to `HonkVerifier`, with one `HonkRelations` for both. The proof is accepted; with the
+low bit of its last word flipped it reverts with `ShpleminiFailed`; and each verifier rejects the
+proof of the other's circuit with `ProofLengthWrongWithLogN`, the first check. The accepted call
+uses 2,894,264 gas at `-O 1`, 2,892,207 at `-O 2` and 2,925,664 at `-O s`, measured on 2026-11-23
+as the gas of `verify` above, and the test asserts that it stays below 3,180,000. It was not run
+on a local node.
 
 These proofs also reach relations the pinned proof does not. The range, elliptic, memory,
 non-native field and Poseidon2 relations are scaled by their selector, so where the selector
@@ -237,12 +259,14 @@ key has no selector the three others lack.
 - The contracts accept two pinned proofs in the tests. Ten fresh proofs of the same circuit were
   also accepted, by hand, on a local node (see [Regenerate the vector](#regenerate-the-vector)).
 - The contracts are built and tested for one circuit, with `LOG_N = 5`: the verification key is
-  the constant `VK` in `lib/src/vk.fe`, generated from `vectors/vk` by `scripts/proof_to_fe.sh --vk`. Other circuits and sizes are verified in the library
-  only, on proofs this project did not make ([Other circuits](#other-circuits)).
+  the constant `VK` in `lib/src/vk.fe`, generated from `vectors/vk` by `scripts/proof_to_fe.sh --vk`. Other circuits and sizes are verified in the library,
+  on proofs this project did not make, and one of them through the two contracts, in a test
+  ([Other circuits](#other-circuits)).
 - No pinned proof carries pairing points: the eight limbs are zero, so the contract tests run
   only the branch that skips the aggregation. The aggregation is tested in the library: against
   values the reference computed with limbs put in place of the zeros, and on Garaga's `recursive`
-  proof, which carries pairing points and is accepted through it.
+  proof, which carries pairing points and is accepted through it. One contract test accepts that
+  proof too ([Other circuits](#other-circuits)).
 - No accepted proof exercises the elliptic-curve relation: `qElliptic` is zero in the four
   circuits. That relation is tested only against the reference's values for a synthetic input
   (`lib/src/relations_vectors.fe`).
@@ -264,7 +288,7 @@ runs these commands and the other checks at once; its two vector checks also nee
 cd ultrahonk
 (cd lib && fe test)        # 199: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call, Garaga's proofs
 (cd relations && fe test)  # 2: the relations contract against the reference values
-(cd verifier && fe test)   # 19: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound
+(cd verifier && fe test)   # 20: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound, a second key
 (cd vault && fe test)      # 15: the vault against stand-in verifiers, its two getters, and in front of HonkVerifier
 (cd ../honk-toy && fe test) # 76: the toy verifier against its Python reference's vectors
 ```
@@ -273,8 +297,9 @@ The numbers are the tests that pass in each ingot, counted on 2026-11-23.
 
 `fe build --contract HonkRelations` in `relations/`, `fe build --contract HonkVerifier` in
 `verifier/` and `fe build --contract Vault` in `vault/` write the bytecode to `out/` in each
-directory. Without `--contract`, the build in `verifier/` also writes `FixedRelations` and
-`FailingRelations`, two stand-ins for the relations contract that only its tests deploy, and the
+directory. Without `--contract`, the build in `verifier/` also writes three contracts that only
+its tests deploy (`FixedRelations` and `FailingRelations`, two stand-ins for the relations
+contract, and `RecursiveVerifier`), and the
 build in `vault/` the seven contracts its tests deploy. `lib/` is a library: its one contract,
 `KeyedVerifier`, runs the library verifier with the key in the calldata and is deployed only by
 its tests. `../honk-toy/` has no contract to build.
@@ -291,7 +316,7 @@ its tests. `../honk-toy/` has no contract to build.
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
 | `scripts/proof_to_fe.sh` | Prints the proof and public inputs of `vectors/` as Fe constants; `--vk` prints the verification key from `vectors/vk` and `vectors/vk_hash` alone, and refuses a key whose public-input offset is not 5; `--test-address` prints the second proof; `--garaga <bundle>` and `--garaga-key <bundle>` print a proof of `vectors/garaga/` and its key; `--check` compares them with `lib/src/vectors.fe`, `lib/src/vk.fe`, `lib/src/test_address_vectors.fe` and every `lib/src/garaga_*.fe` |
 | `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi` |
-| `lib/src/verifier.fe` | `verify(vk, proof, public_inputs)`: every step in one call, with the verification key as an argument and the relations evaluated in place. No contract of the project calls it; the tests use it for circuits other than the vault's |
+| `lib/src/verifier.fe` | `verify_at(vk, proof, public_inputs, relations)`: every step in one call, with the verification key as an argument and the relations asked from `HonkRelations`. It is what `HonkVerifier` runs. `verify(vk, proof, public_inputs)`: the same with the relations evaluated in place. No contract of the project calls it; the tests use it for circuits other than the vault's |
 | `lib/src/std_assumptions.fe` | Tests only: they pin the behaviour of the std precompile wrappers and of Keccak hashing that the port depends on |
 | `lib/src/vk.fe` | The verification key of the vault circuit, which `HonkVerifier` is built with. Generated |
 | `lib/src/vectors.fe` | The pinned proof, plus the challenges, delta, round targets and pow captured from the reference. Re-exports the key |
@@ -303,7 +328,7 @@ its tests. `../honk-toy/` has no contract to build.
 | `lib/src/expected.fe` | The reverts of the reference verifier on invalid calls, and what its sumcheck alone does with them |
 | `docs/zk-verifier-reference.md` | What the port reproduces: proof layout, check order, transcript, formulas, errors |
 | `relations/` | Ingot `ultrahonk_relations`: contract `HonkRelations` |
-| `verifier/` | Ingot `ultrahonk_verifier`: contract `HonkVerifier`; its tests deploy both contracts |
+| `verifier/` | Ingot `ultrahonk_verifier`: contract `HonkVerifier`, which calls `verifier::verify_at` with the key of the vault circuit; its tests deploy both contracts |
 | `vault/` | Ingot `ultrahonk_vault`: contract `Vault`, which records the first caller with a proof for `[y, caller]`; no payout. See `vault/README.md` |
 | `../honk-toy/` | Ingot `honk_toy`: a hand-sized Honk verifier over F_17 with KZG over F_101, with its Python reference and vector generator in `../honk-toy/reference/`. See `../honk-toy/README.md` |
 | `../docs/ultrahonk.md` | At the repository root: the project plan and its outcome |

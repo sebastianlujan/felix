@@ -152,10 +152,10 @@ Observed on proofs built from a rule: the all-zero proof of the right length →
 
 | Risk | In the reference | In the Fe port |
 |---|---|---|
-| Code size | Three contracts: 16,946 + 8,211 + 6,008 runtime bytes = 31,165, above the 24,576-byte limit for one contract | Two contracts: `HonkVerifier` 16,638 bytes and `HonkRelations` 8,527 at `-O 1` (`../README.md`) |
+| Code size | Three contracts: 16,946 + 8,211 + 6,008 runtime bytes = 31,165, above the 24,576-byte limit for one contract | Two contracts: `HonkVerifier` 16,710 bytes and `HonkRelations` 8,527 at `-O 1` (`../README.md`) |
 | Off-curve points | A failed precompile call consumes the gas forwarded to it, so the reference can revert with empty data instead of `ShpleminiFailed` | The first failed call reverts with `ShpleminiFailed()`. For proof word 138 the two verifiers therefore differ, and the Fe tests assert `ShpleminiFailed()` |
 | Consistency check cost | 256 modular inversions, most multiplied by zero: only indices 0..9L of the Lagrange array are non-zero, and the denominator of index 255 is used on its own, for the last Lagrange polynomial | `consistency::check` makes the 9L + 2 inversions that are used (`evaluate_sparse`): 47 for this circuit, and one more for 1/256. `evaluate`, with the 256 inversions, is kept for the tests, which show that both give the same values on the pinned proof, four tampered proofs and synthetic proofs at L = 1, 5 and 25 |
-| Gas for a valid proof | 2,654,961 (forge gas report, `../README.md`) | 1,152,338 at `-O 1` (`../README.md`) |
+| Gas for a valid proof | 2,654,961 (forge gas report, `../README.md`) | 1,153,013 at `-O 1` (`../README.md`) |
 | Branches no proof reaches | Aggregation with non-zero limbs, `PointAtInfinity`, `InvertOfZero`, `GeminiChallengeInSubgroup` and `NotPowerOfTwo` were read on the reference. Later the aggregation was run on it with limbs put in place of the zeros (`lib/src/opening_vectors.fe`) | Library tests cover the aggregation against those values and, since 2026-11-23, on a proof that carries pairing points (Garaga's `recursive`); they trigger `PointAtInfinity`, `InvertOfZero` and `GeminiChallengeInSubgroup`. `NotPowerOfTwo` is never raised: `r^256` is computed by eight squarings |
 
 ## Fe 26.6.0 notes from this stage
