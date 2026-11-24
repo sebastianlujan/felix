@@ -26,7 +26,7 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
    (cd ../honk-toy && fe test) # 76
    ```
 
-   `ultrahonk/scripts/check.sh` runs these five and the other checks in one command. Its two vector checks also need `xxd`, `shasum` and `python3`.
+   `ultrahonk/scripts/check.sh` runs these five and the other checks in one command. Its two vector checks, and the verifier it generates with `scripts/proof_to_fe.sh --verifier`, also need `xxd`, `shasum` and `python3`.
 
 2. Read the result. In `verifier`, `test_the_valid_proof_is_accepted` shows the Fe verifier accepting the pinned proof. In `vault`, `test_the_real_verifier_accepts_a_claim_from_the_address_the_proof_was_made_for` shows a claim through the vault in front of it.
 
@@ -161,9 +161,11 @@ ultrahonk/
   circuit/             Nargo.toml, Prover.toml, Prover_test_address.toml, src/main.nr
   vectors/             proof, public_inputs, vk, vk_hash (raw bb output); test_address/
   scripts/check.sh         builds and tests everything; checks the code size
-  scripts/demo_anvil.sh    deploys the built contracts on a local anvil node
+  scripts/demo_anvil.sh    deploys the built contracts on a local anvil node; --key runs the
+                           generated verifier of another key and proof
   scripts/vectors.sh       regenerates vectors/ and the local oracle
-  scripts/proof_to_fe.sh   prints the proofs and the key as Fe constants; --check compares
+  scripts/proof_to_fe.sh   prints the proofs and the key as Fe constants; --check compares;
+                           --verifier writes a verifier ingot for a key
   .tools/              not committed: bb and nargo binaries
   .oracle/             not committed: Barretenberg's generated Solidity verifier
 ```
@@ -518,7 +520,7 @@ A reader needs only `fe`.
 | Regeneration (proofs, key, oracle source) | `scripts/vectors.sh`. Proving is randomized, so it writes different valid proofs; the README pins the committed ones. Needs the [project-local tools](#project-local-tooling). |
 | Regeneration (captured values) | Not possible from the repository alone: it needs the local Foundry tests to be recreated. Their documented provenance stands in for it. |
 | Regeneration (toy) | `python3 honk-toy/reference/gen_vectors.py` reproduces `honk-toy/src/vectors.fe`; `--check` compares without writing. Needs Python 3. |
-| End-to-end script | `ultrahonk/scripts/check.sh`: the tests and the formatting of the five ingots, the three contracts built at the three optimisation levels with each runtime checked against 24,576 bytes, and the two vector checks. |
+| End-to-end script | `ultrahonk/scripts/check.sh`: the tests and the formatting of the five ingots, the three contracts built at the three optimisation levels with each runtime checked against 24,576 bytes, a verifier generated with `scripts/proof_to_fe.sh --verifier` and built the same way, and the two vector checks. |
 
 What the Fe tests show:
 
