@@ -235,15 +235,15 @@ The contracts were not run on a public test network.
 
 ## Verify your own circuit
 
-In one command: `honk-fe/out/honk_fe up DIR` runs the steps below on the Noir package in DIR, checks
+In one command: `felix/out/felix up DIR` runs the steps below on the Noir package in DIR, checks
 the proof with `bb verify`, verifies it on anvil and leaves the verifier ingot in
-`DIR/target/verifier` ([`../honk-fe/`](../honk-fe/README.md)). The steps follow one by one.
+`DIR/target/verifier` ([`../felix/`](../felix/README.md)). The steps follow one by one.
 
 `HonkVerifier` is built for the vault circuit, but the algorithm is not. It is the library
 function `verifier::verify_at(vk, proof, public_inputs, relations)` (`lib/src/verifier.fe`): every
 step, with the verification key as an argument and the relations asked from the `HonkRelations`
 contract at `relations`. `HonkVerifier` only calls it with the key of its circuit. A verifier for
-another circuit is the same shell over another key, which `honk_fe new` ([`../honk-fe/`](../honk-fe/README.md))
+another circuit is the same shell over another key, which `felix new` ([`../felix/`](../felix/README.md))
 writes, and one `HonkRelations` serves them all.
 
 The steps, from the directory of a Noir package, with `nargo` 1.0.0, `bb` 6.0.0, `fe` 26.6.0,
@@ -262,9 +262,9 @@ bb write_vk -b "target/$NAME.json" -o target -t evm
 # 3. A proof: target/proof and target/public_inputs
 bb prove -b "target/$NAME.json" -w "target/$NAME.gz" -k target/vk -o target -t evm
 # 4. The verifier ingot of that key: $INGOT/fe.toml, $INGOT/src/vk.fe and $INGOT/src/lib.fe.
-#    `honk_fe gen-vk target/vk > "$INGOT/src/vk.fe"` changes the key alone.
-(cd "$REPO/honk-fe" && fe build --backend native --out-dir out)
-"$REPO/honk-fe/out/honk_fe" new target "$INGOT"
+#    `felix gen-vk target/vk > "$INGOT/src/vk.fe"` changes the key alone.
+(cd "$REPO/felix" && fe build --backend native --out-dir out)
+"$REPO/felix/out/felix" new target "$INGOT"
 # 5. Build the verifier and HonkRelations: out/<Contract>.bin in each ingot
 (cd "$INGOT" && fe build --contract HonkVerifier)
 (cd "$REPO/ultrahonk/relations" && fe build --contract HonkRelations)
@@ -396,7 +396,7 @@ cd ultrahonk
 (cd verifier && fe test)   # 21: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound, two other keys
 (cd vault && fe test)      # 15: the vault against stand-in verifiers, its two getters, and in front of HonkVerifier
 (cd ../honk-toy && fe test) # 76: the toy verifier against its Python reference's vectors
-(cd ../honk-fe && fe test)  # 3: honk_fe's relative paths, key checks and Nargo.toml name, run natively
+(cd ../felix && fe test)  # 3: felix's relative paths, key checks and Nargo.toml name, run natively
 ```
 
 The numbers are the tests that pass in each ingot, counted on 2026-11-24.
@@ -424,7 +424,7 @@ its tests. `key/` and `../honk-toy/` have no contract to build.
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
 | `scripts/proof_to_fe.sh` | Prints the proof and public inputs of `vectors/` as Fe constants; `--vk` prints the verification key from `vectors/vk` and `vectors/vk_hash` alone, and refuses a key whose public-input offset is not 5; `--test-address` prints the second proof; `--garaga <bundle>` and `--garaga-key <bundle>` print a proof of `vectors/garaga/` and its key; `--bundle <bundle>` and `--bundle-key <bundle>` do the same for a bundle made here, `vectors/<bundle>/`; `--verifier <key dir> <out dir>` writes a verifier ingot for the `vk` and `vk_hash` in a directory, as `bb write_solidity_verifier` writes a Solidity verifier: `fe.toml`, and `src/lib.fe` with the key and the `HonkVerifier` contract of `verifier/src/lib.fe` (it needs `python3`, for the relative path to `lib/`); every mode refuses a key with `LOG_N` outside 1 to 25 or with fewer than 8 public inputs; `--check` compares them with `lib/src/vectors.fe`, `lib/src/vk.fe`, `lib/src/test_address_vectors.fe`, every `lib/src/garaga_*.fe` and the two `lib/src/pedersen_commit*.fe` |
 | `key/` | Ingot `ultrahonk_key`: what bb 6.0.0 fixes about a verification key: `MAX_LOG_N`, `PAIRING_POINTS_SIZE`, `PUBLIC_INPUTS_OFFSET` and the words of the `vk` and `vk_hash` files. No test needs the EVM |
-| `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi`. The limits of the key live in `ultrahonk_key`, which `types` re-exports, so the verifier and `honk-fe` ([`../honk-fe/`](../honk-fe/README.md)) share them |
+| `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi`. The limits of the key live in `ultrahonk_key`, which `types` re-exports, so the verifier and `felix` ([`../felix/`](../felix/README.md)) share them |
 | `lib/src/verifier.fe` | `verify_at(vk, proof, public_inputs, relations)`: every step in one call, with the verification key as an argument and the relations asked from `HonkRelations`. It is what `HonkVerifier` runs. `verify(vk, proof, public_inputs)`: the same with the relations evaluated in place. No contract of the project calls it; the tests use it for circuits other than the vault's |
 | `lib/src/std_assumptions.fe` | Tests only: they pin the behaviour of the std precompile wrappers and of Keccak hashing that the port depends on |
 | `lib/src/vk.fe` | The verification key of the vault circuit, which `HonkVerifier` is built with. Generated |
