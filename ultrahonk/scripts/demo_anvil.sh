@@ -81,6 +81,8 @@ verifier="$(deploy HonkVerifier "$(cast abi-encode 'constructor(address)' "$rela
 vault="$(deploy Vault "$(cast abi-encode 'constructor(uint256,address)' "$Y" "$verifier")")"
 [ "$(cast call --rpc-url "$RPC" "$verifier" 'relations()(address)')" = "$relations" ] ||
     { echo "the verifier does not name the relations contract it was deployed with" >&2; exit 1; }
+[ "$(cast call --rpc-url "$RPC" "$vault" 'verifier()(address)')" = "$verifier" ] ||
+    { echo "the vault does not name the verifier it was deployed with" >&2; exit 1; }
 
 proof="0x$(xxd -p vectors/proof | tr -d '\n')"
 inputs="[$(xxd -p -c 32 vectors/public_inputs | awk '{ printf "%s0x%s", (NR > 1 ? "," : ""), $1 }')]"

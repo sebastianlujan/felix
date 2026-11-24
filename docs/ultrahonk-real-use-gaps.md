@@ -79,7 +79,7 @@ The route exists only by reading scripts: `bb write_vk -t evm`, `proof_to_fe.sh 
 
 | # | Task | State | Evidence |
 | --- | --- | --- | --- |
-| V-1 | **new** `y()` and `verifier()` getters, so a claimant can read the statement and check the verifier the vault trusts | To do | `VLT:13-20` has `claim`, `claimed`, `winner` only |
+| V-1 | **new** `y()` and `verifier()` getters, so a claimant can read the statement and check the verifier the vault trusts | Done (#38) | `VaultMsg::YValue` and `VaultMsg::Verifier` in `VLT`; tests `test_y_and_verifier_return_the_constructor_arguments` and `test_the_selectors_of_y_and_verifier` |
 | V-2 | The notes the gaps plan promised: the relayer wins, a contract wallet must prove for its own address, low gas misleads | To do | "Document it" at `docs/ultrahonk-gaps.md:138,157`; no match for `relayer\|contract wallet` in the READMEs |
 | V-3 | Replay across vaults and chains, no event, a public statement | To do, documented | `ultrahonk/vault/README.md:54-57`; by decision for the contest |
 | V-4 | Front-running and reentrancy | Done | caller bound (`VLT:39-41`, test `VLT:213`); static call (`VLT:36`, test `VLT:405`) |

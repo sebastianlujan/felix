@@ -17,6 +17,10 @@ pub msg VaultMsg {
     Claimed -> bool,
     #[selector = sol("winner()")]
     Winner -> Address,
+    #[selector = sol("y()")]
+    YValue -> u256,
+    #[selector = sol("verifier()")]
+    Verifier -> Address,
 }
 
 /// Whether the verifier at `verifier` accepts `proof` for the public inputs
@@ -79,6 +83,16 @@ pub contract Vault {
         /// The address that claimed; the zero address before the claim.
         Winner -> Address uses (winner) {
             winner
+        }
+
+        /// The `y` the vault was deployed with.
+        YValue -> u256 uses (y) {
+            y
+        }
+
+        /// The address of the verifier that `claim` asks.
+        Verifier -> Address uses (verifier) {
+            verifier
         }
     }
 }
@@ -179,6 +193,24 @@ fn winner(vault: Address) -> Address uses (evm: mut Evm) {
         gas: GAS,
         value: Wei::zero(),
         message: VaultMsg::Winner {},
+    )
+}
+
+fn y_of(vault: Address) -> u256 uses (evm: mut Evm) {
+    evm.call(
+        addr: vault,
+        gas: GAS,
+        value: Wei::zero(),
+        message: VaultMsg::YValue {},
+    )
+}
+
+fn verifier_of(vault: Address) -> Address uses (evm: mut Evm) {
+    evm.call(
+        addr: vault,
+        gas: GAS,
+        value: Wei::zero(),
+        message: VaultMsg::Verifier {},
     )
 }
 
@@ -478,6 +510,38 @@ uses (evm: mut Evm)
         },
     )
     assert!(sent == Bytes::from_payload(source: standard.span()))
+}
+
+// `y()` and `verifier()` answer with what the vault was deployed with, whatever it is. The
+// second `y` is wider than an address.
+#[test]
+fn test_y_and_verifier_return_the_constructor_arguments() uses (evm: mut Evm) {
+    let first = evm.create2<Vault>(
+            value: Wei::zero(),
+            args: (Y, Address::new(0xdead)),
+            salt: 0,
+        )
+    let second = evm
+        .create2<Vault>(
+            value: Wei::zero(),
+            args: (1 << 200, Address::new(0xbeef)),
+            salt: 0,
+        )
+    assert!(y_of(vault: first) == Y)
+    assert!(verifier_of(vault: first) == Address::new(0xdead))
+    assert!(y_of(vault: second) == 1 << 200)
+    assert!(verifier_of(vault: second) == Address::new(0xbeef))
+}
+
+// selectors of y() and verifier(), from `cast sig` (cast 1.5.1)
+#[test]
+fn test_the_selectors_of_y_and_verifier() {
+    assert!(
+        <VaultMsg::YValue as MsgVariant<Sol>>::SELECTOR == 0xa56dfe4a,
+    )
+    assert!(
+        <VaultMsg::Verifier as MsgVariant<Sol>>::SELECTOR == 0x2b7ac3f3,
+    )
 }
 
 // The real verifier, and the caller a claim that succeeds will need.
