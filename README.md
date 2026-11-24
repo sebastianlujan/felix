@@ -156,8 +156,10 @@ The full lists are in [`ultrahonk/README.md`](ultrahonk/README.md#limits) and
   AI coding assistant, Claude Code, under the owner's direction. The owner set the scope and
   made the decisions recorded in `docs/adr/`.
 - **Toolchain.** `fe` 26.6.0 (5b3f96a) for everything. `bb` 6.0.0 and `nargo` 1.0.0 only to
-  regenerate the vectors. The manifests are the `fe.toml` of each ingot: `ultrahonk/lib`,
-  `ultrahonk/relations`, `ultrahonk/verifier`, `ultrahonk/vault` and `honk-toy`.
+  prove: to regenerate the vectors, and in `honk_fe up`. Foundry's `anvil` and `cast` only for
+  the on-chain demos. The manifests are the `fe.toml` of each ingot: `ultrahonk/key`,
+  `ultrahonk/lib`, `ultrahonk/relations`, `ultrahonk/verifier`, `ultrahonk/vault`, `honk-toy`
+  and `honk-fe`.
 - **Licence.** [MIT](LICENSE).
 
 ## The root library and `calculator/`

@@ -44,7 +44,7 @@ The rules as read on the contest page on 2026-11-23. Read them again before quot
 - [x] Reproducible build instructions and automated tests: `ultrahonk/scripts/check.sh` (#3), one command, under "Run it" in the root README.
 - [x] A README covering the approach, the architecture and the limitations: the root README is the entry page (#11).
 - [x] A short pitch, a Fe-specific highlight, and a demo or reproducible example: the pitch and "What Fe brings" in the root README (#11), and `ultrahonk/scripts/demo_anvil.sh` (#8).
-- [ ] A declaration of pre-existing work, reused code and AI assistance. Today: written under "Declarations" in the root README (#11); it waits for the owner's confirmation.
+- [x] A declaration of pre-existing work, reused code and AI assistance: under "Declarations" in the root README (#11, completed in #66), confirmed by the owner on 2026-11-24.
 
 ## Decisions for the owner
 
