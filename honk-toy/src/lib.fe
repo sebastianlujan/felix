@@ -45,7 +45,7 @@ pub struct Proof {
     pub comm_w: [u256; 2],
 }
 
-/// Result of the sumcheck half, with every intermediate value (reference `sumcheck_verify`).
+/// Result of the sumcheck half, with the values the reference records (`sumcheck_verify`).
 /// The reference stops at the first failing round: rounds that did not run hold zeros.
 /// The final check is always evaluated, with the state at the point where the rounds stopped.
 pub struct SumcheckTrace {
@@ -73,7 +73,7 @@ pub struct SumcheckTrace {
     pub target: u256,
 }
 
-/// Result of the opening half, with every intermediate value (reference `shplemini_verify`).
+/// Result of the opening half, with the values the reference records (`shplemini_verify`).
 pub struct OpeningTrace {
     /// e(P0, G2) * e(P1, [tau]_2) == 1.
     pub ok: bool,

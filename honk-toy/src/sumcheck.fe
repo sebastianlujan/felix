@@ -117,7 +117,7 @@ pub fn verify(
 }
 
 /// Runs the sumcheck half on a reference scenario and asserts that the public-input delta
-/// and every intermediate value equal the reference's.
+/// and every recorded intermediate value equal the reference's.
 fn run(_ s: Scenario) -> SumcheckTrace {
     let delta = public_delta(
         s.public_inputs,
