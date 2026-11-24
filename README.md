@@ -20,6 +20,16 @@ It is an entry for the Fe Builders Challenge. Nothing here runs on the Aztec net
 
 ## Run it
 
+Install `fe` 26.6.0 from its release, which has builds for macOS, Linux and Windows (here macOS
+on Apple silicon; `fe_linux_amd64` for Linux on x86-64):
+
+```sh
+curl -L -o fe https://github.com/argotorg/fe/releases/download/v26.6.0/fe_mac_arm64
+chmod +x fe && ./fe --version   # fe 26.6.0 (5b3f96a)
+```
+
+Then move `fe` to a directory on your `PATH`.
+
 One command builds and tests everything:
 
 ```sh
@@ -60,6 +70,10 @@ committed as Fe constants with their provenance.
 - **Tampering.** A proof with the low bit of any one of its 142 words flipped is never accepted.
 - **Fresh proofs.** Ten newly generated proofs, which no test had seen, were accepted on a local
   node. This was run by hand.
+- **Other circuits.** Garaga's three `bb` 6.0.0 proofs (`LOG_N` 12, 17 and 20, one with pairing
+  points) and `pedersen_commit` (`LOG_N` 15), made here and the only one whose key uses the
+  elliptic-curve relation, are accepted by the library tests; `recursive` and `pedersen_commit`
+  also through the two contracts in a test, and all four as transactions on a local node.
 
 What the tests do not show is stated in [Limits](#limits).
 
@@ -69,7 +83,11 @@ The verifier follows the reference step by step: proof validation, the Fiat-Sham
 sumcheck with the relations, then the opening (Shplemini, the consistency check of the ZK flavor,
 a multi-scalar multiplication and one pairing).
 
-- `ultrahonk/lib` is a library ingot with one module per step. It has no state.
+- `ultrahonk/lib` is a library ingot with one module per step. It has no state. Its
+  `verifier::verify_at(vk, proof, public_inputs, relations)` is the algorithm, the Fe
+  counterpart of bb's `BaseZKHonkVerifier`.
+- `HonkVerifier` is a shell over the key of its circuit, as bb's generated `HonkVerifier` is.
+  `ultrahonk/scripts/proof_to_fe.sh --verifier` writes the same shell for another key.
 - `HonkVerifier` and `HonkRelations` are two contracts. The relations take no key, so one
   `HonkRelations` serves the verifier of every circuit. One contract with everything would fit,
   by 131 bytes at `-O s` (ADR-0012). The verifier asks the relations contract with a static call.
@@ -111,7 +129,10 @@ it uses, where the reference inverts all 256.
 
 - The port is **not audited**.
 - The tests do not show that every proof the reference rejects is rejected.
-- The verifier is built for one circuit: its verification key is a constant.
+- Each deployed verifier serves one circuit, as bb's does: its key is a constant, and
+  `proof_to_fe.sh --verifier` makes one for another key.
+- Only `bb` 6.0.0 and its ZK flavor (`-t evm`) are ported. `bb` 6.1.0 is out and untested here.
+  Aztec's own L1 rollup verifier is the non-ZK flavor, so this port does not replace it.
 - The contracts need **Cancun or later** and the precompiles at 0x05 to 0x08. They ran on a
   local node, not on a public test network.
 - **The vault protects nothing.** Its circuit proves `x * x == y` for a public `y`, which anyone
