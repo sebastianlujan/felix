@@ -54,7 +54,7 @@ for the valid proof in `lib/src/vectors.fe`, `lib/src/relations_vectors.fe` and
 | 7 | Verifier contract accepting proofs | Done: accepts both pinned proofs and rejects every recorded invalid call |
 | Toy | Honk over F_17 with KZG over F_101, with the sumcheck mask (`../honk-toy/README.md`) | Done |
 
-`scripts/check.sh` runs everything in one command: the tests and the formatting of the six ingots,
+`scripts/check.sh` runs everything in one command: the tests and the formatting of the seven ingots,
 the three contracts built at the three optimisation levels with each runtime checked against the
 code-size limit, a verifier generated for another key and built the same way, and the two vector
 checks.
@@ -239,7 +239,7 @@ The contracts were not run on a public test network.
 function `verifier::verify_at(vk, proof, public_inputs, relations)` (`lib/src/verifier.fe`): every
 step, with the verification key as an argument and the relations asked from the `HonkRelations`
 contract at `relations`. `HonkVerifier` only calls it with the key of its circuit. A verifier for
-another circuit is the same shell over another key, which `scripts/proof_to_fe.sh --verifier`
+another circuit is the same shell over another key, which `honk_fe new` ([`../honk-fe/`](../honk-fe/README.md))
 writes, and one `HonkRelations` serves them all.
 
 The steps, from the directory of a Noir package, with `nargo` 1.0.0, `bb` 6.0.0, `fe` 26.6.0,
@@ -257,8 +257,10 @@ nargo execute
 bb write_vk -b "target/$NAME.json" -o target -t evm
 # 3. A proof: target/proof and target/public_inputs
 bb prove -b "target/$NAME.json" -w "target/$NAME.gz" -k target/vk -o target -t evm
-# 4. The verifier ingot of that key: $INGOT/fe.toml and $INGOT/src/lib.fe
-"$REPO/ultrahonk/scripts/proof_to_fe.sh" --verifier target "$INGOT"
+# 4. The verifier ingot of that key: $INGOT/fe.toml, $INGOT/src/vk.fe and $INGOT/src/lib.fe.
+#    `honk_fe gen-vk target/vk > "$INGOT/src/vk.fe"` changes the key alone.
+(cd "$REPO/honk-fe" && fe build --backend native --out-dir out)
+HONK_FE_LIB="$REPO/ultrahonk/lib" "$REPO/honk-fe/out/honk_fe" new target "$INGOT"
 # 5. Build the verifier and HonkRelations: out/<Contract>.bin in each ingot
 (cd "$INGOT" && fe build --contract HonkVerifier)
 (cd "$REPO/ultrahonk/relations" && fe build --contract HonkRelations)
@@ -390,6 +392,7 @@ cd ultrahonk
 (cd verifier && fe test)   # 21: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound, two other keys
 (cd vault && fe test)      # 15: the vault against stand-in verifiers, its two getters, and in front of HonkVerifier
 (cd ../honk-toy && fe test) # 76: the toy verifier against its Python reference's vectors
+(cd ../honk-fe && fe test)  # 2: honk_fe's relative paths and key checks, run natively
 ```
 
 The numbers are the tests that pass in each ingot, counted on 2026-11-24.

@@ -21,7 +21,7 @@ esac
 
 step() { printf '\n== %s\n' "$*"; }
 
-for ingot in ultrahonk/key ultrahonk/lib ultrahonk/relations ultrahonk/verifier ultrahonk/vault honk-toy; do
+for ingot in ultrahonk/key ultrahonk/lib ultrahonk/relations ultrahonk/verifier ultrahonk/vault honk-toy honk-fe; do
     step "$ingot: format"
     (cd "$ingot" && fe fmt --check)
     step "$ingot: test"
@@ -77,6 +77,33 @@ if ultrahonk/scripts/proof_to_fe.sh --verifer >/dev/null 2>&1; then
     exit 1
 fi
 echo "OK: an unknown mode is refused"
+
+step "honk_fe: built natively, it writes the verifiers proof_to_fe.sh writes"
+(cd honk-fe && fe build --backend native --out-dir "$out/honk-fe" >/dev/null)
+honk_fe=$out/honk-fe/honk_fe
+# The key constants and `VK`, and the contract, of a generated file.
+constants() { awk '/^pub const LOG_N:/,/^}$/' "$1"; }
+contract() { awk '/^pub contract HonkVerifier \{$/,/^}$/' "$1"; }
+for pair in vectors:pinned vectors/garaga/recursive:garaga_recursive; do
+    "$honk_fe" gen-vk "ultrahonk/${pair%%:*}/vk" >"$out/vk.fe"
+    cmp <(constants "$out/vk.fe") <(constants "$out/${pair##*:}/src/lib.fe")
+    echo "OK: gen-vk prints the constants proof_to_fe.sh prints for ${pair%%:*}"
+done
+HONK_FE_LIB=ultrahonk/lib "$honk_fe" new ultrahonk/vectors "$out/honk_fe_pinned" >/dev/null
+cmp <(contract "$out/honk_fe_pinned/src/lib.fe") <(contract ultrahonk/verifier/src/lib.fe)
+echo "OK: the contract it writes is the one in verifier/src/lib.fe"
+(cd "$out/honk_fe_pinned" && fe fmt --check && fe build --contract HonkVerifier -O 1 --out-dir "$out/build/honk_fe" >/dev/null)
+cmp "$out/build/honk_fe/HonkVerifier.runtime.bin" "$out/build/verifier/1/HonkVerifier.runtime.bin"
+echo "OK: with the pinned key, the runtime of the ingot it writes is HonkVerifier's at -O 1"
+for log_n in 0 26; do
+    if printed=$("$honk_fe" gen-vk "$out/log_n_$log_n" 2>"$out/refused.txt"); then
+        echo "honk_fe accepted a key with LOG_N = $log_n" >&2
+        exit 1
+    fi
+    message=$(<"$out/refused.txt")
+    [[ -z $printed && $message == *"LOG_N is $log_n"* ]] || { echo "refused otherwise: $message" >&2; exit 1; }
+    echo "OK: $message"
+done
 
 step "pinned vectors: the Fe constants equal the raw bb output"
 ultrahonk/scripts/proof_to_fe.sh --check

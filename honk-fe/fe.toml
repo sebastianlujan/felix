@@ -1,0 +1,7 @@
+[ingot]
+name = "honk_fe"
+version = "0.1.0"
+target = "native"
+
+[dependencies]
+ultrahonk_key = { path = "../ultrahonk/key" }

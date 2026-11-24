@@ -8,3 +8,6 @@
 __pycache__/
 
 # Build output and local tools under ultrahonk/ are listed in ultrahonk/.gitignore.
+
+# The executable honk-fe is built into.
+honk-fe/out/
