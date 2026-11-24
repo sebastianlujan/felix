@@ -1,0 +1,312 @@
+// honk_fe: writes the Fe verifier of a verification key that `bb` 6.0.0 wrote, as
+// `bb write_solidity_verifier` writes a Solidity one. A native Fe program: it checks the key
+// against the limits in `ultrahonk_key`, the ones the verifier is built with.
+use core::abi::DynString
+use core::text::hex
+use core::{MemBuffer, MemSpan}
+use std::env::{Args, Env}
+use std::fs::Fs
+use std::io::{Stderr, Stdio, Stdout}
+use std::process::{Command, Exit, Spawn, Status}
+use ultrahonk_key::*
+
+const USAGE: DynString = "usage:
+  honk_fe gen-vk KEY       print the Fe module of the key: its constants and `VK`
+  honk_fe new KEY DIR      write a verifier ingot for the key into DIR
+  honk_fe demo KEY_DIR     run ultrahonk/scripts/demo_anvil.sh --key KEY_DIR
+KEY is bb's `vk` file, with `vk_hash` next to it, or the directory that holds both.
+`new` and `demo` need HONK_FE_LIB: the ultrahonk/lib directory of a checkout of the repository."
+
+pub fn main() -> i32
+uses (args: Args, env: Env, fs: mut Fs, io: mut Stdio, exit: Exit, proc: mut Spawn)
+{
+    let count = args.count()
+    if count == 3 && args.get(1) == "gen-vk" {
+        print!(key_module(format!(args.get(2))))
+        return 0
+    }
+    if count == 4 && args.get(1) == "new" {
+        new_ingot(key: format!(args.get(2)), dir: format!(args.get(3)))
+        return 0
+    }
+    if count == 3 && args.get(1) == "demo" {
+        return demo(format!(args.get(2)))
+    }
+    eprintln!(USAGE)
+    2
+}
+
+// `new KEY DIR`: DIR/fe.toml, DIR/src/vk.fe and DIR/src/lib.fe.
+fn new_ingot(key: MemBuffer, dir: MemBuffer)
+uses (env: Env, fs: mut Fs, out: mut Stdout, err: mut Stderr, exit: Exit)
+{
+    let module = key_module(key)
+    let lib = canonical(lib_dir())
+    let src = format!(dir, "/src")
+    if let Result::Err(e) = fs.create_dir_all(src) {
+        die(format!("cannot create ", src, ": ", e))
+    }
+    // Fe refuses an absolute dependency path.
+    let path = relative_path(from: canonical(dir).span(), to: lib.span())
+    let manifest = format!(MANIFEST, path, "\" }\n")
+    write(format!(dir, "/fe.toml"), manifest)
+    write(format!(src, "/vk.fe"), module)
+    write(format!(src, "/lib.fe"), format!(LIB_HEADER, SHELL))
+    println!("wrote ", dir, "/fe.toml, src/vk.fe and src/lib.fe")
+}
+
+fn demo(_ key: MemBuffer) -> i32
+uses (env: Env, err: mut Stderr, exit: Exit, proc: mut Spawn)
+{
+    let script = format!(lib_dir(), "/../scripts/demo_anvil.sh")
+    match proc.output(Command::new(script).arg("--key").arg(key)) {
+        Result::Ok(output) => match output.status {
+            Status::Exited(code) => code,
+            _ => die(format!(script, ": ", output.status)),
+        },
+        Result::Err(e) => die(format!("cannot run ", script, ": ", e)),
+    }
+}
+
+fn lib_dir() -> MemBuffer uses (env: Env, err: mut Stderr, exit: Exit) {
+    match env.lookup("HONK_FE_LIB") {
+        Option::Some(lib) => lib,
+        Option::None => die(format!("set HONK_FE_LIB to the ultrahonk/lib directory")),
+    }
+}
+
+// The Fe module of the key at `path`: bb's `vk` file, with `vk_hash` next to it, or the
+// directory that holds both.
+fn key_module(_ path: MemBuffer) -> MemBuffer
+uses (fs: Fs, err: mut Stderr, exit: Exit)
+{
+    var vk_path = format!(path)
+    if let Result::Ok(metadata) = fs.metadata(path) {
+        if metadata.is_dir() {
+            write!(mut vk_path, "/vk")
+        }
+    }
+    var dir_len = vk_path.len()
+    while dir_len > 0 && vk_path[dir_len - 1] != b'/' {
+        dir_len -= 1
+    }
+    let vk = read(vk_path)
+    let vk_hash = read(format!(vk_path.span().head(dir_len), "vk_hash"))
+    match key_constants(vk.span(), vk_hash.span()) {
+        Result::Ok(constants) => format!(VK_HEADER, constants),
+        Result::Err(message) => die(format!(vk_path, ": ", message)),
+    }
+}
+
+fn read(_ path: MemBuffer) -> MemBuffer
+uses (fs: Fs, err: mut Stderr, exit: Exit)
+{
+    match fs.read(path) {
+        Result::Ok(bytes) => bytes,
+        Result::Err(e) => die(format!("cannot read ", path, ": ", e)),
+    }
+}
+
+fn write(_ path: MemBuffer, _ text: MemBuffer)
+uses (fs: mut Fs, err: mut Stderr, exit: Exit)
+{
+    if let Result::Err(e) = fs.write(path, text.span()) {
+        die(format!("cannot write ", path, ": ", e))
+    }
+}
+
+fn canonical(_ path: MemBuffer) -> MemBuffer
+uses (fs: Fs, err: mut Stderr, exit: Exit)
+{
+    match fs.canonicalize(path) {
+        Result::Ok(absolute) => absolute,
+        Result::Err(e) => die(format!("cannot resolve ", path, ": ", e)),
+    }
+}
+
+fn die(_ message: MemBuffer) -> ! uses (err: mut Stderr, exit: Exit) {
+    eprintln!(message)
+    exit.exit(1)
+}
+
+// The constants of the key and `VK`, as `scripts/proof_to_fe.sh` prints them, or why the key is
+// refused: the checks are that script's.
+fn key_constants(_ vk: MemSpan, _ vk_hash: MemSpan) -> Result<MemBuffer, MemBuffer> {
+    if vk.len() != KEY_WORDS * 32 {
+        let message = format!("expected ", KEY_WORDS, " words, got ", vk.len(), " bytes")
+        return Result::Err(message)
+    }
+    if vk_hash.len() != KEY_HASH_WORDS * 32 {
+        return Result::Err(format!("expected ", KEY_HASH_WORDS, " word in vk_hash"))
+    }
+    var header: [usize; KEY_HEADER_WORDS] = [0; KEY_HEADER_WORDS]
+    for i in 0 .. KEY_HEADER_WORDS {
+        let word = vk.read_word(i * 32)
+        if word > 0xffffffff {
+            return Result::Err(format!("header word ", i, " does not fit in 32 bits"))
+        }
+        header[i] = word.downcast_truncate()
+    }
+    let log_n = header[0]
+    let inputs = header[1]
+    let limbs = PAIRING_POINTS_SIZE
+    if log_n < 1 || log_n > MAX_LOG_N {
+        return Result::Err(format!("LOG_N is ", log_n, ", expected 1 to ", MAX_LOG_N))
+    }
+    if inputs < limbs {
+        var message = format!("NUM_PUBLIC_INPUTS is ", inputs, ", expected at least ")
+        write!(mut message, limbs, " (the pairing-point limbs)")
+        return Result::Err(message)
+    }
+    if header[2] as u256 != PUBLIC_INPUTS_OFFSET {
+        let message = format!("the public-input offset is not ", PUBLIC_INPUTS_OFFSET)
+        return Result::Err(message)
+    }
+    var text = format!("pub const LOG_N: usize = ", log_n)
+    write!(mut text, "\npub const N: usize = ", 1 << log_n, "\n\n")
+    write!(mut text, "/// Public inputs of the circuit, ")
+    write!(mut text, "counting the ", limbs, " pairing-point limbs")
+    write!(mut text, " carried in the proof.\n")
+    write!(mut text, "pub const NUM_PUBLIC_INPUTS: usize = ", inputs)
+    let hash = hex(vk_hash.read_word(0), 32)
+    write!(mut text, "\npub const VK_HASH: u256 = 0x", hash, "\n\n")
+    write!(mut text, POINTS_DOC, "pub const VK_POINTS: [u256; ")
+    write!(mut text, KEY_POINT_WORDS, "] = [\n")
+    for i in 0 .. KEY_POINT_WORDS {
+        let word = vk.read_word((KEY_HEADER_WORDS + i) * 32)
+        write!(mut text, "    0x", hex(word, 32), ",\n")
+    }
+    write!(mut text, "]\n\n", VK_DOC)
+    Result::Ok(text)
+}
+
+// The path from the directory `from` to `to`, both absolute and without links, `.` or `..`.
+fn relative_path(from: MemSpan, to: MemSpan) -> MemBuffer {
+    // The longest common prefix that ends where a name ends in both.
+    var common: usize = 0
+    var i: usize = 0
+    while i < from.len() && i < to.len() && from[i] == to[i] {
+        i += 1
+        if (i == from.len() || from[i] == b'/') && (i == to.len() || to[i] == b'/') {
+            common = i
+        }
+    }
+    var path = MemBuffer::empty()
+    // One `..` for each name of `from` after the prefix.
+    for j in common .. from.len() {
+        if from[j] == b'/' && j + 1 < from.len() {
+            let up = if path.is_empty() { ".." } else { "/.." }
+            write!(mut path, up)
+        }
+    }
+    if common + 1 < to.len() {
+        if !path.is_empty() {
+            path.push(b'/')
+        }
+        path.extend_from(to.slice(offset: common + 1, len: to.len() - common - 1))
+    }
+    if path.is_empty() {
+        path.push(b'.')
+    }
+    path
+}
+
+const MANIFEST: DynString = "[ingot]
+name = \"honk_verifier\"
+version = \"0.1.0\"
+
+[dependencies]
+ultrahonk = { path = \""
+
+const POINTS_DOC: DynString = "/// `s1..s4, id1..id4, lagrangeFirst, lagrangeLast, qLookup, t1..t4, qm, qr, qo, qc, ql, q4,
+/// qArith, qDeltaRange, qElliptic, qMemory, qNnf, qPoseidon2External, qPoseidon2Internal`,
+/// as `x, y` pairs. `(0, 0)` is the commitment to a selector the circuit does not use.
+"
+
+const VK_DOC: DynString = "/// A constant, not a function returning the struct: passed by reference, it is embedded once in
+/// a contract that uses it, where the function form embedded the 56 point words three times
+/// (measured, `fe build --emit sizes`).
+pub const VK: VerificationKey = VerificationKey {
+    log_n: LOG_N,
+    num_public_inputs: NUM_PUBLIC_INPUTS,
+    vk_hash: VK_HASH,
+    points: VK_POINTS,
+}
+"
+
+const VK_HEADER: DynString = "// Verification key of one circuit, for `HonkVerifier` in `lib.fe`. GENERATED FILE, do not
+// edit: `honk_fe gen-vk KEY > src/vk.fe` writes it again from the `vk` and `vk_hash` that `bb`
+// 6.0.0 wrote. Words are 32 bytes, big-endian, in the order of the `vk` file.
+use ultrahonk::types::VerificationKey
+
+"
+
+const LIB_HEADER: DynString = "// UltraHonk verifier contract (ZK flavor) for the key in `vk.fe`: `HonkVerifier` of the
+// `ultrahonk` library, deployed with the address of a `HonkRelations` contract, which serves
+// every verifier. GENERATED FILE, do not edit: `honk_fe new KEY DIR` writes it.
+use std::abi::Bytes32
+use std::evm::Ctx
+use ultrahonk::abi::{VerifierInfoMsg, VerifierMsg}
+use ultrahonk::verifier::verify_at
+use vk::VK
+
+"
+
+// The contract of `ultrahonk/verifier/src/lib.fe`; `ultrahonk/scripts/check.sh` fails if they differ.
+const SHELL: DynString = "pub contract HonkVerifier {
+    // Immutable: set once in `init` and kept in the contract's code, not in storage.
+    relations: Address,
+
+    init(relations_address: Address) uses (mut relations) { relations = relations_address }
+
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool uses (relations, call: Call, ctx: Ctx) {
+            verify_at(vk: VK, proof, public_inputs, relations)
+        }
+    }
+
+    recv VerifierInfoMsg {
+        Relations -> Address uses (relations) {
+            relations
+        }
+    }
+}
+"
+
+#[test]
+fn test_relative_path() {
+    assert!(relative("/a/b", "/a/c") == "../c")
+    assert!(relative("/r/o/v", "/r/u/lib") == "../../u/lib")
+    assert!(relative("/a", "/a/b") == "b")
+    assert!(relative("/a/b", "/a") == "..")
+    assert!(relative("/a/bc", "/a/b") == "../b")
+    assert!(relative("/a", "/a") == ".")
+}
+
+#[test]
+fn test_a_key_outside_the_limits_is_refused() {
+    assert!(constants(log_n: 3, inputs: 8, offset: 5).is_ok())
+    assert!(constants(log_n: 0, inputs: 8, offset: 5).is_err())
+    assert!(constants(log_n: 26, inputs: 8, offset: 5).is_err())
+    assert!(constants(log_n: 3, inputs: 7, offset: 5).is_err())
+    assert!(constants(log_n: 3, inputs: 8, offset: 4).is_err())
+    assert!(constants(log_n: 1 << 32, inputs: 8, offset: 5).is_err())
+    let word = MemBuffer::new(32)
+    assert!(key_constants(word.span(), word.span()).is_err())
+    let header = "pub const LOG_N: usize = 3\npub const N: usize = 8\n"
+    let text = constants(log_n: 3, inputs: 8, offset: 5).unwrap()
+    assert!(text.span().starts_with(header))
+}
+
+fn relative(_ from: DynString, _ to: DynString) -> MemBuffer {
+    relative_path(from: from.span(), to: to.span())
+}
+
+// The constants of a key with this header and zero points.
+fn constants(log_n: u256, inputs: u256, offset: u256) -> Result<MemBuffer, MemBuffer> {
+    var vk = MemBuffer::new(KEY_WORDS * 32)
+    vk.span().write_word(offset: 0, value: log_n)
+    vk.span().write_word(offset: 32, value: inputs)
+    vk.span().write_word(offset: 64, value: offset)
+    key_constants(vk.span(), MemBuffer::new(32).span())
+}
