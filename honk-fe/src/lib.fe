@@ -7,20 +7,30 @@ use core::{MemBuffer, MemSpan}
 use std::env::{Args, Env}
 use std::fs::Fs
 use std::io::{Stderr, Stdio, Stdout}
-use std::process::{Command, Exit, Spawn, Status}
+use std::process::{Command, Exit, Redirect, Spawn, Status}
 use ultrahonk_key::*
 
 const USAGE: DynString = "usage:
+  honk_fe up [DIR]         from the Noir package in DIR (default .) to its proof verified on anvil,
+                           with bb and nargo from ultrahonk/.tools (or HONK_FE_TOOLS, or PATH)
   honk_fe gen-vk KEY       print the Fe module of the key: its constants and `VK`
   honk_fe new KEY DIR      write a verifier ingot for the key into DIR
   honk_fe demo KEY_DIR     run ultrahonk/scripts/demo_anvil.sh --key KEY_DIR
 KEY is bb's `vk` file, with `vk_hash` next to it, or the directory that holds both.
-`new` and `demo` need HONK_FE_LIB: the ultrahonk/lib directory of a checkout of the repository."
+`up`, `new` and `demo` use the ultrahonk/lib directory next to honk-fe/ when honk_fe is run by its
+path, as honk-fe/out/honk_fe; otherwise set HONK_FE_LIB to it."
 
 pub fn main() -> i32
 uses (args: Args, env: Env, fs: mut Fs, io: mut Stdio, exit: Exit, proc: mut Spawn)
 {
     let count = args.count()
+    if (count == 2 || count == 3) && args.get(1) == "up" {
+        var dir = format!(".")
+        if count == 3 {
+            dir = format!(args.get(2))
+        }
+        return up(dir)
+    }
     if count == 3 && args.get(1) == "gen-vk" {
         print!(key_module(format!(args.get(2))))
         return 0
@@ -38,7 +48,7 @@ uses (args: Args, env: Env, fs: mut Fs, io: mut Stdio, exit: Exit, proc: mut Spa
 
 // `new KEY DIR`: DIR/fe.toml, DIR/src/vk.fe and DIR/src/lib.fe.
 fn new_ingot(key: MemBuffer, dir: MemBuffer)
-uses (env: Env, fs: mut Fs, out: mut Stdout, err: mut Stderr, exit: Exit)
+uses (args: Args, env: Env, fs: mut Fs, out: mut Stdout, err: mut Stderr, exit: Exit)
 {
     let module = key_module(key)
     let lib = canonical(lib_dir())
@@ -56,7 +66,7 @@ uses (env: Env, fs: mut Fs, out: mut Stdout, err: mut Stderr, exit: Exit)
 }
 
 fn demo(_ key: MemBuffer) -> i32
-uses (env: Env, err: mut Stderr, exit: Exit, proc: mut Spawn)
+uses (args: Args, env: Env, fs: Fs, err: mut Stderr, exit: Exit, proc: mut Spawn)
 {
     let script = format!(lib_dir(), "/../scripts/demo_anvil.sh")
     match proc.output(Command::new(script).arg("--key").arg(key)) {
@@ -68,11 +78,153 @@ uses (env: Env, err: mut Stderr, exit: Exit, proc: mut Spawn)
     }
 }
 
-fn lib_dir() -> MemBuffer uses (env: Env, err: mut Stderr, exit: Exit) {
-    match env.lookup("HONK_FE_LIB") {
-        Option::Some(lib) => lib,
-        Option::None => die(format!("set HONK_FE_LIB to the ultrahonk/lib directory")),
+// `up DIR`: the steps of "Verify your own circuit" in `ultrahonk/README.md`, from `nargo execute` to
+// the proof verified by the generated verifier on anvil.
+fn up(_ dir: MemBuffer) -> i32
+uses (args: Args, env: Env, fs: mut Fs, io: mut Stdio, exit: Exit, proc: mut Spawn)
+{
+    // Each step below needs the library, so a missing one stops honk_fe before the first.
+    let lib = lib_dir()
+    // The pinned bb and nargo of the checkout, as `scripts/vectors.sh` runs them (ADR-0002).
+    let tools = match env.lookup("HONK_FE_TOOLS") {
+        Option::Some(tools) => tools,
+        Option::None => format!(lib, "/../.tools"),
     }
+    let nargo = tool(format!(tools, "/nargo/bin/nargo"), "nargo")
+    let bb = tool(format!(tools, "/bb/bb"), "bb")
+    check_version(nargo, "nargo version = 1.0.0")
+    check_version(bb, "6.0.0")
+    check_version(format!("fe"), "fe 26.6.0")
+    check_version(format!("anvil"), "anvil")
+    check_version(format!("cast"), "cast")
+    let name = match package_name(read(format!(dir, "/Nargo.toml")).span()) {
+        Option::Some(name) => name,
+        Option::None => die(format!(dir, "/Nargo.toml has no `name = \"...\"` line")),
+    }
+    let target = format!(dir, "/target")
+    run(dir, nargo, format!("execute"))
+    let circuit = format!("-b target/", name, ".json")
+    let write_vk = format!("write_vk ", circuit, " -o target -t evm")
+    run(dir, bb, write_vk)
+    let witness = format!(circuit, " -w target/", name, ".gz")
+    let prove = format!("prove ", witness, " -k target/vk -o target -t evm")
+    run(dir, bb, prove)
+    let files = "-k target/vk -p target/proof -i target/public_inputs"
+    run(dir, bb, format!("verify ", files, " -t evm"))
+    let ingot = format!(target, "/verifier")
+    new_ingot(key: format!(target), dir: format!(ingot))
+    let code = demo(target)
+    println!("\nThe verifier ingot is ", ingot, ". To build it again:")
+    println!("(cd ", ingot, " && fe build --contract HonkVerifier)")
+    code
+}
+
+// Stops honk_fe unless the first line `program --version` prints is `expected`, or starts with it
+// and a space.
+fn check_version(_ program: MemBuffer, _ expected: DynString)
+uses (err: mut Stderr, exit: Exit, proc: mut Spawn)
+{
+    let tools = "; honk_fe up needs nargo 1.0.0 and bb 6.0.0, fe 26.6.0, anvil and cast"
+    let command = Command::new(program).arg("--version").stdout(Redirect::Capture)
+    let printed = match proc.output(command) {
+        Result::Ok(output) => output.stdout,
+        Result::Err(e) => die(format!(program, " not found (", e, ")", tools)),
+    }
+    let end = match printed.span().index_of(b'\n') {
+        Option::Some(end) => end,
+        Option::None => printed.len(),
+    }
+    let line = printed.span().head(end)
+    let len = expected.len()
+    if !line.starts_with(expected) || (line.len() > len && line[len] != b' ') {
+        let found = format!(program, " --version printed \"", line, "\"")
+        die(format!(found, ", expected ", expected))
+    }
+}
+
+// `path` made absolute if it exists, or else `name`, for PATH to find.
+fn tool(_ path: MemBuffer, _ name: DynString) -> MemBuffer uses (fs: Fs) {
+    match fs.canonicalize(path) {
+        Result::Ok(absolute) => absolute,
+        Result::Err(_) => format!(name),
+    }
+}
+
+// Runs `program args` in `dir`, `args` split at spaces, and stops honk_fe with its status if it
+// fails.
+fn run(_ dir: MemBuffer, _ program: MemBuffer, _ args: MemBuffer)
+uses (io: mut Stdio, exit: Exit, proc: mut Spawn)
+{
+    let line = format!(program, " ", args)
+    println!("\n== ", line)
+    var command = Command::new(program).current_dir(dir)
+    for arg in args.span().split(b' ') {
+        command = command.arg(arg)
+    }
+    let status = match proc.output(command) {
+        Result::Ok(output) => output.status,
+        Result::Err(e) => die(format!("cannot run ", program, ": ", e)),
+    }
+    if !status.success() {
+        eprintln!("honk_fe up: `", line, "` failed: ", status)
+        let code = match status {
+            Status::Exited(code) => code,
+            _ => 1,
+        }
+        exit.exit(code)
+    }
+}
+
+// The `name = "..."` of a Nargo.toml.
+fn package_name(_ toml: MemSpan) -> Option<MemBuffer> {
+    for line in toml.lines() {
+        let text = line.trim()
+        if text.starts_with("name") {
+            let rest = text.slice(offset: 4, len: text.len() - 4).trim()
+            if rest.starts_with("=") {
+                let value = rest.slice(offset: 1, len: rest.len() - 1).trim()
+                let quoted = value.len() >= 2 && value[0] == b'"' && value[value.len() - 1] == b'"'
+                if quoted {
+                    let name = value.slice(offset: 1, len: value.len() - 2)
+                    return Option::Some(MemBuffer::from_span(name))
+                }
+            }
+        }
+    }
+    Option::None
+}
+
+// HONK_FE_LIB, or else the `ultrahonk/lib` next to `honk-fe/` when this program runs by a path.
+fn lib_dir() -> MemBuffer
+uses (args: Args, env: Env, fs: Fs, err: mut Stderr, exit: Exit)
+{
+    if let Option::Some(lib) = env.lookup("HONK_FE_LIB") {
+        return lib
+    }
+    let program = format!(args.get(0))
+    if program.span().index_of(b'/').is_some() {
+        if let Result::Ok(path) = fs.canonicalize(program) {
+            let lib = lib_next_to(path.span())
+            if fs.metadata(format!(lib, "/fe.toml")).is_ok() {
+                return lib
+            }
+        }
+    }
+    die(
+        format!("no ultrahonk/lib next to ", program, "; set HONK_FE_LIB"),
+    )
+}
+
+// `ultrahonk/lib` of the checkout of the program at `path`, `<checkout>/honk-fe/out/honk_fe`.
+fn lib_next_to(_ path: MemSpan) -> MemBuffer {
+    var end = path.len()
+    for _ in 0 .. 3 {
+        while end > 0 && path[end - 1] != b'/' {
+            end -= 1
+        }
+        if end > 0 { end -= 1 }
+    }
+    format!(path.head(end), "/ultrahonk/lib")
 }
 
 // The Fe module of the key at `path`: bb's `vk` file, with `vk_hash` next to it, or the
@@ -281,6 +433,16 @@ fn test_relative_path() {
     assert!(relative("/a/b", "/a") == "..")
     assert!(relative("/a/bc", "/a/b") == "../b")
     assert!(relative("/a", "/a") == ".")
+}
+
+#[test]
+fn test_the_package_name_and_the_lib_next_to_the_program() {
+    let toml = "[package]\nname = \"pedersen_commit\"\ntype = \"bin\"\n"
+    assert!(package_name(toml.span()).unwrap() == "pedersen_commit")
+    let other = "[package]\nnames = \"x\"\n"
+    assert!(package_name(other.span()).is_none())
+    let program = "/r/honk-fe/out/honk_fe"
+    assert!(lib_next_to(program.span()) == "/r/ultrahonk/lib")
 }
 
 #[test]

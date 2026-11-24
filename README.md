@@ -55,7 +55,7 @@ rejected with one bit flipped, and claims through the vault.
 For a proof of your own Noir circuit, follow
 [Verify your own circuit](ultrahonk/README.md#verify-your-own-circuit): the commands from
 `nargo execute` to a deployed verifier, which `demo_anvil.sh --key <directory>` runs on the local
-node. [`honk-fe/`](honk-fe/README.md) writes the verifier ingot of your key.
+node. `honk-fe/out/honk_fe up <package>` does all of it in one command ([`honk-fe/`](honk-fe/README.md)).
 
 ## How it is checked
 
