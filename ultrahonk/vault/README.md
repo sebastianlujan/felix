@@ -17,8 +17,8 @@ payout:** the contract holds and moves no funds, it only records that a claim wa
 ## The rule
 
 The vault is deployed with `y` and the address of the verifier, both immutable fields (kept in
-the contract's code, not in storage). `claim(bytes proof)` builds the
-public inputs itself, `[y, caller]`, and asks the verifier with a static call.
+the contract's code, not in storage); `y()` and `verifier()` return them. `claim(bytes proof)`
+builds the public inputs itself, `[y, caller]`, and asks the verifier with a static call.
 
 | Situation | `claim` | Recorded |
 |---|---|---|
@@ -63,7 +63,7 @@ cd ultrahonk/vault
 fe test
 ```
 
-Thirteen tests. The contracts they deploy are declared in the test section of `src/lib.fe`:
+Fifteen tests. The contracts they deploy are declared in the test section of `src/lib.fe`:
 
 | Contract | What it does |
 |---|---|
@@ -87,6 +87,8 @@ Thirteen tests. The contracts they deploy are declared in the test section of `s
 | `test_a_verifier_answer_longer_than_a_word_is_read_by_its_first_word` | 64 bytes that begin with the word 1 make the claim |
 | `test_a_verifier_that_writes_storage_makes_the_claim_revert` | The call to the verifier is static |
 | `test_the_verifier_is_sent_the_proof_then_y_and_the_caller` | The calldata word by word, equal to the standard encoding |
+| `test_y_and_verifier_return_the_constructor_arguments` | Two vaults deployed with different arguments: each getter returns its own |
+| `test_the_selectors_of_y_and_verifier` | `0xa56dfe4a` for `y()` and `0x2b7ac3f3` for `verifier()`, as `cast sig` gives them |
 | `test_a_test_claims_from_a_fixed_address` | The address of a test contract, and that the vault sees it as the caller |
 | `test_the_real_verifier_accepts_the_proof_but_no_test_caller_can_claim` | `Vault` in front of `HonkVerifier` and `HonkRelations`, with the pinned proof |
 | `test_the_real_verifier_accepts_a_claim_from_the_address_the_proof_was_made_for` | The same contracts with the second pinned proof: the claim is recorded, then replay is refused |
@@ -121,13 +123,13 @@ With `fe` 26.6.0. `fe build --contract Vault` writes the bytecode to `out/`; wit
 
 | | `-O 1` | `-O 2` | `-O s` |
 |---|---|---|---|
-| Runtime size of `Vault`, bytes | 671 | 671 | 675 |
-| Gas of a claim that succeeds, 5-byte proof, `CheckingVerifier` | 25,070 | 25,061 | 25,180 |
-| Gas of a claim that succeeds, 4,544-byte proof, a verifier that accepts everything | 29,381 | 29,375 | 29,494 |
-| Gas of a claim the verifier answers `false` to (the right proof, from another caller) | 4,944 | 4,935 | 5,054 |
-| Gas of a claim on a vault already claimed | 917 | 908 | 908 |
-| Gas of a claim that succeeds, second pinned proof, `HonkVerifier` and `HonkRelations` | 1,178,038 | 1,176,525 | 1,192,399 |
-| Gas of a second claim with that proof, on the vault it claimed | 2,806 | 2,806 | 2,806 |
+| Runtime size of `Vault`, bytes | 761 | 761 | 747 |
+| Gas of a claim that succeeds, 5-byte proof, `CheckingVerifier` | 25,092 | 25,083 | 25,224 |
+| Gas of a claim that succeeds, 4,544-byte proof, a verifier that accepts everything | 29,403 | 29,397 | 29,538 |
+| Gas of a claim the verifier answers `false` to (the right proof, from another caller) | 4,966 | 4,957 | 5,098 |
+| Gas of a claim on a vault already claimed | 939 | 930 | 952 |
+| Gas of a claim that succeeds, second pinned proof, `HonkVerifier` and `HonkRelations` | 1,178,060 | 1,176,547 | 1,192,443 |
+| Gas of a second claim with that proof, on the vault it claimed | 2,828 | 2,828 | 2,850 |
 
 The gas is the difference of `evm.gas()` around the call to `claim` in a Fe test, with the proof
 built before, so it includes encoding the calldata in the caller. Those tests, and the verifier
@@ -150,3 +152,8 @@ A claim the verifier answers `false` to costs more in this test than before. `cl
 share a storage slot with the verifier address, which the deployment wrote in the same
 transaction, so the claim read a warm slot. It now shares a slot with `winner` only, and the
 claim's read is the first access. In a transaction of its own the slot is cold either way.
+
+The table was measured once more the same day, after the getters `y()` and `verifier()` were
+added. Before them the build gave 671, 671 and 675 bytes, and temporary tests written again to
+the method above gave the figures this table held: 22 gas less in every gas row at `-O 1` and
+`-O 2`, 44 less at `-O s`.

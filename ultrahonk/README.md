@@ -179,13 +179,13 @@ Gas used by the transactions, measured with it on 2026-11-23 (anvil 1.5.1, `-O 1
 | | Osaka | Prague, Cancun |
 |---|---|---|
 | `verify` of the pinned proof | 1,239,609 | 937,321 |
-| A claim through the vault | 1,267,443 | 965,155 |
-| Deploying `HonkRelations`, `HonkVerifier`, `Vault` | 1,893,267, 3,594,885, 213,756 | not recorded |
+| A claim through the vault | 1,267,465 | 965,177 |
+| Deploying `HonkRelations`, `HonkVerifier`, `Vault` | 1,893,267, 3,594,885, 233,218 | not recorded |
 
 These include the 21,000 of the transaction and its calldata. The forks differ by 302,288 gas,
 about 2,700 for each of the 112 modexp calls: Osaka prices that precompile higher (EIP-7883). On
-Osaka, `-O 2` gives 1,238,096 and 1,265,930, and `-O s` 1,253,851 and 1,281,804. The deployed
-code is 8,527, 16,670 and 735 bytes at `-O 1`: the runtime, plus 32 bytes for each immutable
+Osaka, `-O 2` gives 1,238,096 and 1,265,952, and `-O s` 1,253,851 and 1,281,848. The deployed
+code is 8,527, 16,670 and 825 bytes at `-O 1`: the runtime, plus 32 bytes for each immutable
 field.
 
 What a chain needs:
@@ -265,7 +265,7 @@ cd ultrahonk
 (cd lib && fe test)        # 199: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call, Garaga's proofs
 (cd relations && fe test)  # 2: the relations contract against the reference values
 (cd verifier && fe test)   # 19: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound
-(cd vault && fe test)      # 13: the vault against stand-in verifiers, and in front of HonkVerifier
+(cd vault && fe test)      # 15: the vault against stand-in verifiers, its two getters, and in front of HonkVerifier
 (cd ../honk-toy && fe test) # 70: the toy verifier against its Python reference's vectors
 ```
 

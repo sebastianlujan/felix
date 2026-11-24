@@ -2,7 +2,7 @@
 
 This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 199 tests in `lib`, 2 in `relations`, 19 in `verifier`, 13 in `vault`, 70 in `toy`.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 199 tests in `lib`, 2 in `relations`, 19 in `verifier`, 15 in `vault`, 70 in `toy`.
 >
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
@@ -22,7 +22,7 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
    (cd lib && fe test)        # 199 tests
    (cd relations && fe test)  # 2
    (cd verifier && fe test)   # 19
-   (cd vault && fe test)      # 13
+   (cd vault && fe test)      # 15
    (cd ../honk-toy && fe test) # 70
    ```
 
@@ -349,7 +349,7 @@ From the Fe repository at tag `v26.6.0`:
 
 ## Design: vault (integration contract)
 
-The vault follows the teaching page's sketch. Its state is `{ y, verifier, claimed, winner }`: `y` and `verifier` are immutable fields, kept in the contract's code, and `claimed` and `winner` are storage. It is deployed with `y` and the address of the verifier, and answers `claim(bytes proof) -> bool`, `claimed()` and `winner()`. A claimant proves knowledge of a secret `x` with this circuit:
+The vault follows the teaching page's sketch. Its state is `{ y, verifier, claimed, winner }`: `y` and `verifier` are immutable fields, kept in the contract's code, and `claimed` and `winner` are storage. It is deployed with `y` and the address of the verifier, and answers `claim(bytes proof) -> bool`, `claimed()`, `winner()`, `y()` and `verifier()`. A claimant proves knowledge of a secret `x` with this circuit:
 
 ```noir
 fn main(x: Field, y: pub Field, recipient: pub Field) {
@@ -370,7 +370,7 @@ fn main(x: Field, y: pub Field, recipient: pub Field) {
 | Why ZK | A proof without zero-knowledge leaks witness evaluations, which matters when the witness is private. Here it is not: anyone can compute a square root of the public `y`. The vault shows the integration with the ZK flavor; it does not need it. |
 | What it protects | Nothing. Anyone can compute `x` from `y` and prove for their own address, so the first claim wins a race, not a puzzle. The public inputs are `[y, caller]`, with no vault address and no chain id: a caller's proof is valid at every vault with the same `y`, on every chain. With a relayer, the relayer is the caller and becomes the winner. |
 | Payout | Not implemented, by decision. The contract records the claim and the claimant only. |
-| Tests | 13 Fe tests. Eleven put a stand-in behind the vault: a valid claim, a replay, another caller, a wrong proof, a verifier that reverts, a verifier address without code, a verifier that answers a word other than a `bool`, an answer longer than a word, a verifier that writes storage, the calldata the verifier receives, and the fixed address of the test contract. Two put the vault in front of `HonkVerifier`. |
+| Tests | 15 Fe tests. Eleven put a stand-in behind the vault: a valid claim, a replay, another caller, a wrong proof, a verifier that reverts, a verifier address without code, a verifier that answers a word other than a `bool`, an answer longer than a word, a verifier that writes storage, the calldata the verifier receives, and the fixed address of the test contract. Two cover the getters `y()` and `verifier()`: their answers and their selectors. Two put the vault in front of `HonkVerifier`. |
 | Caller in tests | A Fe test cannot choose the caller of a call. A caller is a `Claimer` contract that forwards `claim`, or the test contract itself, whose address is always `0xbd770416a3345f91e4b34576cb804a576fa48eb1` with `fe` 26.6.0. |
 | Real claim | The second pinned proof is made for that test address, so a test claims through the vault in front of the real verifier. The first pinned proof, made for `0xc0ffe`, cannot be claimed from a Fe test. |
 
@@ -406,7 +406,7 @@ All stages are done. The table keeps the plan's stage numbers and states what ea
 | # | Work | Outcome |
 |---|---|---|
 | 0 | Tooling, Noir circuit, `vectors.sh`, the ZK vector, the recorded reference reverts, ingot skeletons, checks of the std | Done. The pipeline ends with `bb verify` accepting both proofs. |
-| 1 | `abi.fe` and the `Vault` contract, with Fe tests | Done. 13 tests. A valid claim returns `true`; a replay and another caller fail. |
+| 1 | `abi.fe` and the `Vault` contract, with Fe tests | Done. 15 tests. A valid claim returns `true`; a replay and another caller fail. |
 | 2 | `fr`, `types`, `proof`, `transcript`. Ports: `FrLib`, the checks of `loadProof`, the transcript | Done. Every challenge equals the oracle's value. A scalar ≥ P and a coordinate ≥ Q revert as in the reference. |
 | 3–5 | Sumcheck: public-input delta, round checks, the ten relations, the last comparison. Ports: `computePublicInputDelta`, `verifySumcheck`, `computeNextTargetSum`, the ten relations, `scaleAndBatchSubrelations` | Done. The delta, every round target and the partial pow match. The 31 subrelations match one by one, for the pinned proof and for a synthetic input that makes all 31 non-zero. The relations are the contract `HonkRelations`. |
 | 6 | The opening: Shplemini scalars, Libra consistency check, multi-scalar multiplication, pairing-point aggregation, pairing. Ports: `computeSquares`, `computeFoldPosEvaluations`, `checkEvalsConsistency`, `batchMul`, the aggregation, `pairing` | Done. The scalars match slot by slot, and the two pairing points match. The aggregation matches the reference on limbs put in place of the zeros, because no proof of this circuit carries pairing points. |
@@ -445,16 +445,16 @@ With `fe` 26.6.0. The figures are the ones in [`ultrahonk/README.md`](../ultraho
 |---|---|---|---|
 | Runtime size of `HonkVerifier`, bytes | 16,638 | 16,476 | 16,346 |
 | Runtime size of `HonkRelations`, bytes | 8,527 | 6,336 | 6,343 |
-| Runtime size of `Vault`, bytes | 671 | 671 | 675 |
+| Runtime size of `Vault`, bytes | 761 | 761 | 747 |
 | Gas of `verify` on the pinned proof, accepted | 1,152,338 | 1,150,828 | 1,166,583 |
-| Gas of a vault claim in front of `HonkVerifier` | 1,178,038 | 1,176,525 | 1,192,399 |
+| Gas of a vault claim in front of `HonkVerifier` | 1,178,060 | 1,176,547 | 1,192,443 |
 
 | Reference (Solidity verifier, solc 0.8.34) | |
 |---|---|
 | Runtime size | `HonkVerifier` 16,946 bytes, plus the linked libraries `RelationsLib` 8,211 and `ZKTranscriptLib` 6,008 |
 | Gas of a valid `verify` | 2,654,961 (forge gas report) |
 
-The limit for one contract is 24,576 bytes (EIP-170). `fe test` cannot catch it: its revm allows 1 MiB. A size is read from the build: `fe build --contract <Name> -O <level>` writes `out/<Name>.runtime.bin` as hex text, and the size is half its length. The sizes and the gas figures were measured again on 2026-11-23, after three changes: `fr::inv` checks the answer of the precompile, the relations address and the vault's parameters are immutable, and the consistency check inverts only the denominators it uses. Before them the table held 16,446, 16,274 and 16,174 bytes for `HonkVerifier`, 655, 647 and 651 for `Vault`, 2,108,994, 2,106,426 and 2,124,076 gas for `verify`, and 2,120,252, 2,117,762 and 2,133,741 for the claim. The tests that measure the gas are not committed, except a bound: a verifier test asserts that `verify` on the valid proof stays below 1,270,000 gas. The verifier README says what the same temporary tests give on the earlier code.
+The limit for one contract is 24,576 bytes (EIP-170). `fe test` cannot catch it: its revm allows 1 MiB. A size is read from the build: `fe build --contract <Name> -O <level>` writes `out/<Name>.runtime.bin` as hex text, and the size is half its length. The sizes and the gas figures were measured again on 2026-11-23, after three changes: `fr::inv` checks the answer of the precompile, the relations address and the vault's parameters are immutable, and the consistency check inverts only the denominators it uses. Before them the table held 16,446, 16,274 and 16,174 bytes for `HonkVerifier`, 655, 647 and 651 for `Vault`, 2,108,994, 2,106,426 and 2,124,076 gas for `verify`, and 2,120,252, 2,117,762 and 2,133,741 for the claim. The two `Vault` rows were measured once more after the getters `y()` and `verifier()` were added: before them they held 671, 671 and 675 bytes, and 1,178,038, 1,176,525 and 1,192,399 gas. The tests that measure the gas are not committed, except a bound: a verifier test asserts that `verify` on the valid proof stays below 1,270,000 gas. The verifier README says what the same temporary tests give on the earlier code.
 
 The relations are a contract of their own, as the reference keeps them in a linked library ([ADR-0012](adr/0012-code-size-strategy.md)). The two Fe runtimes add up to 25,165 bytes at `-O 1`, 22,812 at `-O 2` and 22,689 at `-O s`. The repository records no size for a single Fe contract holding everything, so these sums only indicate what it would weigh.
 
