@@ -409,9 +409,9 @@ was accepted by `HonkVerifier`, rejected with its last bit flipped, and claimed 
 by `0xc0ffe`. No test in the repository does this: it was run by hand.
 
 The script ends with `bb verify` accepting both new proofs. It **overwrites `vectors/proof` and
-`vectors/test_address/proof` with different valid proofs**; run
-`git checkout -- vectors/proof vectors/test_address/proof` afterwards to return to the pinned
-ones. Committing a new first proof means capturing `lib/src/expected.fe`, the second part of
+`vectors/test_address/proof` with different valid proofs**; run `git checkout -- vectors`
+afterwards to return to the pinned ones. It removes only the files it writes, so the Garaga
+bundles under `vectors/garaga/` are kept. Committing a new first proof means capturing `lib/src/expected.fe`, the second part of
 `lib/src/vectors.fe`, the `PROOF_*` values of `lib/src/relations_vectors.fe` and
 `lib/src/opening_vectors.fe` again, and regenerating the first part of `lib/src/vectors.fe` with
 `scripts/proof_to_fe.sh`. A new second proof only needs

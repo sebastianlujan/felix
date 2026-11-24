@@ -173,9 +173,9 @@ Each limit names its smallest fix. None blocks the submission once band 1 is don
 | Not attempted | Why |
 |---|---|
 | Replacing `x * x == y` by a hash preimage | Every captured value belongs to the pinned proof of this circuit, and the oracle is local: more than half a day, with the suite at risk |
-| Running `scripts/vectors.sh` in the working tree | It deletes `vectors/` first, and proving is randomised |
+| Running `scripts/vectors.sh` in the working tree | It rewrites the pinned proofs, and proving is randomised. Since #36 it keeps the Garaga bundles |
 | Proving a second or a recursive circuit of our own; fuzzing | Half a day or more each. Garaga's sets (E1) give other circuits without proving |
-| CI | `.github/` is ignored today, and installing `fe` on Linux was not verified |
+| CI | Installing `fe` on Linux was not verified |
 | Shipping the worktree's `verifier.fe` as public API | It is at most the start of E1's test helper |
 
 ## Documentation corrections

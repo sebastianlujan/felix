@@ -52,7 +52,7 @@ committed as Fe constants with their provenance.
   pairing points the reference computes.
 - **Revert by revert.** For a recorded list of invalid calls, the Fe contract reverts with the
   error the reference gave.
-- **Tampering.** A proof with any one of its 142 words changed by one bit is never accepted.
+- **Tampering.** A proof with the low bit of any one of its 142 words flipped is never accepted.
 - **Fresh proofs.** Ten newly generated proofs, which no test had seen, were accepted on a local
   node. This was run by hand.
 
