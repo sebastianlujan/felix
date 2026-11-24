@@ -79,6 +79,8 @@ pub const VK_POINTS: [u256; 56] = [
 ]
 
 // END OF GENERATED PART
+use std::abi::{Bytes32, bytes_from_words, dyn_array_from}
+use super::pedersen_commit_proof::{PROOF, PUBLIC_INPUTS}
 use super::types::VerificationKey
 
 pub const VK: VerificationKey = VerificationKey {
@@ -86,4 +88,42 @@ pub const VK: VerificationKey = VerificationKey {
     num_public_inputs: NUM_PUBLIC_INPUTS,
     vk_hash: VK_HASH,
     points: VK_POINTS,
+}
+
+fn proof() -> Bytes {
+    bytes_from_words(PROOF)
+}
+
+fn public_inputs() -> Vec<Bytes32> {
+    dyn_array_from([Bytes32 { val: PUBLIC_INPUTS[0] }])
+}
+
+// Tests: every step of the verifier (`verifier::verify`), at `LOG_N = 15`. No other proof here
+// has a `qElliptic` that is not zero at the sumcheck point: this one needs the elliptic relation.
+use std::evm::Evm
+use super::proof::evaluations
+use super::verifier::{accepted_bit_flips, accepts, deploy_keyed_verifier, verify}
+use super::wire::Q_ELLIPTIC
+
+#[test]
+fn test_pedersen_commit_is_accepted_and_reaches_the_elliptic_relation() {
+    assert!(PROOF[evaluations(LOG_N) + 1 + Q_ELLIPTIC] != 0)
+    assert!(verify(vk: VK, proof(), public_inputs()))
+}
+
+// The low bit of each of the 262 proof words, one word at a time.
+#[test]
+fn test_pedersen_commit_accepts_no_bit_flip() uses (evm: mut Evm) {
+    let accepted = accepted_bit_flips(vk: VK, words: PROOF, public_inputs: public_inputs())
+    assert!(PROOF.len() == 262 && accepted == 0)
+}
+
+#[test]
+fn test_pedersen_commit_rejects_a_changed_public_input() uses (evm: mut Evm) {
+    let verifier = deploy_keyed_verifier()
+    let inputs = public_inputs()
+    let changed = dyn_array_from([Bytes32 { val: PUBLIC_INPUTS[0] + 1 }])
+    let valid = accepts(verifier, vk: VK, proof: proof(), public_inputs: inputs)
+    let wrong = accepts(verifier, vk: VK, proof: proof(), public_inputs: changed)
+    assert!(valid && !wrong)
 }
