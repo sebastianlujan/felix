@@ -1,0 +1,37 @@
+// Data the verifier steps share. Field elements are plain `u256` values below `fr::P`.
+
+use ultrahonk_key::KEY_POINT_WORDS
+pub use ultrahonk_key::{MAX_LOG_N, PAIRING_POINTS_SIZE}
+
+pub struct VerificationKey {
+    pub log_n: usize,
+    /// Counts the `PAIRING_POINTS_SIZE` limbs carried in the proof.
+    pub num_public_inputs: usize,
+    pub vk_hash: u256,
+    /// The 28 commitments as `x, y` pairs, in the order of slots 2-29 of the reference's
+    /// multi-scalar multiplication (see `docs/zk-verifier-reference.md`).
+    pub points: [u256; KEY_POINT_WORDS],
+}
+
+/// The Fiat-Shamir challenges, in the order the transcript produces them.
+///
+/// The reference also stores 30 powers of `alpha` and `LOG_N` gate challenges. Both are
+/// running products (`alphas[i] = alpha^(i + 1)`, `gateChallenges[i] = gateChallenges[i - 1]^2`)
+/// that their only consumers read once and in order, so this struct keeps the seeds and
+/// the consumers multiply as they go, instead of carrying 55 more words.
+pub struct Transcript {
+    pub eta: u256,
+    pub rom_logup_gamma: u256,
+    pub beta: u256,
+    pub gamma: u256,
+    pub alpha: u256,
+    /// `gateChallenges[0]`.
+    pub gate_challenge: u256,
+    pub libra_challenge: u256,
+    /// Sumcheck challenges; entries from `log_n` on stay zero.
+    pub u: [u256; MAX_LOG_N],
+    pub rho: u256,
+    pub gemini_r: u256,
+    pub shplonk_nu: u256,
+    pub shplonk_z: u256,
+}

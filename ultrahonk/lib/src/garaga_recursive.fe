@@ -1,0 +1,187 @@
+// The `recursive` proof bundle of Garaga: its verification key, then the tests that verify the
+// proof of `garaga_recursive_proof.fe` with it.
+//
+// Source: https://github.com/keep-starknet-strange/garaga at commit
+// 86b6025567c5e2395947f9c6d40262c9ead2a54c, directory
+// `hydra/garaga/starknet/honk_contract_generator/examples/`. Licence: MIT, Copyright (c) 2023
+// Keep StarkNet Strange (`vectors/garaga/LICENSE`). Made with `bb` 6.0.0, flavor
+// `ultra_keccak_zk`, target `evm`, and accepted by `bb verify` (`vectors/garaga/README.md`).
+//
+// GENERATED PART. `scripts/proof_to_fe.sh --garaga-key recursive` prints everything down to the line
+// "END OF GENERATED PART" from `vectors/garaga/recursive/`, and `scripts/proof_to_fe.sh --check` fails
+// if this file starts with anything else. Words are 32 bytes, big-endian.
+//
+//   26349fea23eb7768f407670df67e79f13d719095bcecb3706c563caacb47951d  vectors/garaga/recursive/vk
+//   6c98377e71d8dd5907c717f99bdcb41d027bfc95941b42bdf30778120cd486ad  vectors/garaga/recursive/vk_hash
+//
+// `vectors/garaga/recursive/vk` is laid out as `vectors/vk` (`vectors.fe`): three header words, then
+// the 28 points in the order of `vectors::VK_POINTS`.
+pub const LOG_N: usize = 20
+
+/// Public inputs of the circuit, counting the 8 pairing-point limbs carried in the proof.
+pub const NUM_PUBLIC_INPUTS: usize = 9
+pub const VK_HASH: u256 = 0x23a9f16a81fbd5c809a16a0c5923ec4a12cccafa78de6c19c6e8d6cf0cf4bb0f
+
+pub const VK_POINTS: [u256; 56] = [
+    0x2128c63cdfd343ce1aa98d45cd6dcee24f0b88e6b7395b0f5146503689026147,
+    0x2812220ae97e956f2695d60e172064c74c4c20621c0e5b8eca220d240aff1629,
+    0x303e660b556c38fb8ae95a4364179c482e8bf3cd548ae498cc220dc55fe9d9cc,
+    0x2f08be33e58d0486fb33a28dbe47ae74343c1c6170668f19b86ad3770758999c,
+    0x2827ca00ca444b05d84d59bbb3ae922523065e4906d91b8820d0d76b87d9a498,
+    0x202ef54296acc4d60239a5ffa1d0ac15173e319b8df4384107e4605453afac39,
+    0x0e0bd07174f19f1dbb953d0b27ad7e42ad8a00359743d1354122289066fe22be,
+    0x14b877f22091d9829dff5b2c2f34f32ae1a55bc5cab156c787667f5cb7f0d766,
+    0x11a217a78395937c6e78e31273590c6bdb5cdea78319391e6fc90da13cb4e32c,
+    0x110e1ad15840f23f5a564e0838b35cf949c5a260d8b91823daa07a30e9082962,
+    0x08dfd2639ab58cd2be5fc50db8268a14e1824e2204ce855b5ca90a66cd3603e1,
+    0x0ea5abf335de768ede746c7d2630473ca3b03c0f6fbfd1bdb17ff4466c070537,
+    0x2a323e12f48db9c481573a599a7154bb450a67562caaa6f46006a3306cb7f82a,
+    0x1bf11503c764b2265ace4e75ca7095cfc261fdb8d9e79a92c2e650be4d0e6a4c,
+    0x0242b4a1919d0f15575596acc9f2ec1de420d41c7f4682eeb0adb86041dda289,
+    0x1de6df4c73121b6a7240d067a34172ebc4ae3aef43f3782fc445c233cf29c3bb,
+    0x2a56ce41f6b0be13b9c26747621b821eee81b23a887f299049b14c11e98460d6,
+    0x1aa98f2de3ddda547d8f6de4e725ded5827d6338c78656c0d12ca1aea6ef2c7c,
+    0x1f4733e6617ba46e7252879ecd0104b0a8056e0575dbeec319a699f07375a473,
+    0x06a2c58cb72efc33278867dc7379cd5c04dc3c8f53f6ba3bfaabcd6c76af2239,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x28f80e82b3378da28e364a7475fea136c8dca103b901e3da21d42ec13dcaa524,
+    0x0ff0ac3a92e0057ccfa662f180d02d2cf90098ebd13755685fa5ab1a345b1b34,
+    0x06e839c556b541ae0c1f59426bd70b89680fac1830bffc8b470ab6848691db7d,
+    0x210e22cc8e21945b59f75fffda995f9ee03a0fb7248ec28a1252fee8d09c9917,
+    0x1b5872466b4d05557be51fc3676a890ccb1d3a1a83a7bae064779cef8a202d31,
+    0x2e57c1db4c8778fd233b91c1a4bea4e4b7ae13fba0610aa6ae98a6870de5149f,
+    0x0e160f73b111c74cb787e83b8af2f559ea11ba9585e814a26b1d4b2db22071ef,
+    0x274f27871e2a71fa83e456c5304e72a546d7d126c564fa1eb4bae9ae5f6e62a7,
+    0x2e9415bb4aa80f03ff4af8c2bd133fd625bc0d86d3d6ee9094acee8ffa10d32d,
+    0x1a3d4f5015c8944bed6d288546d25e139071f095ab9d1cb38c34eb4418b2a9b8,
+    0x03823dfb9cdf9216632183f90f6d4e293610f607a87a6614403e36029d8d613e,
+    0x09c0e225a39c30aa11f8c63548b0ccf10cd05ef7b0370fd92dd5cc616577f4e9,
+    0x22f1d2f2440cf0f425f89c9fac0cbc355e6a86af09651c288a735ce0c9e56bcd,
+    0x08316ec68e948980d50c3c3193c2424355a316616847b50fb7f5067b6be29d21,
+    0x15f7e03729f795842688d6e8127faffa300f4123f86e0bbbc1d5109128136793,
+    0x1a6027a746235780299eccf6bc802cdd87c708e25fb46771087451836deab169,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x2c95b98cb7c9595e13b30e5fdd35391d52745e515db561e503e8b713b9ceb1ea,
+    0x2d196c187c38adcee7d7bcc5c716a7dc32ec77df341890ccf11d1c6b50f85d42,
+    0x0df0282da1942a27c17757b3e51d0ebc7989e61341c6cafd512f3b4f48e0ab7e,
+    0x28b04ec1011f12a971e5290b7ff9cd8234e11270de71bf55eeed725d9c2ac851,
+    0x10e34688330880669cd68aaa677952adc0638c19dc8027c8f3606a740c6fc448,
+    0x203a28b29e8e8ddf98c6a11432e69f5b9372586e7d318e595385daa2f073792d,
+    0x1faa6dc41d2b8dc6178a162c25f4c4a2007dec4d0f64e055ebb90e828b9aea0d,
+    0x1c69f973be1885e046e72f2d3cd0111118f2a7e1a72d7c9fd7bfd343ba059a3c,
+]
+
+// END OF GENERATED PART
+use std::abi::{Bytes32, bytes_from_words, dyn_array_from}
+use super::garaga_recursive_proof::{PROOF, PUBLIC_INPUTS}
+use super::types::VerificationKey
+
+pub const VK: VerificationKey = VerificationKey {
+    log_n: LOG_N,
+    num_public_inputs: NUM_PUBLIC_INPUTS,
+    vk_hash: VK_HASH,
+    points: VK_POINTS,
+}
+
+fn proof() -> Bytes {
+    bytes_from_words(PROOF)
+}
+
+fn public_inputs() -> Vec<Bytes32> {
+    dyn_array_from([Bytes32 { val: PUBLIC_INPUTS[0] }])
+}
+
+// Tests: every step of the verifier (`verifier::verify`), at `LOG_N = 20`, on a proof whose
+// circuit verifies another proof. Garaga pins no challenges for this proof.
+use std::evm::Evm
+use super::opening::{negate, pairing, pairing_points}
+use super::proof::evaluations
+use super::transcript::generate
+use super::types::PAIRING_POINTS_SIZE
+use super::verifier::{accepted_bit_flips, verify}
+use super::wire::{
+    Q_ELLIPTIC,
+    Q_LOOKUP,
+    Q_MEMORY,
+    Q_NNF,
+    Q_POSEIDON2_EXTERNAL,
+    Q_POSEIDON2_INTERNAL,
+    Q_RANGE,
+}
+use super::{garaga_hello_proof, garaga_mutator_set_proof, vectors}
+
+#[test]
+fn test_garaga_recursive_is_accepted() {
+    assert!(verify(vk: VK, proof(), public_inputs()))
+}
+
+// The eight limbs at the start of this proof are not zero: it carries the pairing points of
+// the proof its circuit verified, and the opening must aggregate them into its own. No other
+// proof of this repository takes that branch. Without the aggregation the second point of
+// the pairing is the negated KZG quotient, the last point of the proof; here it is not.
+#[test]
+fn test_garaga_recursive_goes_through_the_aggregation() {
+    for limb in 0 .. PAIRING_POINTS_SIZE {
+        assert!(PROOF[limb] != 0)
+    }
+    let t = generate(vk: VK, proof(), public_inputs())
+    let points = pairing_points(vk: VK, proof(), t)
+    let (x, y) = negate(x: PROOF[PROOF.len() - 2], y: PROOF[PROOF.len() - 1])
+    assert!(points.p1_x != x || points.p1_y != y)
+    assert!(pairing(points))
+}
+
+// The low bit of each of the 322 proof words, one word at a time. The first eight are the
+// limbs of the carried points.
+#[test]
+fn test_garaga_recursive_with_one_bit_changed_is_never_accepted()
+uses (evm: mut Evm)
+{
+    assert!(PROOF.len() == 322)
+    assert!(
+        accepted_bit_flips(vk: VK, words: PROOF, public_inputs: public_inputs()) == 0,
+    )
+}
+
+/// Whether the selector `entity` evaluates to zero at the sumcheck point of the proof `words`.
+fn selector_is_zero<const N: usize>(_ words: [u256; N], _ log_n: usize, _ entity: usize) -> bool {
+    words[evaluations(log_n) + 1 + entity] == 0
+}
+
+// What the three Garaga proofs add to the pinned one. The range, elliptic, memory, non-native
+// field and Poseidon2 relations are scaled by their selector: where it evaluates to zero at
+// the sumcheck point they add nothing to the batched value, and an accepted proof says
+// nothing about them. In the pinned proof every gate selector but `qArith` is zero there,
+// the lookup one too. In these proofs the range, lookup, memory, non-native field and both
+// Poseidon2 selectors are not zero, in one proof at least; the elliptic one is zero in all.
+#[test]
+fn test_garaga_proofs_reach_every_gate_selector_but_the_elliptic_one() {
+    let hello = garaga_hello_proof::PROOF
+    let mutator_set = garaga_mutator_set_proof::PROOF
+    for gate in [Q_RANGE, Q_MEMORY, Q_NNF, Q_POSEIDON2_EXTERNAL, Q_POSEIDON2_INTERNAL] {
+        assert!(selector_is_zero(vectors::PROOF, vectors::LOG_N, gate))
+        assert!(!selector_is_zero(PROOF, LOG_N, gate))
+    }
+    assert!(selector_is_zero(vectors::PROOF, vectors::LOG_N, Q_LOOKUP))
+    assert!(!selector_is_zero(mutator_set, 17, Q_LOOKUP))
+    assert!(!selector_is_zero(mutator_set, 17, Q_MEMORY))
+    assert!(!selector_is_zero(hello, 12, Q_RANGE))
+    assert!(!selector_is_zero(mutator_set, 17, Q_RANGE))
+
+    assert!(
+        selector_is_zero(vectors::PROOF, vectors::LOG_N, Q_ELLIPTIC),
+    )
+    assert!(selector_is_zero(hello, 12, Q_ELLIPTIC))
+    assert!(selector_is_zero(mutator_set, 17, Q_ELLIPTIC))
+    assert!(selector_is_zero(PROOF, LOG_N, Q_ELLIPTIC))
+}

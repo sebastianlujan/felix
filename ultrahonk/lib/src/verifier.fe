@@ -1,0 +1,215 @@
+// The whole verifier in one call, with the verification key as an argument: `verify` of the
+// reference, for any circuit.
+//
+// The steps, their order and their errors are those of the reference: the length and the
+// range of every proof word, the number of public inputs, the challenges (which check the
+// range of the public inputs), the public-input delta, sumcheck, and the opening.
+//
+// `verify_at` is what a deployed verifier runs: it asks the `HonkRelations` contract for the
+// relations. `HonkVerifier` (`verifier/src/lib.fe`) calls it with the key of its circuit.
+// `verify` evaluates the relations in place (`sumcheck::verify`): no contract of this project
+// calls it, and the tests use it to verify proofs of other circuits.
+use std::abi::Bytes32
+use std::evm::Ctx
+use super::errors::{PublicInputsLengthWrong, ShpleminiFailed, SumcheckFailed}
+use super::opening
+use super::proof::validate
+use super::sumcheck
+use super::transcript::generate
+use super::types::{PAIRING_POINTS_SIZE, VerificationKey}
+
+/// True for a valid proof of the circuit of `vk` with these public inputs. Never false: an
+/// invalid call reverts, with the error of the reference (`docs/zk-verifier-reference.md`).
+pub fn verify(vk: VerificationKey, _ proof: Bytes, _ public_inputs: Vec<Bytes32>) -> bool {
+    validate(proof, log_n: vk.log_n)
+    if public_inputs.len() != vk.num_public_inputs - PAIRING_POINTS_SIZE {
+        revert_error(PublicInputsLengthWrong {})
+    }
+    let t = generate(vk, proof, public_inputs)
+    let delta = sumcheck::public_input_delta(proof, public_inputs, beta: t.beta, gamma: t.gamma)
+    if !sumcheck::verify(proof, t, delta, log_n: vk.log_n) {
+        revert_error(SumcheckFailed {})
+    }
+    // The reference turns a pairing that does not hold into `ShpleminiFailed`.
+    if !opening::verify(vk, proof, t) {
+        revert_error(ShpleminiFailed {})
+    }
+    true
+}
+
+/// `verify` as every deployed verifier runs it, the Fe counterpart of bb's
+/// `BaseZKHonkVerifier`: the relations are evaluated by the `HonkRelations` contract at
+/// `relations`, as the reference links them as a library (ADR-0012). A contract with a key
+/// calls this from its `verify`, as bb's generated `HonkVerifier` only supplies the key.
+pub fn verify_at(
+    vk: VerificationKey,
+    _ proof: Bytes,
+    _ public_inputs: Vec<Bytes32>,
+    relations: Address,
+) -> bool
+uses (call: Call, ctx: Ctx)
+{
+    validate(proof, log_n: vk.log_n)
+    if public_inputs.len() != vk.num_public_inputs - PAIRING_POINTS_SIZE {
+        revert_error(PublicInputsLengthWrong {})
+    }
+    let t = generate(vk, proof, public_inputs)
+    let delta = sumcheck::public_input_delta(proof, public_inputs, beta: t.beta, gamma: t.gamma)
+    if !sumcheck::verify_with_relations_at(proof, t, delta, log_n: vk.log_n, relations) {
+        revert_error(SumcheckFailed {})
+    }
+    // The reference turns a pairing that does not hold into `ShpleminiFailed`.
+    if !opening::verify(vk, proof, t) {
+        revert_error(ShpleminiFailed {})
+    }
+    true
+}
+
+// Test support. A test that calls `verify` itself ends at the first revert, so it can hold
+// one invalid call. `KeyedVerifier` runs `verify` in a call of its own, where a revert is an
+// answer: through it one test asks about many proofs. The key travels in the calldata.
+use std::abi::{bytes_from_words, dyn_array_from}
+use std::evm::Evm
+
+pub msg KeyedVerifierMsg {
+    #[selector = 1]
+    Verify {
+        log_n: usize,
+        num_public_inputs: usize,
+        vk_hash: u256,
+        points: [u256; 56],
+        proof: Bytes,
+        public_inputs: Vec<Bytes32>,
+    } -> bool,
+}
+
+/// Tests only: nothing deploys it outside them.
+pub contract KeyedVerifier {
+    recv KeyedVerifierMsg {
+        Verify { log_n, num_public_inputs, vk_hash, points, proof, public_inputs } -> bool {
+            let vk = VerificationKey { log_n, num_public_inputs, vk_hash, points }
+            verify(vk, proof, public_inputs)
+        }
+    }
+}
+
+pub fn deploy_keyed_verifier() -> Address uses (evm: mut Evm) {
+    evm.create2<KeyedVerifier>(value: Wei::zero(), args: (), salt: 0)
+}
+
+/// Whether `verify` returned true for this call. A revert is `false`.
+pub fn accepts(
+    verifier: Address,
+    vk: VerificationKey,
+    proof: own Bytes,
+    public_inputs: own Vec<Bytes32>,
+) -> bool
+uses (evm: mut Evm)
+{
+    let outcome = evm
+        .try_call(
+            addr: verifier,
+            gas: 100000000,
+            value: Wei::zero(),
+            message: KeyedVerifierMsg::Verify {
+                log_n: vk.log_n,
+                num_public_inputs: vk.num_public_inputs,
+                vk_hash: vk.vk_hash,
+                points: vk.points,
+                proof,
+                public_inputs,
+            },
+        )
+    if !outcome.success() || outcome.returndata_len() != 32 {
+        return false
+    }
+    Bytes::from_payload(source: outcome.returndata()).word_at(0) == 1
+}
+
+/// How many of the `N` proofs made by flipping the low bit of one word of `words` are
+/// accepted. The proof as it is must be accepted first: a path that accepts nothing would
+/// count zero as well.
+pub fn accepted_bit_flips<const N: usize>(
+    vk: VerificationKey,
+    words: [u256; N],
+    public_inputs: Vec<Bytes32>,
+) -> usize
+uses (evm: mut Evm)
+{
+    let verifier = deploy_keyed_verifier()
+    assert!(
+        accepts(
+            verifier,
+            vk,
+            proof: bytes_from_words(words),
+            public_inputs: public_inputs.clone(),
+        ),
+    )
+    var accepted: usize = 0
+    for word in 0 .. N {
+        var tampered = words
+        tampered[word] = words[word] ^ 1
+        if accepts(
+            verifier,
+            vk,
+            proof: bytes_from_words(tampered),
+            public_inputs: public_inputs.clone(),
+        ) {
+            accepted += 1
+        }
+    }
+    accepted
+}
+
+// Tests, on the pinned proof of the vault circuit. The invalid calls revert with what the
+// reference verifier returned for them (`expected.fe`).
+use super::expected::{BIT_FLIPS, SHPLEMINI_FAILED, SUMCHECK_FAILED}
+use super::vectors::{PROOF, PUBLIC_INPUTS, VK, proof, proof_with, public_inputs}
+
+#[test]
+fn test_the_pinned_proof_is_accepted() {
+    assert!(verify(vk: VK, proof(), public_inputs()))
+}
+
+/// Verifies the pinned proof with the recorded bit flip `BIT_FLIPS[case]`.
+fn verify_with_bit_flip(case: usize, word: usize, reference: u32) {
+    let flip = BIT_FLIPS[case]
+    assert!(flip.word == word)
+    assert!(flip.selector == reference)
+    verify(
+        vk: VK,
+        proof_with(word, value: PROOF[word] ^ 1),
+        public_inputs(),
+    )
+}
+
+// selector of SumcheckFailed(): the last comparison of sumcheck, with the relations
+#[test(should_revert, selector = 0x9fc3a218)]
+fn test_a_flipped_relation_evaluation_reverts_with_sumcheck_failed() {
+    verify_with_bit_flip(case: 4, word: 75, reference: SUMCHECK_FAILED)
+}
+
+// selector of ShpleminiFailed(): the pairing does not hold
+#[test(should_revert, selector = 0xa5d82e8a)]
+fn test_a_flipped_gemini_evaluation_reverts_with_shplemini_failed() {
+    verify_with_bit_flip(case: 7, word: 129, reference: SHPLEMINI_FAILED)
+}
+
+// selector of PublicInputsLengthWrong()
+#[test(should_revert, selector = 0xfa066593)]
+fn test_a_missing_public_input_reverts() {
+    verify(
+        vk: VK,
+        proof(),
+        dyn_array_from([Bytes32 { val: PUBLIC_INPUTS[0] }]),
+    )
+}
+
+// The same 142 flips as the contract test of `HonkVerifier`, with the relations evaluated
+// in place.
+#[test]
+fn test_no_proof_with_one_bit_changed_is_accepted() uses (evm: mut Evm) {
+    assert!(
+        accepted_bit_flips(vk: VK, words: PROOF, public_inputs: public_inputs()) == 0,
+    )
+}

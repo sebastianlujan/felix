@@ -1,0 +1,122 @@
+// Arithmetic in the BN254 scalar field, on plain `u256` values.
+// Inputs are expected to be reduced (< P).
+use std::evm::crypto::{addmod, modexp, mulmod}
+use super::errors::{InvertOfZero, ModExpFailed}
+
+/// BN254 scalar field modulus (the field the circuit is defined over).
+pub const P: u256 = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+
+/// BN254 base field modulus (the field of curve point coordinates).
+pub const Q: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+
+pub fn add(_ a: u256, _ b: u256) -> u256 {
+    addmod(a, b, P)
+}
+
+/// Panics if `b > P`; Solidity wraps instead, so only reduced values may reach it.
+pub fn sub(_ a: u256, _ b: u256) -> u256 {
+    addmod(a, P - b, P)
+}
+
+pub fn mul(_ a: u256, _ b: u256) -> u256 {
+    mulmod(a, b, P)
+}
+
+/// Returns 0 for 0, where Solidity's `FrLib.neg` returns the unreduced `P`.
+pub fn neg(_ a: u256) -> u256 {
+    sub(0, a)
+}
+
+/// Multiplicative inverse by Fermat's little theorem. Reverts on 0: the
+/// precompile would silently return 0, which is not an inverse.
+///
+/// The answer of the precompile is checked: unless `a * value == 1`, the call
+/// reverts with `ModExpFailed`. The reference verifier accepts whatever the
+/// precompile returns; an account without code at 0x05 answers a successful call
+/// with 0.
+pub fn inv(_ a: u256) -> u256 {
+    if a == 0 {
+        revert_error(InvertOfZero {})
+    }
+    let value = match modexp(base: a, exp: P - 2, modulus: P) {
+        Result::Ok(value) => value,
+        Result::Err(_) => revert_error(ModExpFailed {}),
+    }
+    if mul(a, value) != 1 {
+        revert_error(ModExpFailed {})
+    }
+    value
+}
+
+#[test]
+fn test_add_wraps_at_modulus() {
+    assert!(add(P - 1, 1) == 0)
+    assert!(add(P - 1, 2) == 1)
+}
+
+#[test]
+fn test_sub_wraps_below_zero() {
+    assert!(sub(0, 1) == P - 1)
+    assert!(sub(5, 3) == 2)
+    assert!(sub(3, 3) == 0)
+}
+
+#[test]
+fn test_mul_reduces() {
+    assert!(mul(P - 1, P - 1) == 1)
+    assert!(mul(P - 1, 2) == P - 2)
+}
+
+#[test]
+fn test_neg() {
+    assert!(neg(0) == 0)
+    assert!(neg(1) == P - 1)
+    assert!(add(neg(7), 7) == 0)
+}
+
+#[test]
+fn test_inv_times_value_is_one() {
+    assert!(mul(inv(2), 2) == 1)
+    assert!(mul(inv(P - 1), P - 1) == 1)
+    assert!(inv(1) == 1)
+    assert!(mul(1, inv(1)) == 1)
+    assert!(mul(2, inv(2)) == 1)
+    assert!(mul(P - 1, inv(P - 1)) == 1)
+}
+
+// Two large operands. The expected inverses, product and sum were computed with
+// Python's integers (`pow(a, -1, P)`, `a * b % P`, `(a + b) % P`), not with this code.
+const A: u256 = 10856157318217732377394221203753506026819119103006495386379021661054368890331
+const B: u256 = 16174581532795693126447694768628665640794462424576560745281826645387263862862
+const A_INV: u256 = 9717930930859092562794013450071124737352944673555631957965327322905290025786
+const B_INV: u256 = 21882267811817433612615311633083506126466435664917933603867177012875755945543
+const A_TIMES_B: u256 = 20248041227286297662888451660798018118029181091606779713842546568165277751415
+const A_PLUS_B: u256 = 5142495979174150281595510227124896579065217127167021787962644119865824257576
+
+#[test]
+fn test_inv_of_large_operands() {
+    assert!(inv(A) == A_INV)
+    assert!(inv(B) == B_INV)
+    assert!(mul(A, inv(A)) == 1)
+    assert!(mul(B, inv(B)) == 1)
+}
+
+#[test]
+fn test_mul_and_add_of_large_operands() {
+    assert!(mul(A, B) == A_TIMES_B)
+    assert!(mul(B, A) == A_TIMES_B)
+    assert!(add(A, B) == A_PLUS_B)
+}
+
+// selector of InvertOfZero()
+#[test(should_revert, selector = 0xb2c952e2)]
+fn test_inv_of_zero_reverts() {
+    inv(0)
+}
+
+// `P` is not 0 as a `u256`, and the precompile answers P^(P-2) mod P = 0, which is
+// not an inverse. selector of ModExpFailed()
+#[test(should_revert, selector = 0x1f7ec5f0)]
+fn test_inv_of_modulus_reverts() {
+    inv(P)
+}

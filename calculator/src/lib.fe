@@ -1,0 +1,33 @@
+use CalculatorMsg::Sum
+use std::abi::sol
+use std::evm::{Evm, Call}
+use zk::add
+
+msg CalculatorMsg {
+    #[selector = sol("add(uint256,uint256)")]
+    Sum { a: u256, b: u256 } -> u256,
+}
+
+pub contract Calculate {
+    recv CalculatorMsg {
+        Sum { a, b } -> u256 {
+            add(a: a, b: b)
+        }
+    }
+}
+
+
+#[test]
+fn test_addition() uses (evm: mut Evm){
+    let addr = evm.create2<Calculate>(value: Wei::zero(), args: (), salt: 0)
+    assert!(addr.word() != 0)
+
+    let result: u256 = evm
+        .call(
+            addr: addr,
+            gas: 100000,
+            value: Wei::zero(),
+            message: CalculatorMsg::Sum { a: 2, b: 3 },
+        )
+    assert!(result == 5)
+}

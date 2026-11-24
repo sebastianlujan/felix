@@ -1,0 +1,92 @@
+// Custom errors with the same signatures, and therefore the same selectors, as the
+// `Errors` library of the Solidity verifier that Barretenberg generates for the ZK
+// flavor (`bb write_solidity_verifier -t evm`). Every error that verifier can raise
+// is declared here.
+//
+// One revert of that verifier has no counterpart: when the modexp precompile call
+// itself fails, `FrLib` reverts with the raw four bytes 0xf8d61709, which is not the
+// selector of `ModExpFailed()` (0x1f7ec5f0). `fr::inv` raises `ModExpFailed` there.
+//
+// `fr::inv` also raises `ModExpFailed` when the call succeeds and its answer is not
+// the inverse. That verifier uses the answer unchecked.
+use core::error::ErrorVariant
+use std::abi::Sol
+
+// Raised while the proof is decoded.
+
+#[error]
+pub struct ProofLengthWrongWithLogN {
+    pub log_n: u256,
+    pub actual_length: u256,
+    pub expected_length: u256,
+}
+
+/// A pairing-point limb does not fit its width (136 bits for low limbs, 120 for high).
+#[error]
+pub struct ValueGeLimbMax {}
+
+/// A curve point coordinate is not below the base field modulus.
+#[error]
+pub struct ValueGeGroupOrder {}
+
+/// A scalar is not below the scalar field modulus.
+#[error]
+pub struct ValueGeFieldOrder {}
+
+#[error]
+pub struct PublicInputsLengthWrong {}
+
+// Raised by the verification steps.
+
+#[error]
+pub struct SumcheckFailed {}
+
+#[error]
+pub struct ShpleminiFailed {}
+
+/// The Libra evaluations fail the small-subgroup consistency check (ZK only).
+#[error]
+pub struct ConsistencyCheckFailed {}
+
+/// The Gemini challenge lies in the subgroup the Libra polynomials live on (ZK only).
+#[error]
+pub struct GeminiChallengeInSubgroup {}
+
+/// A pairing point carried in the proof is the point at infinity.
+#[error]
+pub struct PointAtInfinity {}
+
+// Raised by field arithmetic.
+
+#[error]
+pub struct InvertOfZero {}
+
+/// `pow` is only defined for exponents that are powers of two.
+#[error]
+pub struct NotPowerOfTwo {}
+
+#[error]
+pub struct ModExpFailed {}
+
+fn selector<E: ErrorVariant<Sol>>() -> u32 {
+    E::SELECTOR
+}
+
+// The selectors below are `cast sig "<Name>(<types>)"` (cast 1.5.1) of the Solidity
+// declarations, so a renamed struct or field type fails here.
+#[test]
+fn test_selectors_match_solidity_errors() {
+    assert!(selector<ProofLengthWrongWithLogN>() == 0x59895a53)
+    assert!(selector<ValueGeLimbMax>() == 0xeb73e0bd)
+    assert!(selector<ValueGeGroupOrder>() == 0x607be13e)
+    assert!(selector<ValueGeFieldOrder>() == 0x20a33589)
+    assert!(selector<PublicInputsLengthWrong>() == 0xfa066593)
+    assert!(selector<SumcheckFailed>() == 0x9fc3a218)
+    assert!(selector<ShpleminiFailed>() == 0xa5d82e8a)
+    assert!(selector<ConsistencyCheckFailed>() == 0xa2a2ac83)
+    assert!(selector<GeminiChallengeInSubgroup>() == 0x835eb8f7)
+    assert!(selector<PointAtInfinity>() == 0x4ddaa5e5)
+    assert!(selector<InvertOfZero>() == 0xb2c952e2)
+    assert!(selector<NotPowerOfTwo>() == 0x24e8e742)
+    assert!(selector<ModExpFailed>() == 0x1f7ec5f0)
+}

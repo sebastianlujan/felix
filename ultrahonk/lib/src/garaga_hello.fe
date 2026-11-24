@@ -1,0 +1,196 @@
+// The `hello` proof bundle of Garaga: its verification key, then the tests that verify the
+// proof of `garaga_hello_proof.fe` with it.
+//
+// Source: https://github.com/keep-starknet-strange/garaga at commit
+// 86b6025567c5e2395947f9c6d40262c9ead2a54c, directory
+// `hydra/garaga/starknet/honk_contract_generator/examples/`. Licence: MIT, Copyright (c) 2023
+// Keep StarkNet Strange (`vectors/garaga/LICENSE`). Made with `bb` 6.0.0, flavor
+// `ultra_keccak_zk`, target `evm`, and accepted by `bb verify` (`vectors/garaga/README.md`).
+//
+// GENERATED PART. `scripts/proof_to_fe.sh --garaga-key hello` prints everything down to the line
+// "END OF GENERATED PART" from `vectors/garaga/hello/`, and `scripts/proof_to_fe.sh --check` fails
+// if this file starts with anything else. Words are 32 bytes, big-endian.
+//
+//   d46d8978b63f8a74457e7f211b44b4450ad9a7a6c53b2b5f70e851a4a6c1817f  vectors/garaga/hello/vk
+//   aa77f65715081b4e5a29304d21c9c29aa398aaa58d78c8fde6153985395dca76  vectors/garaga/hello/vk_hash
+//
+// `vectors/garaga/hello/vk` is laid out as `vectors/vk` (`vectors.fe`): three header words, then
+// the 28 points in the order of `vectors::VK_POINTS`.
+pub const LOG_N: usize = 12
+
+/// Public inputs of the circuit, counting the 8 pairing-point limbs carried in the proof.
+pub const NUM_PUBLIC_INPUTS: usize = 9
+pub const VK_HASH: u256 = 0x1ccf00eda9aea4320df58fdc84d51e4426c932250549a57687c3dccf30ec9e09
+
+pub const VK_POINTS: [u256; 56] = [
+    0x2b76e669cb63577de541b1713407a9ad6a44673d68d275041d7897cdb7ac0566,
+    0x17af3ea3e70a6a73e32104e3a9df02ab26e9a5ab07bb79b340b877934e4011b6,
+    0x2ff071de8ea32964db69eba5c7807dcb3495f1aa2639a6a255d27e09402a2d0b,
+    0x02a606c882c2eb84f0af19a7592736755b619cf8456c57d284b57955aa74e2f7,
+    0x1097ef14f7286b02b1732e0033bc42dcbacdd265bf8532926991ab67b6c7e011,
+    0x270f45c886bc816d44cdb28f3e5c7b15f0610ef5f7985cc6319723faaede926c,
+    0x2e3de7ac6635983f9eb4f572a62c51998b00469a6d44a6218401811f0bae826d,
+    0x1a2e275796993b43838cd18fac78aa92d42fde458ccda8bfcf4ac7ce7f18cc3f,
+    0x1c6bece676ee1d83a23dbd10cde333a3b79a53acad1d842420b9ba94b14ed0ba,
+    0x299eaf7de90f7de840d65c03fe141cacb7a06e46a6dac107b821ba99ec1200fc,
+    0x0d27d843c5ab1c3f7b0a83dd927d6dfd3e08f87223f09f33781dd7137740c7bd,
+    0x17f7fca8dcfea36a58df3092aa175ecfb72288fa6ffca7e9481e58572ba3dd96,
+    0x2aaf0ea05d276bdaea1ac32214fe69d44db36191d36a993acf8aa1d320de37ab,
+    0x0321a5556753e249b8032cd3fccb1d2dc4ffea1630d3b1c3221ca465b59c1d56,
+    0x1650c4615868d95d53f5e939ba3481bacd1c1d2573d8c92d1e8e8a842ca02142,
+    0x1892b9f8df903fb46ee13023f9d74ac029e6d1a72b9b7a176b96767da7467197,
+    0x2a56ce41f6b0be13b9c26747621b821eee81b23a887f299049b14c11e98460d6,
+    0x1aa98f2de3ddda547d8f6de4e725ded5827d6338c78656c0d12ca1aea6ef2c7c,
+    0x2a06b3387a444dcc50051587e272edde3af542d1a37edd842f2dbd07c6ade78e,
+    0x22616c241d3fbf6c3c575589fee6f52d92a8102a453d3d44bf54337b779f318c,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x253c21f9f3795b10195999b67322b28166950c3b2f6f77c10094f69a4779eee1,
+    0x1466aeb3b499706d3db0371b0975619ade0665a82706773fd96a2af8e4830f1e,
+    0x28883969fa595565dc6ae6c1a0dff4d032dcffac4c6b24411c28feea328ff018,
+    0x1338e5ebbc48db45bfc97ce972c629f0170090a3ef207bca7c45fabf4108edc2,
+    0x0cdbd6b43659bb55d80745e338a33bb4bd153fab66e1b3cdd59f1fd264e0446a,
+    0x1c5e60e7695628077932c8ebebfa6032b6a95975f5c3dfbf55e09a99de72e59d,
+    0x040c0f724ffae5d4325875ea7b7296dc0bad964c0856a997dcbb509a789786be,
+    0x305c566d2733d9406607b61bc607f76bc256fe0c28ee4d228e4323cae5474d33,
+    0x1616cb30818fee117e23a15921d6ea690974d5630c3e2844f3f806dc378ba3aa,
+    0x24e3bf6b5046a39885c1f0089db59d8c5b0d25ee5f9c99f54224d14fd43a3b33,
+    0x2aad9088dc5d4e334b7bca51630a296ac05848d2a233c42ed062aaf93a3cf686,
+    0x0b031957adfd01010cefa1351c0a2b49c05cc4231693ac5ff94c90092553b10a,
+    0x21a025ff4ae84ba501b235c6aab79df4120ac8a6267f32999e525a4faa2398aa,
+    0x1a8b5f11e6f51f2ea96db74b203029efa52aa86f4908e3c61a2875b1bc6fed10,
+    0x031f24378f02832f46aa097657c986e1ed5dd2f4d03abbe077caf4c5983240c8,
+    0x212d3b79b08de95a357fb8db70f1b03ec80ce8d1ed51579234244c4da593d7ba,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+    0x0000000000000000000000000000000000000000000000000000000000000000,
+]
+
+// END OF GENERATED PART
+use std::abi::{Bytes32, bytes_from_words, dyn_array_from}
+use super::garaga_hello_proof::{PROOF, PUBLIC_INPUTS}
+use super::types::VerificationKey
+
+pub const VK: VerificationKey = VerificationKey {
+    log_n: LOG_N,
+    num_public_inputs: NUM_PUBLIC_INPUTS,
+    vk_hash: VK_HASH,
+    points: VK_POINTS,
+}
+
+fn proof() -> Bytes {
+    bytes_from_words(PROOF)
+}
+
+fn public_inputs() -> Vec<Bytes32> {
+    dyn_array_from([Bytes32 { val: PUBLIC_INPUTS[0] }])
+}
+
+// THE CHALLENGES GARAGA EXPECTS for this proof: `get_expected_transcript` in
+// `src/src/apps/noir/test_fixtures.cairo` of the same commit (MIT). Garaga's own test compares
+// them with the transcript of its Cairo verifier, and the same file holds this proof and
+// this key. Each is one Cairo `u256` literal holding the whole challenge, the Keccak digest
+// reduced modulo `P`: not limbs, and not a 128-bit half. Transcribed with the leading zeros
+// written out.
+const ETA: u256 = 0x1003897fa79b37adf4bf0286ea90ddac0e83ac267d8de4656855c43c525a9ba9
+const ROM_LOGUP_GAMMA: u256 = 0x291bdc782e645f0c2bf4192e2c203d02a2ad94ed03b602407790bd7f6c4aee5c
+const BETA: u256 = 0x2522f39d99a0520317f0c38bc944c35e28bb28c32f287ffd66e2a859c5fb579b
+const GAMMA: u256 = 0x1f3f6a4c4b5546485d8c2a7a1f1ea21c8b329db47b54fcd605d04a83d9e970f8
+const ALPHA: u256 = 0x2edb283de8851b5cca44c2614143b8527e6558d6eab7fa5bbf4b587a4dac10b4
+const GATE_CHALLENGE: u256 = 0x2f181ba2efed0372a742a712bbd74b0b8abdb44a04373b8d488ba0590d6d257c
+const LIBRA_CHALLENGE: u256 = 0x1aa927d1b2c064281557b6fb8c2617cf6c2978c0e184c7d48dc5fee663c3ba68
+const U: [u256; 12] = [
+    0x004d2914755ff9d8f4814794739ce7bc8790a2713235fb1e0fadc8ba49a42509,
+    0x0bbbabb4f9b099f517304b8eee72304179d78d6a5d35591cd82f6526b40ab014,
+    0x1d0f31b1dccf18c1c62b1497d3701f20e8d6d5a4de902052fa9c5e3f2a132eaa,
+    0x04dad0fb1617e919c0c3516797da7ceb5aaae50f3040f867e5a5204cf7923717,
+    0x0d7525b5bf4440f12475b6721213e271feaa6b3ea8b04648726c23e7f1908c1a,
+    0x00245edfbb7ff24daed67e3165a9f5d459ac7dc3f5f010d8e7879cd43f37cbf1,
+    0x14ab4153bd7a408c9dc769b84cd80969e7524fd178586a3ff967fd2dacffbd3c,
+    0x18cf3e31a2c1f41fcc27b184d1fa05dcf363ffd5d691a3030725092b5c8a5e05,
+    0x09fa3ca503c5896cb389cf0cd655d5ea0b091a11127200118ad8bebc0130f021,
+    0x186c2bcfa1309d881d0a726f904df5dee4b1ee568ff41d074122d881b1351f90,
+    0x17a4b44285aaee8d03dd3a7a9206beefbca0b28ee03f6ba65cfeb5280c5ae926,
+    0x015ef203d6b84a1b005e4e0e5170a5f591025bb3d4d8bd0cce0d3bed32f1e09d,
+]
+const RHO: u256 = 0x0d5de6cc9d4acd457f0e8019c0fd8fa251e4273723ec23a933bc83fe8f82a9f9
+const GEMINI_R: u256 = 0x1d234ecd87a38e9a812d58b57b777cf1e504fd7d698b5b1aaac7bbf8244aa94b
+const SHPLONK_NU: u256 = 0x0207ef97e69bb068ee8af8672d81cddeae9dfc7b25edc9638abb094fb5ec2d17
+const SHPLONK_Z: u256 = 0x165a2f60e40fc61ab672c3de0b377742dbd3243f533ae3ae6f037bb093c10c82
+
+// Tests. The first compares this port's transcript with Garaga's; the others verify the
+// proof with every step of the verifier (`verifier::verify`).
+use std::evm::Evm
+use super::transcript::generate
+use super::types::MAX_LOG_N
+use super::verifier::{accepted_bit_flips, accepts, deploy_keyed_verifier, verify}
+
+#[test]
+fn test_garaga_hello_challenges_equal_garagas() {
+    let t = generate(vk: VK, proof(), public_inputs())
+    assert!(t.eta == ETA)
+    assert!(t.rom_logup_gamma == ROM_LOGUP_GAMMA)
+    assert!(t.beta == BETA)
+    assert!(t.gamma == GAMMA)
+    assert!(t.alpha == ALPHA)
+    assert!(t.gate_challenge == GATE_CHALLENGE)
+    assert!(t.libra_challenge == LIBRA_CHALLENGE)
+    assert!(U.len() == LOG_N)
+    for round in 0 .. MAX_LOG_N {
+        assert!(t.u[round] == if round < LOG_N { U[round] } else { 0 })
+    }
+    assert!(t.rho == RHO)
+    assert!(t.gemini_r == GEMINI_R)
+    assert!(t.shplonk_nu == SHPLONK_NU)
+    assert!(t.shplonk_z == SHPLONK_Z)
+}
+
+#[test]
+fn test_garaga_hello_is_accepted() {
+    assert!(verify(vk: VK, proof(), public_inputs()))
+}
+
+// The low bit of each of the 226 proof words, one word at a time.
+#[test]
+fn test_garaga_hello_with_one_bit_changed_is_never_accepted()
+uses (evm: mut Evm)
+{
+    assert!(PROOF.len() == 226)
+    assert!(
+        accepted_bit_flips(vk: VK, words: PROOF, public_inputs: public_inputs()) == 0,
+    )
+}
+
+#[test]
+fn test_garaga_hello_with_a_changed_public_input_is_not_accepted()
+uses (evm: mut Evm)
+{
+    let verifier = deploy_keyed_verifier()
+    assert!(
+        accepts(
+            verifier,
+            vk: VK,
+            proof: proof(),
+            public_inputs: public_inputs(),
+        ),
+    )
+    let changed = dyn_array_from([Bytes32 { val: PUBLIC_INPUTS[0] + 1 }])
+    assert!(
+        !accepts(verifier, vk: VK, proof: proof(), public_inputs: changed),
+    )
+}

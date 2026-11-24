@@ -1,0 +1,152 @@
+// Toy Honk verifier over F_17 with KZG on y^2 = x^3 + 3 over F_101: shared data types.
+//
+// Every `.fe` file in `src/` is a module of the ingot (`ingot::f17`, `ingot::sumcheck`, ...).
+//
+// Conventions:
+// - A field element of F_17 (or a coordinate in F_101) is a reduced `u256`.
+// - A G1 point is `[x, y]`. The point at infinity is `[0, 0]`, which is not on the curve.
+// - An element a + b*i of F_101^2 = F_101[i]/(i^2 + 2) is `[a, b]`; a G2 point is `[x, y]`.
+// - The 23 evaluated entities are ordered as in the reference (`ENTITIES`): the 15 fixed
+//   columns, the 7 witness columns, then z_shift. See the index constants in `relations`.
+
+/// The entry points: `verify(vk, proof, public_inputs, challenges) -> bool`, and
+/// `verify_masked(vk, proof, libra, public_inputs, challenges, rho_l) -> bool` for a proof
+/// whose sumcheck is masked.
+pub use verifier::{verify, verify_masked}
+
+/// The verifier's challenges. The toy protocol is interactive: they are inputs, not hashes.
+pub struct Challenges {
+    pub beta: u256,
+    pub gamma: u256,
+    pub alpha: u256,
+    pub g: u256,
+    pub u: [u256; 2],
+    pub rho: u256,
+    pub r: u256,
+    pub nu: u256,
+    pub z: u256,
+}
+
+/// Everything the prover sends.
+pub struct Proof {
+    /// Commitments to the witness columns w_l, w_r, w_o, m, tag, I, z.
+    pub comm: [[u256; 2]; 7],
+    /// The round polynomials S_0, S_1, each given by its values at 0..5.
+    pub univariates: [[u256; 6]; 2],
+    /// The 23 entities evaluated at (u_0, u_1).
+    pub evals: [u256; 23],
+    /// Commitment to the Gemini fold A_1.
+    pub comm_a1: [u256; 2],
+    /// A_0(-r) and A_1(-r^2).
+    pub gemini_a: [u256; 2],
+    /// Shplonk quotient commitment [Q].
+    pub comm_q: [u256; 2],
+    /// KZG opening proof [W].
+    pub comm_w: [u256; 2],
+}
+
+/// Result of the sumcheck half, with the values the reference records (`sumcheck_verify`).
+/// The reference stops at the first failing round: rounds that did not run hold zeros.
+/// The final check is always evaluated, with the state at the point where the rounds stopped.
+pub struct SumcheckTrace {
+    /// All rounds passed and the final check `pow * A + l1 == target` holds.
+    pub ok: bool,
+    /// Number of rounds evaluated (the failing round, if any, is the last one).
+    pub rounds_run: usize,
+    pub round_ok: [bool; 2],
+    /// S_i(0) + S_i(1).
+    pub sums: [u256; 2],
+    /// The value each round sum is compared with.
+    pub targets: [u256; 2],
+    /// S_i(u_i), the next target.
+    pub nexts: [u256; 2],
+    /// The partial pow after each round.
+    pub pows: [u256; 2],
+    /// All rounds passed, so the final check is meaningful.
+    pub reached: bool,
+    /// The seven subrelations at the claimed evaluations.
+    pub rs: [u256; 7],
+    pub a: u256,
+    pub l1: u256,
+    pub pow: u256,
+    pub full: u256,
+    pub target: u256,
+}
+
+/// Result of the opening half, with the values the reference records (`shplemini_verify`).
+pub struct OpeningTrace {
+    /// e(P0, G2) * e(P1, [tau]_2) == 1.
+    pub ok: bool,
+    pub batched_eval: u256,
+    /// The fold evaluations A_0(r) and A_1(r^2).
+    pub pos: [u256; 2],
+    pub lam: u256,
+    pub mu: u256,
+    pub xi: u256,
+    pub kappa: u256,
+    /// The scalars of the 22 unshifted commitments, in the order of the entities.
+    pub scalars: [u256; 22],
+    /// [Q] + sum scalars * commitments + xi * [A_1] + kappa * G1.
+    pub msm: [u256; 2],
+    pub p0: [u256; 2],
+    pub p1: [u256; 2],
+    pub e0: [u256; 2],
+    pub e1: [u256; 2],
+    pub lhs: [u256; 2],
+}
+
+/// One reference run: the inputs of `verify` and everything the reference computed from them.
+pub struct Scenario {
+    pub proof: Proof,
+    pub public_inputs: [u256; 1],
+    pub challenges: Challenges,
+    pub delta: u256,
+    pub sumcheck: SumcheckTrace,
+    pub opening: OpeningTrace,
+    pub ok: bool,
+}
+
+/// The sumcheck mask ("Libra") part of a masked proof: the reference's `proof.libra`.
+/// The prover adds rho_L * G to the relations, with G(X_0, X_1) = g_0(X_0) + g_1(X_1) for
+/// two random polynomials of degree 5.
+pub struct Libra {
+    /// Commitments to g_0 and g_1.
+    pub comm_g0: [u256; 2],
+    pub comm_g1: [u256; 2],
+    /// The claimed sum of G over the four points of {0, 1}^2.
+    pub sum: u256,
+    /// The claimed g_0(u_0) and g_1(u_1).
+    pub e0: u256,
+    pub e1: u256,
+    /// KZG opening proofs of those two evaluations.
+    pub w0: [u256; 2],
+    pub w1: [u256; 2],
+}
+
+/// Result of the mask checks, with what the mask contributes to the sumcheck.
+pub struct LibraTrace {
+    /// Both KZG openings pass (reference `ok_libra`).
+    pub ok: bool,
+    /// The initial sumcheck target: rho_L * sum.
+    pub target: u256,
+    /// What the final check adds to `pow * A + l1`: rho_L * (e0 + e1).
+    pub libra_term: u256,
+    /// The verdicts of the openings of g_0 at u_0 and of g_1 at u_1.
+    pub kzg_ok: [bool; 2],
+}
+
+/// One reference run with a masked sumcheck: the inputs of `verify_masked` and everything
+/// the reference computed from them.
+pub struct MaskedScenario {
+    pub proof: Proof,
+    pub libra: Libra,
+    pub public_inputs: [u256; 1],
+    pub challenges: Challenges,
+    /// The extra challenge of the mask (reference `ch['rho_l']`).
+    pub rho_l: u256,
+    pub delta: u256,
+    pub mask: LibraTrace,
+    pub sumcheck: SumcheckTrace,
+    pub opening: OpeningTrace,
+    pub ok: bool,
+}

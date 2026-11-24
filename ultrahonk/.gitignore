@@ -1,0 +1,6 @@
+# Build outputs, project-local tools and the local Solidity reference oracle; never committed.
+out/
+circuit/target/
+examples/*/target/
+.tools/
+.oracle/

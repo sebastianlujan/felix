@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Builds and tests everything in the entry, and stops at the first failure.
+#
+#   ultrahonk/scripts/check.sh
+#
+# Needs `fe`, and for the steps after the three contracts `xxd`, `shasum` and `python3`. It
+# needs neither `bb` nor `nargo`, and it writes nothing into the repository: the contracts are
+# built, and the verifiers generated, in a temporary directory.
+set -euo pipefail
+
+cd "$(dirname "$0")/../.."
+
+FE_VERSION=26.6.0     # the version every measurement in the READMEs was taken with
+CODE_SIZE_LIMIT=24576 # EIP-170: the largest runtime a chain accepts
+
+command -v fe >/dev/null || { echo "fe is not installed (https://fe-lang.org)" >&2; exit 1; }
+case "$(fe --version)" in
+    "fe $FE_VERSION"*) ;;
+    *) echo "warning: $(fe --version) found; the entry was built and measured with fe $FE_VERSION" >&2 ;;
+esac
+
+step() { printf '\n== %s\n' "$*"; }
+
+for ingot in ultrahonk/key ultrahonk/lib ultrahonk/relations ultrahonk/verifier ultrahonk/vault honk-toy honk-fe; do
+    step "$ingot: format"
+    (cd "$ingot" && fe fmt --check)
+    step "$ingot: test"
+    (cd "$ingot" && fe test) | tail -n 1
+done
+
+out="$(mktemp -d)"
+trap 'rm -rf "$out"' EXIT
+# build DIR CONTRACT: builds the contract of an ingot at the three levels, prints the size of each
+# runtime and fails if one exceeds the limit.
+build() {
+    local dir=$1 contract=$2 level size
+    for level in 1 2 s; do
+        (cd "$dir" && fe build --contract "$contract" -O "$level" --out-dir "$out/build/${dir##*/}/$level" >/dev/null)
+        # The artifact is hex text: two characters per byte.
+        size=$(($(tr -d '\n' <"$out/build/${dir##*/}/$level/$contract.runtime.bin" | wc -c) / 2))
+        printf '%-14s -O %s  %6d bytes\n' "$contract" "$level" "$size"
+        [ "$size" -le "$CODE_SIZE_LIMIT" ] || { echo "$contract exceeds the code size limit" >&2; exit 1; }
+    done
+}
+
+step "contracts: build at -O 1, -O 2 and -O s, runtime size against $CODE_SIZE_LIMIT bytes"
+for pair in relations:HonkRelations verifier:HonkVerifier vault:Vault; do
+    build "ultrahonk/${pair%%:*}" "${pair##*:}"
+done
+
+step "generated verifier: the key of Garaga's recursive bundle, format, build and runtime size"
+ultrahonk/scripts/proof_to_fe.sh --verifier ultrahonk/vectors/garaga/recursive "$out/garaga_recursive" >/dev/null
+(cd "$out/garaga_recursive" && fe fmt --check)
+build "$out/garaga_recursive" HonkVerifier
+
+step "generated verifier: with the pinned key it is the committed HonkVerifier"
+ultrahonk/scripts/proof_to_fe.sh --verifier ultrahonk/vectors "$out/pinned" >/dev/null
+(cd "$out/pinned" && fe build --contract HonkVerifier -O 1 --out-dir "$out/build/pinned" >/dev/null)
+cmp "$out/build/pinned/HonkVerifier.runtime.bin" "$out/build/verifier/1/HonkVerifier.runtime.bin"
+echo "OK: the two runtimes at -O 1 are the same bytes"
+
+step "generated verifier: a key with LOG_N outside 1 to 25 is refused"
+for log_n in 0 26; do
+    mkdir "$out/log_n_$log_n"
+    { printf '%064x' "$log_n" | xxd -r -p; tail -c +33 ultrahonk/vectors/vk; } >"$out/log_n_$log_n/vk"
+    cp ultrahonk/vectors/vk_hash "$out/log_n_$log_n/"
+    if message=$(ultrahonk/scripts/proof_to_fe.sh --verifier "$out/log_n_$log_n" "$out/refused" 2>&1); then
+        echo "a key with LOG_N = $log_n was accepted" >&2
+        exit 1
+    fi
+    [[ $message == *"LOG_N is $log_n"* ]] || { echo "refused for another reason: $message" >&2; exit 1; }
+    echo "OK: $message"
+done
+# A mistyped mode must not fall through to the default one, which prints and exits 0.
+if ultrahonk/scripts/proof_to_fe.sh --verifer >/dev/null 2>&1; then
+    echo "an unknown mode of proof_to_fe.sh was accepted" >&2
+    exit 1
+fi
+echo "OK: an unknown mode is refused"
+
+step "honk_fe: built natively, it writes the verifiers proof_to_fe.sh writes"
+(cd honk-fe && fe build --backend native --out-dir "$out/honk-fe" >/dev/null)
+honk_fe=$out/honk-fe/honk_fe
+# The key constants and `VK`, and the contract, of a generated file.
+constants() { awk '/^pub const LOG_N:/,/^}$/' "$1"; }
+contract() { awk '/^pub contract HonkVerifier \{$/,/^}$/' "$1"; }
+for pair in vectors:pinned vectors/garaga/recursive:garaga_recursive; do
+    "$honk_fe" gen-vk "ultrahonk/${pair%%:*}/vk" >"$out/vk.fe"
+    cmp <(constants "$out/vk.fe") <(constants "$out/${pair##*:}/src/lib.fe")
+    echo "OK: gen-vk prints the constants proof_to_fe.sh prints for ${pair%%:*}"
+done
+HONK_FE_LIB=ultrahonk/lib "$honk_fe" new ultrahonk/vectors "$out/honk_fe_pinned" >/dev/null
+cmp <(contract "$out/honk_fe_pinned/src/lib.fe") <(contract ultrahonk/verifier/src/lib.fe)
+echo "OK: the contract it writes is the one in verifier/src/lib.fe"
+(cd "$out/honk_fe_pinned" && fe fmt --check && fe build --contract HonkVerifier -O 1 --out-dir "$out/build/honk_fe" >/dev/null)
+cmp "$out/build/honk_fe/HonkVerifier.runtime.bin" "$out/build/verifier/1/HonkVerifier.runtime.bin"
+echo "OK: with the pinned key, the runtime of the ingot it writes is HonkVerifier's at -O 1"
+for log_n in 0 26; do
+    if printed=$("$honk_fe" gen-vk "$out/log_n_$log_n" 2>"$out/refused.txt"); then
+        echo "honk_fe accepted a key with LOG_N = $log_n" >&2
+        exit 1
+    fi
+    message=$(<"$out/refused.txt")
+    [[ -z $printed && $message == *"LOG_N is $log_n"* ]] || { echo "refused otherwise: $message" >&2; exit 1; }
+    echo "OK: $message"
+done
+
+step "pinned vectors: the Fe constants equal the raw bb output"
+ultrahonk/scripts/proof_to_fe.sh --check
+
+step "toy vectors: the committed file is what the Python reference generates"
+python3 honk-toy/reference/gen_vectors.py --check
+
+printf '\nAll checks passed.\n'

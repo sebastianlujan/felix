@@ -1,0 +1,666 @@
+// Vault: records the first caller that proves knowledge of a square root of `y`.
+//
+// The circuit (`circuit/src/main.nr`) has two public inputs, `y` and `recipient`. The
+// vault builds them itself, from the `y` it was deployed with and the address of the
+// caller: a proof is only valid for the address it was made for, so one copied from a
+// pending transaction is useless to anyone else.
+//
+// No payout: the contract holds and moves no funds. It records that a claim was made, and
+// by whom.
+use std::abi::{Bytes32, dyn_array_from}
+use ultrahonk::abi::VerifierMsg
+
+pub msg VaultMsg {
+    #[selector = sol("claim(bytes)")]
+    Claim { proof: Bytes } -> bool,
+    #[selector = sol("claimed()")]
+    Claimed -> bool,
+    #[selector = sol("winner()")]
+    Winner -> Address,
+    #[selector = sol("y()")]
+    YValue -> u256,
+    #[selector = sol("verifier()")]
+    Verifier -> Address,
+}
+
+/// Whether the verifier at `verifier` accepts `proof` for the public inputs
+/// `[y, claimer]`, the address as a 32-byte word (left-padded with zeros).
+///
+/// A static call: `verify` is a view function, and the vault writes its storage only
+/// after the answer, so the verifier must not be able to change any state, or to call
+/// back into a vault that could, while it runs.
+///
+/// A revert of the verifier reverts with the same data. An answer whose first word
+/// is neither 0 nor 1 reverts without data, and so does no answer at all, which is what a
+/// call to an address without code returns. Bytes after the first word are ignored.
+fn proves(verifier: Address, proof: own Bytes, y: u256, claimer: Address) -> bool
+uses (call: Call)
+{
+    verifier
+        .static(
+            VerifierMsg::Verify {
+                proof,
+                public_inputs: dyn_array_from(
+                    [Bytes32 { val: y }, Bytes32 { val: claimer.word() }],
+                ),
+            },
+        )
+}
+
+pub contract Vault {
+    // Immutable: set once in `init` and kept in the contract's code, not in storage.
+    y: u256,
+    verifier: Address,
+    mut claimed: bool,
+    mut winner: Address,
+
+    init(y_value: u256, verifier_address: Address)
+    uses (mut y, mut verifier)
+    {
+        y = y_value
+        verifier = verifier_address
+    }
+
+    recv VaultMsg {
+        /// `true` when this call made the claim. `false`, with nothing recorded, when the
+        /// vault was claimed before or the verifier answered `false`. Reverts, with nothing
+        /// recorded either, when the call to the verifier does (see `proves`).
+        Claim { proof } -> bool uses (y, verifier, mut claimed, mut winner, call: Call, ctx: Ctx) {
+            if claimed { return false }
+            let claimer = ctx.caller()
+            if !proves(verifier, proof, y, claimer) {
+                return false
+            }
+            claimed = true
+            winner = claimer
+            true
+        }
+
+        Claimed -> bool uses (claimed) {
+            claimed
+        }
+
+        /// The address that claimed; the zero address before the claim.
+        Winner -> Address uses (winner) {
+            winner
+        }
+
+        /// The `y` the vault was deployed with.
+        YValue -> u256 uses (y) {
+            y
+        }
+
+        /// The address of the verifier that `claim` asks.
+        Verifier -> Address uses (verifier) {
+            verifier
+        }
+    }
+}
+
+// Tests. Most use a stand-in verifier declared below; the last two put the vault in front of
+// the real `HonkVerifier`. A Fe test cannot choose the caller of a call, so a caller is a
+// `Claimer` contract that forwards `claim`: two of them are two different callers.
+use core::error::ErrorVariant
+use core::message::MsgVariant
+use core::ptr::MemBuffer
+use std::abi::{Sol, bytes_from_words}
+use std::evm::{Evm, RawOps, encode_msg_calldata, revert_selector}
+use ultrahonk::errors::SumcheckFailed
+use ultrahonk::test_address_vectors::{TEST_ADDRESS_PROOF, TEST_ADDRESS_PUBLIC_INPUTS}
+use ultrahonk::vectors::{PUBLIC_INPUTS, proof, public_inputs}
+use ultrahonk_relations::HonkRelations
+use ultrahonk_verifier::HonkVerifier
+
+const GAS: u256 = 20000000
+const Y: u256 = 9
+
+/// The proof `CheckingVerifier` accepts. Not a multiple of 32 bytes long.
+fn right_proof() -> Bytes {
+    Bytes::from_word_prefix(word: 0x70726f6f66 << 216, len: 5)
+}
+
+/// Accepts the proof `right_proof()` for the public inputs `[y, claimer]` it was deployed
+/// with, and nothing else.
+contract CheckingVerifier {
+    mut y: u256,
+    mut claimer: Address,
+
+    init(expected_y: u256, expected_claimer: Address)
+    uses (mut y, mut claimer)
+    {
+        y = expected_y
+        claimer = expected_claimer
+    }
+
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool uses (y, claimer) {
+            proof == right_proof()
+                && public_inputs.len() == 2
+                && public_inputs[0].val == y
+                && public_inputs[1].val == claimer.word()
+        }
+    }
+}
+
+msg ClaimerMsg {
+    #[selector = sol("claimFrom(address,bytes)")]
+    ClaimFrom { vault: Address, proof: Bytes } -> bool,
+}
+
+/// Forwards `claim` to a vault, which sees this contract as the caller. A revert of the
+/// vault reverts with the same data.
+contract Claimer uses (call: mut Call) {
+    recv ClaimerMsg {
+        ClaimFrom { vault, proof } -> bool uses (mut call) {
+            vault.call(VaultMsg::Claim { proof })
+        }
+    }
+}
+
+fn deploy_claimer(salt: u256) -> Address uses (evm: mut Evm) {
+    evm.create2<Claimer>(value: Wei::zero(), args: (), salt)
+}
+
+/// A vault for `Y` whose verifier accepts `right_proof()` from `claimer` only.
+fn deploy_vault_for(claimer: Address) -> Address uses (evm: mut Evm) {
+    let verifier = evm.create2<CheckingVerifier>(value: Wei::zero(), args: (Y, claimer), salt: 0)
+    evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+}
+
+fn claim_from(claimer: Address, vault: Address, proof: own Bytes) -> bool
+uses (evm: mut Evm)
+{
+    evm.call(
+        addr: claimer,
+        gas: GAS,
+        value: Wei::zero(),
+        message: ClaimerMsg::ClaimFrom { vault, proof },
+    )
+}
+
+fn claimed(vault: Address) -> bool uses (evm: mut Evm) {
+    evm.call(
+        addr: vault,
+        gas: GAS,
+        value: Wei::zero(),
+        message: VaultMsg::Claimed {},
+    )
+}
+
+fn winner(vault: Address) -> Address uses (evm: mut Evm) {
+    evm.call(
+        addr: vault,
+        gas: GAS,
+        value: Wei::zero(),
+        message: VaultMsg::Winner {},
+    )
+}
+
+fn y_of(vault: Address) -> u256 uses (evm: mut Evm) {
+    evm.call(
+        addr: vault,
+        gas: GAS,
+        value: Wei::zero(),
+        message: VaultMsg::YValue {},
+    )
+}
+
+fn verifier_of(vault: Address) -> Address uses (evm: mut Evm) {
+    evm.call(
+        addr: vault,
+        gas: GAS,
+        value: Wei::zero(),
+        message: VaultMsg::Verifier {},
+    )
+}
+
+#[test]
+fn test_the_expected_caller_claims_with_the_right_proof() uses (evm: mut Evm) {
+    let alice = deploy_claimer(salt: 0)
+    let vault = deploy_vault_for(claimer: alice)
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+
+    assert!(claim_from(claimer: alice, vault, proof: right_proof()))
+    assert!(claimed(vault))
+    assert!(winner(vault) == alice)
+}
+
+// Replay: the claim is made once. Nobody can make it again, the winner included.
+#[test]
+fn test_a_second_claim_returns_false_and_changes_nothing() uses (evm: mut Evm) {
+    let alice = deploy_claimer(salt: 0)
+    let bob = deploy_claimer(salt: 1)
+    let vault = deploy_vault_for(claimer: alice)
+    assert!(claim_from(claimer: alice, vault, proof: right_proof()))
+
+    assert!(!claim_from(claimer: alice, vault, proof: right_proof()))
+    assert!(!claim_from(claimer: bob, vault, proof: right_proof()))
+    assert!(claimed(vault))
+    assert!(winner(vault) == alice)
+}
+
+// The proof travels in calldata, where anyone can copy it. Sent by another caller, the
+// verifier gets another second public input and answers `false`.
+#[test]
+fn test_another_caller_cannot_claim_with_the_same_proof() uses (evm: mut Evm) {
+    let alice = deploy_claimer(salt: 0)
+    let bob = deploy_claimer(salt: 1)
+    assert!(alice != bob)
+    let vault = deploy_vault_for(claimer: alice)
+
+    assert!(!claim_from(claimer: bob, vault, proof: right_proof()))
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+
+    // The failed attempt took nothing from the caller the proof was made for.
+    assert!(claim_from(claimer: alice, vault, proof: right_proof()))
+    assert!(claimed(vault))
+    assert!(winner(vault) == alice)
+}
+
+#[test]
+fn test_a_wrong_proof_is_not_accepted() uses (evm: mut Evm) {
+    let alice = deploy_claimer(salt: 0)
+    let vault = deploy_vault_for(claimer: alice)
+    // One byte differs, then one byte is missing, then nothing is sent.
+    for ref proof in [
+        Bytes::from_word_prefix(word: 0x70726f6f67 << 216, len: 5),
+        Bytes::from_word_prefix(word: 0x70726f6f66 << 216, len: 4),
+        Bytes::empty(),
+    ] {
+        assert!(!claim_from(claimer: alice, vault, proof: proof.clone()))
+        assert!(!claimed(vault))
+        assert!(winner(vault) == Address::zero())
+    }
+    assert!(claim_from(claimer: alice, vault, proof: right_proof()))
+}
+
+/// Reverts on every query, as `HonkVerifier` does on a proof that fails sumcheck.
+contract RevertingVerifier {
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool {
+            revert_error(SumcheckFailed {})
+        }
+    }
+}
+
+// `HonkVerifier` rejects a proof by reverting, never by answering `false`: the claim must
+// revert with what the verifier said, and leave no trace.
+#[test]
+fn test_a_revert_of_the_verifier_reaches_the_caller_unchanged()
+uses (evm: mut Evm)
+{
+    let verifier = evm.create2<RevertingVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+    let outcome = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 4)
+    assert!(
+        revert_selector(outcome.returndata()).unwrap()
+            == <SumcheckFailed as ErrorVariant<Sol>>::SELECTOR,
+    )
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+}
+
+// A call to an address without code succeeds and returns nothing. The vault must not read
+// that as an answer: the claim reverts, without revert data, and nothing is recorded.
+#[test]
+fn test_a_verifier_address_without_code_makes_the_claim_revert()
+uses (evm: mut Evm)
+{
+    let vault = evm.create2<Vault>(
+            value: Wei::zero(),
+            args: (Y, Address::new(0xdead)),
+            salt: 0,
+        )
+    let outcome = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 0)
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+}
+
+// The selector of `verify`, answered with a word in place of a `bool`.
+msg WordAnswerMsg {
+    #[selector = sol("verify(bytes,bytes32[])")]
+    Verify { proof: Bytes, public_inputs: Vec<Bytes32> } -> u256,
+}
+
+/// Answers every query with the word it was deployed with.
+contract WordVerifier {
+    answer: u256,
+
+    init(value: u256) uses (mut answer) { answer = value }
+
+    recv WordAnswerMsg {
+        Verify { proof, public_inputs } -> u256 uses (answer) {
+            answer
+        }
+    }
+}
+
+// An answer that is one word but neither 0 nor 1 is not a `bool`: the claim reverts,
+// without revert data, and nothing is recorded.
+#[test]
+fn test_a_verifier_that_answers_a_word_other_than_a_bool_makes_the_claim_revert()
+uses (evm: mut Evm)
+{
+    let verifier = evm.create2<WordVerifier>(value: Wei::zero(), args: (2,), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+    let outcome = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 0)
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+
+    // The same stand-in answering the word 1 is a verifier that says `true`.
+    let accepting = evm.create2<WordVerifier>(value: Wei::zero(), args: (1,), salt: 0)
+    let claimable = evm.create2<Vault>(value: Wei::zero(), args: (Y, accepting), salt: 0)
+    let made: bool = evm
+        .call(
+            addr: claimable,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(made)
+}
+
+// The selector of `verify`, answered with two words.
+msg TwoWordAnswerMsg {
+    #[selector = sol("verify(bytes,bytes32[])")]
+    Verify { proof: Bytes, public_inputs: Vec<Bytes32> } -> (u256, u256),
+}
+
+/// Answers every query with the word 1 twice: 64 bytes that begin like `true`.
+contract TwoWordVerifier {
+    recv TwoWordAnswerMsg {
+        Verify { proof, public_inputs } -> (u256, u256) {
+            (1, 1)
+        }
+    }
+}
+
+// Only the first word of the answer is read: bytes after it are ignored, so 64 bytes that
+// begin with the word 1 are an answer of `true`.
+#[test]
+fn test_a_verifier_answer_longer_than_a_word_is_read_by_its_first_word()
+uses (evm: mut Evm)
+{
+    let verifier = evm.create2<TwoWordVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+    let made: bool = evm
+        .call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(made)
+    assert!(claimed(vault))
+}
+
+/// Counts the queries in its storage, then accepts.
+contract CountingVerifier {
+    mut queries: u256,
+
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool uses (mut queries) {
+            queries += 1
+            true
+        }
+    }
+}
+
+// The vault asks with a static call, in which a write to storage fails: a verifier that
+// changes state while it answers cannot make a claim succeed.
+#[test]
+fn test_a_verifier_that_writes_storage_makes_the_claim_revert()
+uses (evm: mut Evm)
+{
+    let verifier = evm.create2<CountingVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+    let outcome = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    assert!(outcome.returndata_len() == 0)
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+}
+
+/// Reverts with the calldata it received, which the vault passes on unchanged: that is
+/// how a test reads what the vault sent. A static call leaves the stand-in no storage to
+/// write it to.
+contract EchoVerifier {
+    recv VerifierMsg {
+        Verify { proof, public_inputs } -> bool uses (ops: mut RawOps) {
+            let size = ops.calldatasize()
+            var data = MemBuffer::new(size.downcast_truncate())
+            ops.calldatacopy(dest: mut data, dest_offset: 0, src_offset: 0, len: size)
+            ops.revert(data: data.span())
+        }
+    }
+}
+
+// The call the verifier receives, word by word: `verify(bytes,bytes32[])` with the proof
+// as it came, then `[y, caller]`. The caller is one whole word equal to its address, so
+// the twelve bytes before the address are zero.
+#[test]
+fn test_the_verifier_is_sent_the_proof_then_y_and_the_caller()
+uses (evm: mut Evm)
+{
+    let alice = deploy_claimer(salt: 0)
+    let verifier = evm.create2<EchoVerifier>(value: Wei::zero(), args: (), salt: 0)
+    let vault = evm.create2<Vault>(value: Wei::zero(), args: (Y, verifier), salt: 0)
+    let outcome = evm
+        .try_call(
+            addr: alice,
+            gas: GAS,
+            value: Wei::zero(),
+            message: ClaimerMsg::ClaimFrom { vault, proof: right_proof() },
+        )
+    assert!(!outcome.success())
+    let sent = Bytes::from_payload(source: outcome.returndata())
+
+    // Selector, two offsets, the proof (length, one padded word), the array (length, two words).
+    assert!(sent.len() == 4 + 7 * 32)
+    assert!(
+        revert_selector(outcome.returndata()).unwrap()
+            == <VerifierMsg::Verify as MsgVariant<Sol>>::SELECTOR,
+    )
+    assert!(sent.word_at(4) == 64)
+    assert!(sent.word_at(36) == 128)
+    assert!(sent.word_at(68) == 5)
+    assert!(sent.word_at(100) == 0x70726f6f66 << 216)
+    assert!(sent.word_at(132) == 2)
+    assert!(sent.word_at(164) == Y)
+    assert!(sent.word_at(196) == alice.word())
+    assert!(sent.word_at(196) >> 160 == 0)
+
+    // The same bytes as the standard encoding of the message.
+    let standard = encode_msg_calldata(
+        VerifierMsg::Verify {
+            proof: right_proof(),
+            public_inputs: dyn_array_from([Bytes32 { val: Y }, Bytes32 { val: alice.word() }]),
+        },
+    )
+    assert!(sent == Bytes::from_payload(source: standard.span()))
+}
+
+// `y()` and `verifier()` answer with what the vault was deployed with, whatever it is. The
+// second `y` is wider than an address.
+#[test]
+fn test_y_and_verifier_return_the_constructor_arguments() uses (evm: mut Evm) {
+    let first = evm.create2<Vault>(
+            value: Wei::zero(),
+            args: (Y, Address::new(0xdead)),
+            salt: 0,
+        )
+    let second = evm
+        .create2<Vault>(
+            value: Wei::zero(),
+            args: (1 << 200, Address::new(0xbeef)),
+            salt: 0,
+        )
+    assert!(y_of(vault: first) == Y)
+    assert!(verifier_of(vault: first) == Address::new(0xdead))
+    assert!(y_of(vault: second) == 1 << 200)
+    assert!(verifier_of(vault: second) == Address::new(0xbeef))
+}
+
+// selectors of y() and verifier(), from `cast sig` (cast 1.5.1)
+#[test]
+fn test_the_selectors_of_y_and_verifier() {
+    assert!(
+        <VaultMsg::YValue as MsgVariant<Sol>>::SELECTOR == 0xa56dfe4a,
+    )
+    assert!(
+        <VaultMsg::Verifier as MsgVariant<Sol>>::SELECTOR == 0x2b7ac3f3,
+    )
+}
+
+// The real verifier, and the caller a claim that succeeds will need.
+
+/// The address of every Fe test contract with `fe` 26.6.0, whatever its code: the test
+/// runner creates it from the zero address with nonce 0. It is the caller of the calls a
+/// test makes itself. A `Claimer` has no such address: `create2` derives it from its code,
+/// which changes with the optimization level.
+const TEST_ADDRESS: u256 = 0xbd770416a3345f91e4b34576cb804a576fa48eb1
+
+#[test]
+fn test_a_test_claims_from_a_fixed_address() uses (evm: mut Evm) {
+    assert!(evm.address().word() == TEST_ADDRESS)
+    let vault = deploy_vault_for(claimer: Address::new(TEST_ADDRESS))
+    let made: bool = evm
+        .call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: right_proof() },
+        )
+    assert!(made)
+    assert!(winner(vault).word() == TEST_ADDRESS)
+}
+
+// The vault in front of the real `HonkVerifier`, with the pinned proof.
+//
+// Asked directly with the public inputs the proof was made for, `[9, 0xc0ffe]`, the verifier
+// accepts the proof. Through the vault the second public input is the caller, and no caller
+// in a Fe test has the address 0xc0ffe, so the same proof is rejected in sumcheck, as the
+// reference did when that public input was changed (`expected::PUBLIC_INPUT_CHANGES`). The
+// next test claims with a second proof, made for `TEST_ADDRESS`.
+#[test]
+fn test_the_real_verifier_accepts_the_proof_but_no_test_caller_can_claim()
+uses (evm: mut Evm)
+{
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+    let vault = evm.create2<Vault>(
+            value: Wei::zero(),
+            args: (PUBLIC_INPUTS[0], verifier),
+            salt: 0,
+        )
+
+    let direct: bool = evm
+        .call(
+            addr: verifier,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VerifierMsg::Verify { proof: proof(), public_inputs: public_inputs() },
+        )
+    assert!(direct)
+
+    assert!(TEST_ADDRESS != PUBLIC_INPUTS[1])
+    let claim = evm
+        .try_call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: proof() },
+        )
+    assert!(!claim.success())
+    assert!(claim.returndata_len() == 4)
+    assert!(
+        revert_selector(claim.returndata()).unwrap()
+            == <SumcheckFailed as ErrorVariant<Sol>>::SELECTOR,
+    )
+    assert!(!claimed(vault))
+    assert!(winner(vault) == Address::zero())
+}
+
+// The same vault and verifier with the second pinned proof, made for `[9, TEST_ADDRESS]`: the
+// test claims itself, and the claim is recorded. Then the replay rule holds with the real
+// verifier too: a second claim, by the winner or by another caller, returns `false` and
+// changes nothing.
+#[test]
+fn test_the_real_verifier_accepts_a_claim_from_the_address_the_proof_was_made_for()
+uses (evm: mut Evm)
+{
+    assert!(evm.address().word() == TEST_ADDRESS)
+    assert!(TEST_ADDRESS_PUBLIC_INPUTS[0] == PUBLIC_INPUTS[0])
+    assert!(TEST_ADDRESS_PUBLIC_INPUTS[1] == TEST_ADDRESS)
+    let relations = evm.create2<HonkRelations>(value: Wei::zero(), args: (), salt: 0)
+    let verifier = evm.create2<HonkVerifier>(value: Wei::zero(), args: (relations,), salt: 0)
+    let vault = evm
+        .create2<Vault>(
+            value: Wei::zero(),
+            args: (TEST_ADDRESS_PUBLIC_INPUTS[0], verifier),
+            salt: 0,
+        )
+    assert!(!claimed(vault))
+
+    let made: bool = evm
+        .call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: bytes_from_words(TEST_ADDRESS_PROOF) },
+        )
+    assert!(made)
+    assert!(claimed(vault))
+    assert!(winner(vault).word() == TEST_ADDRESS)
+
+    let again: bool = evm
+        .call(
+            addr: vault,
+            gas: GAS,
+            value: Wei::zero(),
+            message: VaultMsg::Claim { proof: bytes_from_words(TEST_ADDRESS_PROOF) },
+        )
+    assert!(!again)
+    let bob = deploy_claimer(salt: 0)
+    assert!(
+        !claim_from(
+            claimer: bob,
+            vault,
+            proof: bytes_from_words(TEST_ADDRESS_PROOF),
+        ),
+    )
+    assert!(claimed(vault))
+    assert!(winner(vault).word() == TEST_ADDRESS)
+}

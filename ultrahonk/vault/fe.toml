@@ -1,0 +1,9 @@
+[ingot]
+name = "ultrahonk_vault"
+version = "0.1.0"
+
+[dependencies]
+ultrahonk = { path = "../lib" }
+# Tests only: one test puts the vault in front of `HonkVerifier` and `HonkRelations`.
+ultrahonk_relations = { path = "../relations" }
+ultrahonk_verifier = { path = "../verifier" }

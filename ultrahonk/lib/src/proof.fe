@@ -1,0 +1,257 @@
+// Where things are in a proof, and the checks made on it before any algebra.
+//
+// A proof is `82 + 12 * L` words of 32 bytes, with `L = log_n`; the full table is in
+// `docs/zk-verifier-reference.md`. The reference (`ZKTranscriptLib.loadProof`) copies the
+// proof into a struct as it checks it. Here the proof stays where it is, `validate`
+// performs the same checks in the same order, and later steps read words by index.
+use super::errors::{ProofLengthWrongWithLogN, ValueGeFieldOrder, ValueGeGroupOrder, ValueGeLimbMax}
+use super::fr::{P, Q}
+use super::types::PAIRING_POINTS_SIZE
+
+/// Values of a sumcheck round univariate (`ZK_BATCHED_RELATION_PARTIAL_LENGTH`).
+pub const UNIVARIATE_LENGTH: usize = 9
+
+// Word index of the sections that do not move with `log_n`. Words 0-7 are the pairing-point
+// limbs; ten points follow: Gemini masking, w1, w2, w3, lookupReadCounts, lookupReadTags, w4,
+// lookupInverses, zPerm, libraCommitments[0].
+pub const COMMITMENTS: usize = 8
+pub const LIBRA_SUM: usize = 28
+pub const UNIVARIATES: usize = 29
+
+/// The 42 evaluations, then `libraEvaluation`.
+pub fn evaluations(_ log_n: usize) -> usize {
+    29 + 9 * log_n
+}
+
+/// `libraCommitments[1]` and `libraCommitments[2]`.
+pub fn libra_commitments(_ log_n: usize) -> usize {
+    72 + 9 * log_n
+}
+
+/// The `log_n - 1` Gemini fold commitments.
+pub fn fold_commitments(_ log_n: usize) -> usize {
+    76 + 9 * log_n
+}
+
+/// The `log_n` Gemini evaluations, then the 4 Libra polynomial evaluations.
+pub fn gemini_evaluations(_ log_n: usize) -> usize {
+    74 + 11 * log_n
+}
+
+/// `shplonkQ`, then `kzgQuotient`.
+pub fn shplonk_q(_ log_n: usize) -> usize {
+    78 + 12 * log_n
+}
+
+pub fn word_count(_ log_n: usize) -> usize {
+    82 + 12 * log_n
+}
+
+/// Word `index` of the proof. Panics past the end of the proof.
+pub fn word(_ proof: Bytes, _ index: usize) -> u256 {
+    proof.word_at(index * 32)
+}
+
+/// Words `start..end` hold point coordinates: each must be below `Q`. `(0, 0)` passes, and
+/// nothing checks that a point is on the curve; the precompiles do when it is used.
+fn coordinates(_ proof: Bytes, start: usize, end: usize) {
+    for i in start .. end {
+        if word(proof, i) >= Q {
+            revert_error(ValueGeGroupOrder {})
+        }
+    }
+}
+
+/// Words `start..end` hold scalars: each must be below `P`.
+fn scalars(_ proof: Bytes, start: usize, end: usize) {
+    for i in start .. end {
+        if word(proof, i) >= P {
+            revert_error(ValueGeFieldOrder {})
+        }
+    }
+}
+
+/// Reverts unless the proof has the length for `log_n` and every word is in range for what
+/// it holds. The words are walked once, front to back, so of two bad words the earlier one
+/// decides the error, as in the reference.
+pub fn validate(_ proof: Bytes, log_n: usize) {
+    let expected = word_count(log_n) * 32
+    if proof.len() != expected {
+        revert_error(
+            ProofLengthWrongWithLogN {
+                log_n: log_n as u256,
+                actual_length: proof.len() as u256,
+                expected_length: expected as u256,
+            },
+        )
+    }
+    for i in 0 .. PAIRING_POINTS_SIZE {
+        // Low limbs (even index) hold 136 bits, high limbs 120.
+        let bound: u256 = if i % 2 == 0 { 1 << 136 } else { 1 << 120 }
+        if word(proof, i) >= bound {
+            revert_error(ValueGeLimbMax {})
+        }
+    }
+    coordinates(proof, start: COMMITMENTS, end: LIBRA_SUM)
+    // libraSum, the round univariates, the evaluations, libraEvaluation
+    scalars(proof, start: LIBRA_SUM, end: libra_commitments(log_n))
+    // libraCommitments[1..3] and the fold commitments
+    coordinates(
+        proof,
+        start: libra_commitments(log_n),
+        end: gemini_evaluations(log_n),
+    )
+    // Gemini evaluations and Libra polynomial evaluations
+    scalars(
+        proof,
+        start: gemini_evaluations(log_n),
+        end: shplonk_q(log_n),
+    )
+    coordinates(proof, start: shplonk_q(log_n), end: word_count(log_n))
+}
+
+// Tests: the cases are the ones recorded from the reference verifier in `expected.fe`. A
+// test that expects a revert can hold only one case, and its attribute needs a literal
+// selector, so each helper first asserts that the table records the selector the test
+// names; a table that disagrees fails the test with a different revert.
+use super::expected::{
+    OVERWRITES,
+    PROOF_LENGTH,
+    SUMCHECK_FAILED,
+    VALUE_GE_FIELD_ORDER,
+    VALUE_GE_GROUP_ORDER,
+    VALUE_GE_LIMB_MAX,
+    WRONG_LENGTHS,
+    largest_values,
+}
+use super::vectors::{LOG_N, PROOF, proof, proof_with}
+use std::abi::bytes_from_words
+
+fn validate_overwrite(case: usize, reference: u32) {
+    let overwrite = OVERWRITES[case]
+    assert!(overwrite.selector == reference)
+    validate(
+        proof_with(word: overwrite.word, value: overwrite.value),
+        log_n: LOG_N,
+    )
+}
+
+fn validate_wrong_length(case: usize) {
+    validate(Bytes::zeroed(WRONG_LENGTHS[case]), log_n: LOG_N)
+}
+
+#[test]
+fn test_layout_matches_reference_proof_length() {
+    assert!(word_count(LOG_N) * 32 == PROOF_LENGTH)
+    assert!(
+        evaluations(LOG_N) == UNIVARIATES + UNIVARIATE_LENGTH * LOG_N,
+    )
+    assert!(fold_commitments(LOG_N) == libra_commitments(LOG_N) + 4)
+    assert!(
+        gemini_evaluations(LOG_N) == fold_commitments(LOG_N) + 2 * (LOG_N - 1),
+    )
+    assert!(shplonk_q(LOG_N) == gemini_evaluations(LOG_N) + LOG_N + 4)
+}
+
+#[test]
+fn test_word_reads_the_proof_by_word_index() {
+    let pinned = proof()
+    assert!(word(pinned, 0) == PROOF[0])
+    assert!(word(pinned, 28) == PROOF[28])
+    assert!(word(pinned, 141) == PROOF[141])
+}
+
+#[test]
+fn test_validate_accepts_the_pinned_proof() {
+    validate(proof(), log_n: LOG_N)
+}
+
+// selector of ProofLengthWrongWithLogN(uint256,uint256,uint256)
+#[test(should_revert, selector = 0x59895a53)]
+fn test_validate_rejects_a_proof_of_three_words() {
+    validate_wrong_length(case: 0)
+}
+
+#[test(should_revert, selector = 0x59895a53)]
+fn test_validate_rejects_a_proof_one_word_short() {
+    validate_wrong_length(case: 1)
+}
+
+#[test(should_revert, selector = 0x59895a53)]
+fn test_validate_rejects_a_proof_one_word_long() {
+    validate_wrong_length(case: 2)
+}
+
+#[test(should_revert, selector = 0x59895a53)]
+fn test_validate_rejects_an_empty_proof() {
+    assert!(WRONG_LENGTHS[3] == 0)
+    validate_wrong_length(case: 3)
+}
+
+// Proofs built from a rule (`expected.fe`): the reference rejected both after its range
+// checks, so every word of both is in range.
+#[test]
+fn test_validate_accepts_the_all_zero_proof() {
+    validate(Bytes::zeroed(PROOF_LENGTH), log_n: LOG_N)
+}
+
+#[test]
+fn test_validate_accepts_the_largest_values() {
+    validate(largest_values(limbs: true), log_n: LOG_N)
+}
+
+// selector of ValueGeLimbMax()
+#[test(should_revert, selector = 0xeb73e0bd)]
+fn test_validate_rejects_a_low_limb_of_137_bits() {
+    validate_overwrite(case: 0, reference: VALUE_GE_LIMB_MAX)
+}
+
+#[test(should_revert, selector = 0xeb73e0bd)]
+fn test_validate_rejects_a_high_limb_of_121_bits() {
+    validate_overwrite(case: 1, reference: VALUE_GE_LIMB_MAX)
+}
+
+// The reference rejects this proof later, in sumcheck: the limb is in range.
+#[test]
+fn test_validate_accepts_the_largest_low_limb() {
+    validate_overwrite(case: 2, reference: SUMCHECK_FAILED)
+}
+
+// selector of ValueGeGroupOrder()
+#[test(should_revert, selector = 0x607be13e)]
+fn test_validate_rejects_x_of_the_first_commitment_at_q() {
+    validate_overwrite(case: 3, reference: VALUE_GE_GROUP_ORDER)
+}
+
+#[test(should_revert, selector = 0x607be13e)]
+fn test_validate_rejects_y_of_the_first_commitment_at_q() {
+    validate_overwrite(case: 4, reference: VALUE_GE_GROUP_ORDER)
+}
+
+#[test(should_revert, selector = 0x607be13e)]
+fn test_validate_rejects_y_of_the_last_commitment_at_q() {
+    validate_overwrite(case: 5, reference: VALUE_GE_GROUP_ORDER)
+}
+
+// selector of ValueGeFieldOrder()
+#[test(should_revert, selector = 0x20a33589)]
+fn test_validate_rejects_the_first_scalar_at_p() {
+    validate_overwrite(case: 6, reference: VALUE_GE_FIELD_ORDER)
+}
+
+// Order of the checks, recorded in `expected.fe`: of two bad words the earlier decides.
+#[test(should_revert, selector = 0xeb73e0bd)]
+fn test_validate_checks_limbs_before_the_last_coordinate() {
+    var words = PROOF
+    words[0] = 1 << 136
+    words[141] = Q
+    validate(bytes_from_words(words), log_n: LOG_N)
+}
+
+#[test(should_revert, selector = 0x607be13e)]
+fn test_validate_checks_word_8_before_word_28() {
+    var words = PROOF
+    words[8] = Q
+    words[28] = P
+    validate(bytes_from_words(words), log_n: LOG_N)
+}
