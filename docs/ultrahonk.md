@@ -2,7 +2,7 @@
 
 This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 202 tests in `lib`, 2 in `relations`, 21 in `verifier`, 15 in `vault`, 76 in `toy`.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the six ingots: 2 tests in `key`, 202 in `lib`, 2 in `relations`, 21 in `verifier`, 15 in `vault`, 76 in `toy`.
 >
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
@@ -19,14 +19,15 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
 
    ```sh
    cd ultrahonk
-   (cd lib && fe test)        # 202 tests
+   (cd key && fe test)        # 2 tests
+   (cd lib && fe test)        # 202
    (cd relations && fe test)  # 2
    (cd verifier && fe test)   # 21
    (cd vault && fe test)      # 15
    (cd ../honk-toy && fe test) # 76
    ```
 
-   `ultrahonk/scripts/check.sh` runs these five and the other checks in one command. Its two vector checks, and the verifier it generates with `scripts/proof_to_fe.sh --verifier`, also need `xxd`, `shasum` and `python3`.
+   `ultrahonk/scripts/check.sh` runs these six and the other checks in one command. Its two vector checks, and the verifier it generates with `scripts/proof_to_fe.sh --verifier`, also need `xxd`, `shasum` and `python3`.
 
 2. Read the result. In `verifier`, `test_the_valid_proof_is_accepted` shows the Fe verifier accepting the pinned proof. In `vault`, `test_the_real_verifier_accepts_a_claim_from_the_address_the_proof_was_made_for` shows a claim through the vault in front of it.
 
@@ -146,6 +147,7 @@ honk-toy/              ingot "honk_toy": Honk over F_17 (library); README.md
 ultrahonk/
   README.md            status, test coverage, measurements, how to regenerate
   docs/zk-verifier-reference.md   proof layout, transcript, formulas, errors
+  key/                 ingot "ultrahonk_key": the limits and the layout of bb's key
   lib/                 ingot "ultrahonk" (library)
     src/lib.fe abi.fe errors.fe fr.fe types.fe wire.fe
         proof.fe transcript.fe sumcheck.fe relations.fe
@@ -520,7 +522,7 @@ A reader needs only `fe`.
 | Regeneration (proofs, key, oracle source) | `scripts/vectors.sh`. Proving is randomized, so it writes different valid proofs; the README pins the committed ones. Needs the [project-local tools](#project-local-tooling). |
 | Regeneration (captured values) | Not possible from the repository alone: it needs the local Foundry tests to be recreated. Their documented provenance stands in for it. |
 | Regeneration (toy) | `python3 honk-toy/reference/gen_vectors.py` reproduces `honk-toy/src/vectors.fe`; `--check` compares without writing. Needs Python 3. |
-| End-to-end script | `ultrahonk/scripts/check.sh`: the tests and the formatting of the five ingots, the three contracts built at the three optimisation levels with each runtime checked against 24,576 bytes, a verifier generated with `scripts/proof_to_fe.sh --verifier` and built the same way, and the two vector checks. |
+| End-to-end script | `ultrahonk/scripts/check.sh`: the tests and the formatting of the six ingots, the three contracts built at the three optimisation levels with each runtime checked against 24,576 bytes, a verifier generated with `scripts/proof_to_fe.sh --verifier` and built the same way, and the two vector checks. |
 
 What the Fe tests show:
 

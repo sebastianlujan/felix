@@ -21,7 +21,7 @@ Carried out as decided. The sizes, read from the generated ZK verifier:
 
 | Constant or type | Value | Where |
 |---|---|---|
-| `MAX_LOG_N` | 25, the reference's `CONST_PROOF_SIZE_LOG_N` | `lib/src/types.fe` |
+| `MAX_LOG_N` | 25, the reference's `CONST_PROOF_SIZE_LOG_N` | `key/src/lib.fe`, re-exported by `lib/src/types.fe` |
 | Sumcheck challenges, powers of the Gemini challenge, fold evaluations | `[u256; MAX_LOG_N]` | `types.fe`, `shplemini.fe` |
 | `MAX_SLOTS`, the scalars of the multi-scalar multiplication | 67 = 42 + `MAX_LOG_N` | `lib/src/shplemini.fe` |
 | Evaluations the relations read | `[u256; 41]` | `lib/src/relations.fe` |
