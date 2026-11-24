@@ -57,6 +57,9 @@ For a proof of your own Noir circuit, follow
 `nargo execute` to a deployed verifier, which `demo_anvil.sh --key <directory>` runs on the local
 node. `honk-fe/out/honk_fe up <package>` does all of it in one command ([`honk-fe/`](honk-fe/README.md)).
 
+The shortest way to see all of it is [`demo/`](demo/README.md): `demo/run.sh` builds `honk_fe`,
+proves a small Noir circuit and verifies the proof on `anvil` with a verifier generated in Fe.
+
 ## How it is checked
 
 Barretenberg's generated Solidity verifier is the reference. It is not committed: it is
