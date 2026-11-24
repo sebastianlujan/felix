@@ -210,6 +210,10 @@ measured with it on 2026-11-23 (anvil 1.5.1):
 | `recursive` | 20 | `-O 2` | 16,633 | 3,604,509 | 3,073,684 | not run |
 | `recursive` | 20 | `-O s` | 16,515 | 3,579,037 | 3,107,123 | not run |
 
+`--key vectors/pedersen_commit`, the circuit of `examples/pedersen_commit` (`LOG_N` 15), measured
+on 2026-11-24 at `-O 1`: 16,700 bytes, 3,622,085 gas to deploy, and `verify` in 2,450,610 gas on
+Osaka and 1,581,532 on Prague.
+
 The eight runs passed, and each flipped proof reverted with `ShpleminiFailed()`. The gas columns
 are transactions, as above, and deploying costs the same on both forks. The runtime is the
 deployed code (`cast codesize`) less the 32 bytes of the relations address. `HonkRelations` is
@@ -275,8 +279,8 @@ The generator refuses a key whose `LOG_N` is outside 1 to 25, or that counts few
 inputs: the count in a key includes the 8 pairing-point limbs. The ingot names `ultrahonk/lib` of
 the checkout by a relative path in its `fe.toml`, so it builds only while both stay where they
 are. Its contract is the `HonkVerifier` of `verifier/src/lib.fe`, copied over the other key; the
-tests stay in that ingot. Steps 4 to 8 were run by hand on Garaga's `hello` bundle; steps 1 to 3
-are the commands of `scripts/vectors.sh`, which made the pinned proofs.
+tests stay in that ingot. The eight steps were run as written on 2026-11-24, from a fresh clone,
+on `examples/pedersen_commit`: that is how `vectors/pedersen_commit/` was made.
 
 ### How this compares with bb and Aztec
 
@@ -318,6 +322,15 @@ as the gas of `verify` above, and the test asserts that it stays below 3,180,000
 node the generated verifier of that key accepts the proof in a transaction of 3,075,743 gas
 ([On a local node](#on-a-local-node)).
 
+`vectors/pedersen_commit/` holds a proof this project made, of `examples/pedersen_commit`
+(`LOG_N = 15`, one public input), which `bb verify` accepts. The tests of
+`lib/src/pedersen_commit.fe` show it accepted, and not accepted with the low bit of any one of its
+262 words flipped, nor with its public input changed. A second verifier test deploys
+`PedersenVerifier`, the shell over its key, with `HonkRelations`: the proof is accepted for
+2,302,243 gas at `-O 1` (the test asserts below 2,530,000); with the low bit of its last word
+flipped it reverts with `ShpleminiFailed`, and with its public input plus one with
+`SumcheckFailed`.
+
 These proofs also reach relations the pinned proof does not. The range, elliptic, memory,
 non-native field and Poseidon2 relations are scaled by their selector, so where the selector
 evaluates to zero at the sumcheck point an accepted proof says nothing about them. In the pinned
@@ -329,7 +342,7 @@ proof every gate selector but `qArith` is zero there. A test asserts which are n
 | `qLookup` | `mutator_set` |
 | `qMemory` | `mutator_set`, `recursive` |
 | `qNnf`, `qPoseidon2External`, `qPoseidon2Internal` | `recursive` |
-| `qElliptic` | None: see [Limits](#limits) |
+| `qElliptic` | `pedersen_commit` only (its test asserts it) |
 
 Garaga's fourth bundle, `memory` (`LOG_N = 12`), is not used: `bb verify` accepts it, and its
 key has no selector the three others lack.
@@ -350,9 +363,10 @@ key has no selector the three others lack.
   values the reference computed with limbs put in place of the zeros, and on Garaga's `recursive`
   proof, which carries pairing points and is accepted through it. One contract test accepts that
   proof too ([Other circuits](#other-circuits)).
-- No accepted proof exercises the elliptic-curve relation: `qElliptic` is zero in the four
-  circuits. That relation is tested only against the reference's values for a synthetic input
-  (`lib/src/relations_vectors.fe`).
+- One accepted proof exercises the elliptic-curve relation: `pedersen_commit`, which this
+  project made and `bb verify` accepts. `qElliptic` is zero in the four other circuits. With the
+  relation disabled, its three library tests fail; the only other tests that fail are the four on
+  the reference's values for a synthetic input (`lib/src/relations_vectors.fe`).
 - The captured values rest on their documented provenance. The oracle and the local tests that
   read it are not committed.
 - This port has not been audited.
@@ -369,14 +383,14 @@ verifier also need `xxd`, `shasum` and `python3`.
 
 ```sh
 cd ultrahonk
-(cd lib && fe test)        # 199: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call, Garaga's proofs
+(cd lib && fe test)        # 202: field arithmetic, proof checks, transcript, relations, sumcheck, opening, all of them in one call, Garaga's proofs, a Pedersen proof
 (cd relations && fe test)  # 2: the relations contract against the reference values
-(cd verifier && fe test)   # 20: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound, a second key
+(cd verifier && fe test)   # 21: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound, two other keys
 (cd vault && fe test)      # 15: the vault against stand-in verifiers, its two getters, and in front of HonkVerifier
 (cd ../honk-toy && fe test) # 76: the toy verifier against its Python reference's vectors
 ```
 
-The numbers are the tests that pass in each ingot, counted on 2026-11-23.
+The numbers are the tests that pass in each ingot, counted on 2026-11-24.
 
 `fe build --contract HonkRelations` in `relations/`, `fe build --contract HonkVerifier` in
 `verifier/` and `fe build --contract Vault` in `vault/` write the bytecode to `out/` in each

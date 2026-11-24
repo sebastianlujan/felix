@@ -2,7 +2,7 @@
 
 This project verifies UltraHonk proofs natively in Fe, in packages under `ultrahonk/` and `honk-toy/`: Noir proofs verified natively in Fe. It has three deliverables, and all three are built and tested: a port of Barretenberg's zero-knowledge (ZK) UltraHonk verifier (BN254, Keccak transcript), a vault contract that takes a Noir + Barretenberg proof through that verifier, and a hand-sized toy Honk verifier over F_17. The repository holds Fe, one Noir circuit, shell scripts and the toy's Python reference. It tracks no Solidity: the Solidity verifier that Barretenberg generates is a local, uncommitted reference oracle, and every committed test is a Fe test that compares against values captured from that oracle on a real Noir proof. The work is a contest entry due **Nov 24, 2026 23:59 UTC**.
 
-> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 199 tests in `lib`, 2 in `relations`, 20 in `verifier`, 15 in `vault`, 76 in `toy`.
+> **Status (2026-11-23).** Every stage is done. `fe test` passes in the five ingots: 202 tests in `lib`, 2 in `relations`, 21 in `verifier`, 15 in `vault`, 76 in `toy`.
 >
 > - `HonkVerifier` accepts the pinned proof and rejects every recorded invalid call. A test flips the low bit of each of the 142 proof words, and none is accepted.
 > - A claim succeeds through `Vault` in front of `HonkVerifier`.
@@ -19,9 +19,9 @@ A reader needs only `fe` 26.6.0. Nothing below needs `bb`, `nargo`, Python or Fo
 
    ```sh
    cd ultrahonk
-   (cd lib && fe test)        # 199 tests
+   (cd lib && fe test)        # 202 tests
    (cd relations && fe test)  # 2
-   (cd verifier && fe test)   # 20
+   (cd verifier && fe test)   # 21
    (cd vault && fe test)      # 15
    (cd ../honk-toy && fe test) # 76
    ```
@@ -540,7 +540,7 @@ Code size is within EIP-170 for each contract by measurement, not by a test.
 
 - The project owner is registered for the contest (registration closed Nov 17).
 - The pinned proofs exercise only the branch that skips pairing-point aggregation. The aggregation is tested at library level, on values captured from the reference and on Garaga's `recursive` proof, which carries pairing points, and in one contract test on that proof.
-- No accepted proof exercises the elliptic-curve relation: its selector is zero in the four circuits tested.
+- One accepted proof exercises the elliptic-curve relation: `pedersen_commit`, made by this project and accepted by `bb verify` (#50). Its selector is zero in the four other circuits.
 - The contracts are tested on one circuit, with `LOG_N = 5`. Other circuit sizes are tested in the library, on proofs made by Garaga, and one of them (`LOG_N = 20`) through the two contracts in one test ([Other circuits](../ultrahonk/README.md#other-circuits)).
 - Committed expected values are trusted on their documented provenance, because the oracle and the local Foundry tests are not in the repository.
 - The port is not audited.
