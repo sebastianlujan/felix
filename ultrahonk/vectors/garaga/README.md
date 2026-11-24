@@ -3,7 +3,8 @@
 Proofs of other circuits than the vault's, made by another project with the same prover: raw
 `bb` 6.0.0 output copied from [Garaga](https://github.com/keep-starknet-strange/garaga), so that
 the Fe verifier is tested at circuit sizes other than `LOG_N = 5`. Nothing here was produced by
-this repository.
+this repository; the bundle it made itself is in
+[`../pedersen_commit/`](../pedersen_commit/README.md).
 
 | | |
 |---|---|

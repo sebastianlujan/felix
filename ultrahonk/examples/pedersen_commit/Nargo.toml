@@ -1,0 +1,6 @@
+[package]
+name = "pedersen_commit"
+type = "bin"
+authors = [""]
+
+[dependencies]
