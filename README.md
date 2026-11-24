@@ -65,8 +65,9 @@ sumcheck with the relations, then the opening (Shplemini, the consistency check 
 a multi-scalar multiplication and one pairing).
 
 - `ultrahonk/lib` is a library ingot with one module per step. It has no state.
-- `HonkVerifier` and `HonkRelations` are two contracts, because one contract with everything
-  would exceed the code-size limit. The verifier asks the relations contract with a static call.
+- `HonkVerifier` and `HonkRelations` are two contracts. The relations take no key, so one
+  `HonkRelations` serves the verifier of every circuit. One contract with everything would fit,
+  by 131 bytes at `-O s` (ADR-0012). The verifier asks the relations contract with a static call.
 - `Vault` knows only the ABI `verify(bytes,bytes32[])`. It builds the public inputs itself, as
   `[y, caller]`, so a proof copied from a pending transaction is useless to another caller.
 

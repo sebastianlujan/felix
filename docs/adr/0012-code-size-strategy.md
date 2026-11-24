@@ -91,7 +91,7 @@ The spike costs little and moves the answer to the point where it can still chan
 - Easier: the single-contract-or-split decision was meant to rest on a measured number. As built, the split came first and the measurements after (see Outcome).
 - Reached on 2026-11-23: `scripts/check.sh` enforces the limit.
 - Harder: the verifier has a second deployment and a static call. `HonkRelations` is deployed first, and its address is the constructor argument of `HonkVerifier`.
-- Revisit: a single contract at `-O 2` or `-O s`, which the sums suggest might fit. The repository has no such build.
+- Revisited on 2026-11-23: a scratch build of one contract with everything (the constant key and the relations in place, not committed) measures 23,384, 24,101 and 24,445 bytes at `-O 1`, `-O 2` and `-O s`, under the limit by 131 bytes at worst. The split is kept for another reason: `HonkRelations` takes no key, so one deployment serves the verifier of every circuit, and each verifier keeps about 7.9 KB of headroom.
 
 ## Action Items
 

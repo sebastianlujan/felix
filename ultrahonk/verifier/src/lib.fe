@@ -6,7 +6,8 @@
 // pairing). It returns true only if the pairing holds, and reverts otherwise.
 //
 // The relations are in a contract of their own, `HonkRelations`, as the reference links
-// them as a separate library: one contract with everything exceeds the code size limit.
+// them as a separate library. It takes no key, so one deployment serves the verifier of every
+// circuit. One contract with everything fits, but only just (ADR-0012).
 // The address of that contract is fixed when this one is deployed, and `relations()`
 // returns it: the one function this contract has and the Solidity verifier has not.
 use std::abi::Bytes32
