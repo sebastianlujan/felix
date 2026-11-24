@@ -11,3 +11,6 @@ __pycache__/
 
 # The executable honk-fe is built into.
 honk-fe/out/
+
+# What honk_fe up writes for the demo circuits.
+demo/*/target/
