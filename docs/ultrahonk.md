@@ -541,7 +541,7 @@ Code size is within EIP-170 for each contract by measurement, not by a test.
 - The project owner is registered for the contest (registration closed Nov 17).
 - The pinned proofs exercise only the branch that skips pairing-point aggregation. The aggregation is tested at library level, on values captured from the reference and on Garaga's `recursive` proof, which carries pairing points, and in one contract test on that proof.
 - One accepted proof exercises the elliptic-curve relation: `pedersen_commit`, made by this project and accepted by `bb verify` (#50). Its selector is zero in the four other circuits.
-- The contracts are tested on one circuit, with `LOG_N = 5`. Other circuit sizes are tested in the library, on proofs made by Garaga, and one of them (`LOG_N = 20`) through the two contracts in one test ([Other circuits](../ultrahonk/README.md#other-circuits)).
+- The contracts are tested at `LOG_N` 5 (the vault circuit), 20 (Garaga's `recursive`) and 15 (`pedersen_commit`, made by this project). Garaga's other two sizes, 12 and 17, are tested in the library ([Other circuits](../ultrahonk/README.md#other-circuits)). No other size is tested.
 - Committed expected values are trusted on their documented provenance, because the oracle and the local Foundry tests are not in the repository.
 - The port is not audited.
 
