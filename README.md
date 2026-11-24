@@ -26,11 +26,11 @@ One command builds and tests everything:
 ultrahonk/scripts/check.sh
 ```
 
-It needs `fe` 26.6.0 (`fe 26.6.0 (5b3f96a)`); its two vector checks also need `xxd`, `shasum`
-and `python3`. It runs the tests and the formatter in the five ingots, builds the three contracts
-at three optimisation levels, fails if a runtime exceeds the code-size limit, and compares the
-committed vectors with their generators. It takes under a minute and writes nothing into the
-repository.
+It needs `fe` 26.6.0 (`fe 26.6.0 (5b3f96a)`); its checks of the vectors and of the generated
+verifier also need `xxd`, `shasum` and `python3`. It runs the tests and the formatter in the five
+ingots, builds the three contracts at three optimisation levels, fails if a runtime exceeds the
+code-size limit, generates and builds a verifier for another key, and compares the committed
+vectors with their generators. It takes under a minute and writes nothing into the repository.
 
 To see the built contracts run on a local node, with [Foundry](https://getfoundry.sh) installed:
 

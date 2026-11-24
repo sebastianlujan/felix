@@ -56,7 +56,8 @@ for the valid proof in `lib/src/vectors.fe`, `lib/src/relations_vectors.fe` and
 
 `scripts/check.sh` runs everything in one command: the tests and the formatting of the five ingots,
 the three contracts built at the three optimisation levels with each runtime checked against the
-code-size limit, and the two vector checks.
+code-size limit, a verifier generated for another key and built the same way, and the two vector
+checks.
 
 ### What the contract checks
 
@@ -281,8 +282,8 @@ in [`../docs/ultrahonk-gaps.md`](../docs/ultrahonk-gaps.md).
 ## Run the tests
 
 Needs only `fe` 26.6.0. Nothing here needs `bb`, `nargo`, Python or Foundry. `scripts/check.sh`
-runs these commands and the other checks at once; its two vector checks also need `xxd`,
-`shasum` and `python3`.
+runs these commands and the other checks at once; its checks of the vectors and of the generated
+verifier also need `xxd`, `shasum` and `python3`.
 
 ```sh
 cd ultrahonk
@@ -311,10 +312,10 @@ its tests. `../honk-toy/` has no contract to build.
 | `circuit/` | Noir package `vault`: `x * x == y`, with `y` and `recipient` public. Prover inputs: `Prover.toml` (recipient `0xc0ffe`) and `Prover_test_address.toml` (the Fe test address) |
 | `vectors/` | `proof`, `public_inputs`, `vk`, `vk_hash`: raw `bb` output. `test_address/`: the second proof and its public inputs, for the same `vk` |
 | `vectors/garaga/` | Proof bundles of other circuits, copied from Garaga (MIT) with its licence text: raw `bb` 6.0.0 output. `hello` (`LOG_N = 12`), `mutator_set` (17) and `recursive` (20). See `vectors/garaga/README.md` |
-| `scripts/check.sh` | Builds and tests everything in one command, and checks the code size of the three contracts |
+| `scripts/check.sh` | Builds and tests everything in one command, and checks the code size of the three contracts. It also generates a verifier with `proof_to_fe.sh --verifier` for the key of Garaga's `recursive` bundle and formats, builds and measures it; checks that the one generated for the pinned key has the runtime of `HonkVerifier`, byte for byte; and checks that a key with `LOG_N` 0 or 26 is refused |
 | `scripts/demo_anvil.sh` | Deploys the built contracts on a local `anvil` node, verifies the pinned proof and claims through the vault |
 | `scripts/vectors.sh` | Regenerates `vectors/` and the local oracle in `.oracle/` |
-| `scripts/proof_to_fe.sh` | Prints the proof and public inputs of `vectors/` as Fe constants; `--vk` prints the verification key from `vectors/vk` and `vectors/vk_hash` alone, and refuses a key whose public-input offset is not 5; `--test-address` prints the second proof; `--garaga <bundle>` and `--garaga-key <bundle>` print a proof of `vectors/garaga/` and its key; `--check` compares them with `lib/src/vectors.fe`, `lib/src/vk.fe`, `lib/src/test_address_vectors.fe` and every `lib/src/garaga_*.fe` |
+| `scripts/proof_to_fe.sh` | Prints the proof and public inputs of `vectors/` as Fe constants; `--vk` prints the verification key from `vectors/vk` and `vectors/vk_hash` alone, and refuses a key whose public-input offset is not 5; `--test-address` prints the second proof; `--garaga <bundle>` and `--garaga-key <bundle>` print a proof of `vectors/garaga/` and its key; `--verifier <key dir> <out dir>` writes a verifier ingot for the `vk` and `vk_hash` in a directory, as `bb write_solidity_verifier` writes a Solidity verifier: `fe.toml`, and `src/lib.fe` with the key and the `HonkVerifier` contract of `verifier/src/lib.fe` (it needs `python3`, for the relative path to `lib/`); every mode refuses a key with `LOG_N` outside 1 to 25 or with fewer than 8 public inputs; `--check` compares them with `lib/src/vectors.fe`, `lib/src/vk.fe`, `lib/src/test_address_vectors.fe` and every `lib/src/garaga_*.fe` |
 | `lib/` | Ingot `ultrahonk`: the verifier steps (`proof`, `transcript`, `sumcheck`, `relations` with the entity indices in `wire`, `shplemini`, `consistency`, `opening`), `fr`, `errors`, `types`, `abi` |
 | `lib/src/verifier.fe` | `verify_at(vk, proof, public_inputs, relations)`: every step in one call, with the verification key as an argument and the relations asked from `HonkRelations`. It is what `HonkVerifier` runs. `verify(vk, proof, public_inputs)`: the same with the relations evaluated in place. No contract of the project calls it; the tests use it for circuits other than the vault's |
 | `lib/src/std_assumptions.fe` | Tests only: they pin the behaviour of the std precompile wrappers and of Keccak hashing that the port depends on |
