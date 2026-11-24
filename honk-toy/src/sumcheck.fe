@@ -117,7 +117,7 @@ pub fn verify(
 }
 
 /// Runs the sumcheck half on a reference scenario and asserts that the public-input delta
-/// and every intermediate value equal the reference's.
+/// and every recorded intermediate value equal the reference's.
 fn run(_ s: Scenario) -> SumcheckTrace {
     let delta = public_delta(
         s.public_inputs,
@@ -239,6 +239,25 @@ fn test_broken_lookup_fails_at_round_0() {
 fn test_broken_copy_fails_at_round_0() {
     let t = run(vectors::BROKEN_COPY)
     assert!(!t.ok && !t.reached && t.rounds_run == 1 && !t.round_ok[0])
+}
+
+#[test]
+fn test_a_failure_at_round_one_stops_sumcheck() {
+    // Not a reference scenario: S_1(0) of the honest proof is 5. Round 0 passes and round 1
+    // fails. The two sides of the final check are equal here (10 and 10), so only the
+    // failed round rejects the proof.
+    var s = vectors::HONEST
+    s.proof.univariates[1][0] = 6
+    let t = verify(
+        univariates: s.proof.univariates,
+        evals: s.proof.evals,
+        ch: s.challenges,
+        delta: s.delta,
+        initial_target: 0,
+        libra_term: 0,
+    )
+    assert!(!t.ok && !t.reached && t.rounds_run == 2)
+    assert!(t.round_ok[0] && !t.round_ok[1])
 }
 
 #[test]

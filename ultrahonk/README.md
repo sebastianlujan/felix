@@ -266,7 +266,7 @@ cd ultrahonk
 (cd relations && fe test)  # 2: the relations contract against the reference values
 (cd verifier && fe test)   # 19: both contracts against the recorded reference reverts, the `relations()` getter, a gas bound
 (cd vault && fe test)      # 15: the vault against stand-in verifiers, its two getters, and in front of HonkVerifier
-(cd ../honk-toy && fe test) # 70: the toy verifier against its Python reference's vectors
+(cd ../honk-toy && fe test) # 76: the toy verifier against its Python reference's vectors
 ```
 
 The numbers are the tests that pass in each ingot, counted on 2026-11-23.

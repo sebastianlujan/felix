@@ -75,9 +75,9 @@ Fiat–Shamir step.
 | Round polynomial | `[u256; 6]`: its values at 0..5 |
 | Verification key | the commitments to the 15 fixed columns, in `ENTITIES` order |
 
-`sumcheck::verify`, `shplemini::verify` and `libra::verify` return every intermediate
-value (`SumcheckTrace`, `OpeningTrace`, `LibraTrace`), which is what the tests compare
-with the reference.
+`sumcheck::verify`, `shplemini::verify` and `libra::verify` return the intermediate values
+that the vectors record (`SumcheckTrace`, `OpeningTrace`, `LibraTrace`), which is what the
+tests compare with the reference.
 
 ## Layout
 
@@ -106,9 +106,11 @@ port of its `verify`, `sumcheck_verify`, `subrelations`, `split_batch`, `public_
 
 `reference/gen_vectors.py` runs the reference prover and verifier on the scenarios below
 and writes `src/vectors.fe`: for each scenario the proof, the public input, the
-challenges, the verdict and every intermediate value of both halves, plus the
-verification key, the multiples of G1 and their pairings. The file is committed, so
-`fe test` needs no Python.
+challenges, the verdict and the intermediate values of both halves that the traces hold,
+plus the verification key, the multiples of G1 and their pairings. It does not record
+every value the reference returns: the steps of the Gemini fold, the four Shplonk
+inverses 1/(z ± r) and 1/(z ± r²), and the g^(2^i) of each round, for example, are left
+out. The file is committed, so `fe test` needs no Python.
 
 ```sh
 python3 reference/gen_vectors.py           # reproduces src/vectors.fe byte for byte
@@ -199,6 +201,10 @@ still come from the reference verifier.
   `LUCKY_DICE`) and discrete logarithms in a group of order 17 are found by inspection, so
   the commitments bind nothing. Use it to learn the structure of the verifier, never to
   protect anything.
+- **Verifier only.** The circuit and the prover exist only in the Python reference
+  (`reference/honk.py`). The Fe ingot holds the verifier: it sees the circuit as the 15
+  commitments of the verification key, and it checks proofs and values that the reference
+  produced.
 - **Interactive.** Challenges are inputs. A real verifier derives them by Fiat–Shamir.
 - **No zero-knowledge.** Only the sumcheck mask is implemented; the evaluations are not
   masked (see [Sumcheck mask](#sumcheck-mask-libra)).

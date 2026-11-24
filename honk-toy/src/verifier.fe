@@ -171,6 +171,38 @@ fn test_verify_rejects_tampered_honest_proof() {
 }
 
 #[test]
+fn test_an_honest_proof_with_one_changed_challenge_is_rejected() {
+    // Not reference scenarios: alpha and g break the sumcheck final check; rho, nu and z
+    // break the pairing check. None of these values is degenerate, so nothing reverts.
+    var s = vectors::HONEST
+    s.challenges.alpha = 4
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.challenges.g = 3
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.challenges.rho = 16
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.challenges.nu = 6
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.challenges.z = 11
+    assert!(!accepts(s))
+}
+
+#[test]
+fn test_a_tampered_gemini_fold_is_rejected() {
+    // The commitment [A_1], then the claimed A_1(-r^2), which is 1 in the honest proof.
+    var s = vectors::HONEST
+    s.proof.comm_a1 = G1
+    assert!(!accepts(s))
+    s = vectors::HONEST
+    s.proof.gemini_a[1] = 0
+    assert!(!accepts(s))
+}
+
+#[test]
 fn test_verify_rejects_wrong_verification_key() {
     var vk = vectors::VK
     vk[0] = G1

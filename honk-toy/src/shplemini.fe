@@ -1,6 +1,6 @@
 // The opening half of the verifier: Gemini, Shplonk and KZG folded into one pairing check
 // (reference `fold_pos_evaluations`, `shplemini_verify`).
-use ingot::{Challenges, OpeningTrace, Proof, Scenario}
+use ingot::{Challenges, MaskedScenario, OpeningTrace, Proof, Scenario}
 use ingot::curve::{G1, G2, TAU_G2, f2_mul, g1_add, g1_mul, g1_neg, is_infinity, pairing}
 use ingot::f17::{P, add, inv, mul, neg, sub}
 use ingot::relations::Z_PERM
@@ -131,11 +131,22 @@ pub fn verify(vk: [[u256; 2]; 15], proof: Proof, ch: Challenges) -> OpeningTrace
     }
 }
 
-/// Runs the opening half on a reference scenario and asserts that every intermediate value
+/// Runs the opening half on a reference scenario and asserts that every value of the trace
 /// equals the reference's.
 fn run(_ s: Scenario) -> OpeningTrace {
     let t = verify(vk: vectors::VK, proof: s.proof, ch: s.challenges)
-    let e = ref s.opening
+    assert_same(t, s.opening)
+    t
+}
+
+/// The same for a scenario with a masked sumcheck. The mask is not an input of this half.
+fn run_masked(_ s: MaskedScenario) -> OpeningTrace {
+    let t = verify(vk: vectors::VK, proof: s.proof, ch: s.challenges)
+    assert_same(t, s.opening)
+    t
+}
+
+fn assert_same(_ t: OpeningTrace, _ e: OpeningTrace) {
     assert!(t.batched_eval == e.batched_eval, "batched evaluation")
     assert!(t.pos == e.pos, "fold evaluations")
     assert!(t.lam == e.lam && t.mu == e.mu, "lam, mu")
@@ -149,7 +160,6 @@ fn run(_ s: Scenario) -> OpeningTrace {
     assert!(t.e1 == e.e1, "e(P1, [tau]_2)")
     assert!(t.lhs == e.lhs, "pairing product")
     assert!(t.ok == e.ok, "opening verdict")
-    t
 }
 
 #[test]
@@ -206,4 +216,33 @@ fn test_reverts_when_z_is_an_opening_point() {
     // z = r: the reference throws ("z coincides with an opening point").
     let ch = Challenges { beta: 2, gamma: 5, alpha: 3, g: 2, u: [9, 7], rho: 14, r: 4, nu: 5, z: 4 }
     let _ = verify(vk: vectors::VK, proof: vectors::HONEST.proof, ch)
+}
+
+#[test(should_revert)]
+fn test_reverts_when_r_is_zero() {
+    // mu divides by r. With z = 12 no other denominator of the scalars is zero.
+    let s = vectors::HONEST
+    var ch = s.challenges
+    ch.r = 0
+    let _ = shplonk_scalars(pos: s.opening.pos, a: s.proof.gemini_a, ch)
+}
+
+#[test(should_revert)]
+fn test_reverts_when_a_gemini_fold_divides_by_zero() {
+    // r = 2: the step that recovers A_1(r^2) divides by r^2 * (1 - u_1) + u_1 = 4 * 11 + 7 = 0.
+    let s = vectors::HONEST
+    var ch = s.challenges
+    ch.r = 2
+    let _ = fold_pos_evaluations(s.opening.batched_eval, a: s.proof.gemini_a, ch)
+}
+
+#[test]
+fn test_masked_scenarios_open_as_the_reference() {
+    // All five open: the false mask evaluation and the wrong mask sum change the mask part
+    // of the proof only, and the broken gate fails in sumcheck.
+    assert!(run_masked(vectors::MASKED_A).ok)
+    assert!(run_masked(vectors::MASKED_B).ok)
+    assert!(run_masked(vectors::MASKED_FALSE_EVALUATION).ok)
+    assert!(run_masked(vectors::MASKED_WRONG_SUM).ok)
+    assert!(run_masked(vectors::MASKED_BROKEN_GATE).ok)
 }

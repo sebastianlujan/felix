@@ -27,7 +27,7 @@
 
 ## Outcome (2026-11-23)
 
-- Carried out. The toy is the ingot `honk_toy` in `honk-toy`, with 70 Fe tests.
+- Carried out. The toy is the ingot `honk_toy` in `honk-toy`, with 76 Fe tests.
 - **The reference is Python.** `honk-toy/reference/honk.py` is a function-by-function port of the page's math block, and `honk-toy/reference/gen_vectors.py` is the generator. Both use Python 3 with the standard library only. The first version ran the page's JavaScript; it was replaced on 2026-11-23, after the Python generator reproduced the committed vectors byte for byte. The repository tracks no JavaScript.
 - `python3 reference/gen_vectors.py --check` exits with an error if `src/vectors.fe` is out of date.
 - **The sumcheck mask is included.** `libra.fe` and `verify_masked` verify proofs whose sumcheck is masked, with 5 masked vectors. A masked toy proof is still not zero-knowledge: the 23 evaluations travel unmasked.

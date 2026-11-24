@@ -101,14 +101,14 @@ The Fe side verifies every step of the page's protocol (permutation, LogUp looku
 
 | # | Task | State | Evidence |
 | --- | --- | --- | --- |
-| T-1 | **new** The prover is Python only, and the README's Limits do not say so. Either a Fe prover, or one Limits line | Decide | no `fn prove\|commit\|compute_z\|kzg_open` in `TOY/src`; prover at `TOY/reference/honk.py:178,369,400,465`; Limits at `TOY/README.md:196-215` |
+| T-1 | **new** The prover is Python only, and the README's Limits do not say so. Either a Fe prover, or one Limits line | Done (#40): stated as a limit | no `fn prove\|commit\|compute_z\|kzg_open` in `TOY/src`; prover at `TOY/reference/honk.py:178,369,400,465`; the limit "Verifier only" at `TOY/README.md:204-207` |
 | T-2 | **new** The circuit is visible in Fe only as 15 VK points. A Fe test that commits each column with the SRS and compares with the key | To do | columns and wires at `TOY/reference/honk.py:42-57` only |
-| T-3 | A toy transcript (Fiat-Shamir), or the stated limit | Decide | stated at `TOY/README.md:65-66,202`; no match for `transcript\|fiat\|keccak` in `TOY/src` |
-| T-4 | **new** Missing negative tests: a wrong challenge on an honest proof, a failure at sumcheck round 1, a tampered Gemini `[A_1]` and `A_1(-r²)`, one per subrelation, and the two documented reverts (`r = 0`, a Gemini fold) | To do | every round failure is at round 0; `should_revert` only at `TOY/src/f17.fe:86`, `sumcheck.fe:181`, `shplemini.fe:204`, `verifier.fe:188` |
-| T-5 | **new** The masked scenarios' opening traces are generated and never compared | To do | written at `TOY/reference/gen_vectors.py:246`; `.opening` read only at `TOY/src/shplemini.fe:138,171` |
+| T-3 | A toy transcript (Fiat-Shamir), or the stated limit | Decide | stated at `TOY/README.md:65-66,208`; no match for `transcript\|fiat\|keccak` in `TOY/src` |
+| T-4 | **new** Missing negative tests: a wrong challenge on an honest proof, a failure at sumcheck round 1, a tampered Gemini `[A_1]` and `A_1(-r²)`, one per subrelation, and the two documented reverts (`r = 0`, a Gemini fold) | Done (#40), except one per subrelation | `test_an_honest_proof_with_one_changed_challenge_is_rejected` and `test_a_tampered_gemini_fold_is_rejected` in `TOY/src/verifier.fe`; `test_a_failure_at_round_one_stops_sumcheck` in `sumcheck.fe`; `test_reverts_when_r_is_zero` and `test_reverts_when_a_gemini_fold_divides_by_zero` in `shplemini.fe`. No test breaks one subrelation alone |
+| T-5 | **new** The masked scenarios' opening traces are generated and never compared | Done (#40) | `run_masked` and `test_masked_scenarios_open_as_the_reference` in `TOY/src/shplemini.fe` |
 | T-6 | **new** The Python reference has no test of its own: the expected verdicts are not asserted | To do | no match for `unittest\|pytest\|def test` in `TOY/reference` |
-| T-7 | **new** README fixes: a map from page section to module; "every intermediate value" overstates the traces; `honk.py:9` names a file that does not exist (`honk_full_by_hand.py`) | To do | `TOY/README.md:78-80,109`; `TOY/reference/honk.py:9` |
-| T-8 | Full zero-knowledge (evaluation and Gemini masks) | Decide | by design only the sumcheck mask (`TOY/README.md:165-178`) |
+| T-7 | **new** README fixes: a map from page section to module; "every intermediate value" overstates the traces; `honk.py:9` names a file that does not exist (`honk_full_by_hand.py`) | Done (#40), except the map | the traces are described as what the vectors record at `TOY/README.md:78-80,109-113`; `TOY/reference/honk.py:9` names the page. No map from page section to module in `TOY/README.md` |
+| T-8 | Full zero-knowledge (evaluation and Gemini masks) | Decide | by design only the sumcheck mask (`TOY/README.md:167-180`) |
 
 ## Risks to the estimates
 

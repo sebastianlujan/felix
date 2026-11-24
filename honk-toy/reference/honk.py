@@ -6,7 +6,7 @@ The port keeps the page's order, function structure and names, in snake_case
 (`sumcheckVerify` is `sumcheck_verify`), so it reads side by side with the page. Objects
 are dicts, with snake_case keys (`commA1` is `comm_a1`); the point at infinity is None.
 
-Toy Honk over F_17, with a public input and a lookup: same algorithm as honk_full_by_hand.py.
+Toy Honk over F_17, with a public input and a lookup, as on the page "UltraHonk by hand".
 """
 
 P, Q, N, D, LEN, TAU, SEP, PI_ROW = 17, 101, 4, 2, 6, 2, 4, 1

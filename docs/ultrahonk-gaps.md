@@ -1,6 +1,6 @@
 # UltraHonk verification in Fe: gaps before shipping and before real use
 
-> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 305 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
+> **Status (2026-11-23).** The verifier, the vault and the toy are complete and their 311 Fe tests pass. This document lists what is still missing: to submit the contest entry, and for the code to be relied on outside its tests. What is fixed since is ticked in [Progress](#progress); the tables below describe the state before the fixes. Feature freeze: 2026-11-24 14:00 UTC. Submission: 2026-11-24 23:59 UTC.
 
 > **How to read this document.** It does not repeat the limits already written down: [Limits](../ultrahonk/README.md#limits) in the verifier README, [Not done](ultrahonk.md#not-done) and [Out of scope](ultrahonk.md#out-of-scope) in the plan, [Not implemented](../ultrahonk/vault/README.md#not-implemented) in the vault README. It adds what those sections do not say, and orders the work.
 
